@@ -1,0 +1,76 @@
+workflows:
+  ios-testflight:
+    name: iOS TestFlight (UPCAT AI Reviewer 2027)
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    integrations:
+      app_store_connect: Codemagic
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.niotron.domingotambasacan.upcataireviewer2027
+      vars:
+        BUNDLE_ID: "com.niotron.domingotambasacan.upcataireviewer2027"
+        XCODE_WORKSPACE: "Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
+        FLUTTER_BUILD_NAME: "1.0.3"
+        FLUTTER_BUILD_NUMBER: "$PROJECT_BUILD_NUMBER"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Set up keychain
+        script: |
+          keychain initialize
+
+      - name: Fetch iOS signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+
+      - name: Apply iOS signing settings
+        script: |
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Flutter pub get
+        script: |
+          flutter pub get
+
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+          cd ..
+
+      - name: Build IPA for TestFlight
+        script: |
+          flutter build ipa --release \
+            --build-name="$FLUTTER_BUILD_NAME" \
+            --build-number="${FLUTTER_BUILD_NUMBER:-1}" \
+            --dart-define=GPT_API_KEY=$GPT_API_KEY \
+            --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY \
+            --dart-define=DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
+      email:
+        recipients:
+          - domingotambasacan@gmail.com
+        notify:
+          success: true
+          failure: true

@@ -1,0 +1,89 @@
+{
+    "dart.projectSearchDepth": 5,
+    "chat.tools.terminal.autoApprove": {
+        "ConvertFrom-Json": true,
+        "adb": true,
+        "r": true,
+        "dart": true,
+        "Set-Content": true,
+        "flutter": true,
+        "keytool": true,
+        "Get-Command": true,
+        "&": true,
+        "Move-Item": true,
+        "Tee-Object": true,
+        "Test-Path": true,
+        "Get-Item": true,
+        "firebase": true,
+        "npx firebase": true,
+        "/^cmd\\.exe /c \"cd c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\cse_reviewer && npx firebase deploy --only firestore:rules\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cmd\\.exe /c \"cd /d c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\cse_reviewer && node node_modules/\\.bin/firebase deploy --only firestore:rules 2>&1\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "stdio:": true,
+        "where": true,
+        "npm install": true,
+        "/^powershell -ExecutionPolicy Bypass -Command \"npm install -g firebase-tools\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^powershell -ExecutionPolicy Bypass -Command \"firebase deploy --only firestore:rules\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^powershell -ExecutionPolicy Bypass -Command \"firebase login --no-localhost\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^powershell -ExecutionPolicy Bypass -Command \"firebase login\" 2>&1 \\| Select-Object -First 20$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^powershell -ExecutionPolicy Bypass -Command \"flutter pub get\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Set-ExecutionPolicy": true,
+        "Y": true,
+        "/^cmd /c \"echo Y \\| firebase init database\" 2>&1 \\| Select-Object -First 30$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cmd /c \"\\(echo Y & echo database\\.rules\\.json & echo Y & echo\\.\\) \\| firebase init database\" 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$env:FIREBASE_DATABASE_EMULATOR_HOST=\"\"; cmd /c \"echo database\\.rules\\.json\\| firebase init database --project cse-ai-reviewer-ios\" 2>&1 \\| Out-String$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Copy-Item": true,
+        "ForEach-Object": true,
+        "Out-Host": true,
+        "/^cmd /c \"flutter build apk --release\" 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "explorer": true,
+        "git add": true,
+        "git commit": true,
+        "git push": true,
+        ".\\android\\gradlew.bat": true,
+        ".\\gradlew.bat": true,
+        "/^cd c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\let_reviewer; powershell -Command \"\n\\(Get-Content lib/menu_screen\\.dart\\) `\n  -replace '0xFF3B2E6D', '0xFF0D7A77' `\n  -replace '0xFF1F1B3A', '0xFF051B1A' `\n  -replace '0xFFF5C451', '0xFFFF8C42' `\n  -replace '0xFFE6B83D', '0xFFF59E42' `\n  -replace '0xFF51CF66', '0xFF10B981' \\| `\n  Set-Content lib/menu_screen\\.dart\nWrite-Host 'Color scheme updated successfully on menu_screen\\.dart'\n\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Out-File": true,
+        "git remote": true,
+        "git restore": true,
+        "git rev-parse": true,
+        "Resolve-Path": true,
+        "New-Object": true,
+        "git checkout": true
+    }
+}

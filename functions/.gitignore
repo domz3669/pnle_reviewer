@@ -1,0 +1,30 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+firebase-debug.log*
+
+# Firebase cache
+.firebase/
+
+# Firebase hosting cache
+.firebaserc
+
+# local env files
+.env*.local
+
+# Compiled output
+lib/
+node_modules/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml

@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "git-add-ios-resubmit-files",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"add",
+				"lib/menu_screen.dart",
+				"pubspec.yaml"
+			]
+		}
+	]
+}
