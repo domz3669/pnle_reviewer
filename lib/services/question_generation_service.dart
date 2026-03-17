@@ -129,6 +129,7 @@ class QuestionGenerationService {
         choices: List<String>.from(q['choices']),
         answer: q['answer'],
         explanation: q['explanation'],
+        source: 'gemini',
       );
     }).where((q) => !_hasCombinedChoice(q.choices)).toList();
 

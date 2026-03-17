@@ -1,9 +1,15 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'config/pnle_theme.dart';
 
 class SubscriptionDialog extends StatelessWidget {
+  static final Uri _termsUrl = Uri.parse(
+    'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',
+  );
+  static final Uri _privacyUrl = Uri.parse('https://studentries.weebly.com/upcat-ios.html');
+
   final VoidCallback onStartTrial;
   final VoidCallback onClose;
   final VoidCallback? onRestorePurchases;
@@ -16,6 +22,21 @@ class SubscriptionDialog extends StatelessWidget {
     this.onRestorePurchases,
     this.triggerSource,
   });
+
+  Future<void> _openExternalLink(BuildContext context, Uri uri) async {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not open link. Please try again.',
+            style: GoogleFonts.outfit(),
+          ),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +160,46 @@ class SubscriptionDialog extends StatelessWidget {
                         fontSize: 15,
                         color: Colors.white.withOpacity(0.85),
                         height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.16)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Subscription: UPCAT Reviewer Premium',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Length: 1 month (auto-renewable)',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Price: ₱199/month',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 28),
@@ -276,6 +337,44 @@ class SubscriptionDialog extends StatelessWidget {
                           style: GoogleFonts.outfit(
                             fontSize: 11,
                             color: Colors.white.withOpacity(0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        TextButton(
+                          onPressed: () => _openExternalLink(context, _privacyUrl),
+                          child: Text(
+                            'Privacy Policy',
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withOpacity(0.82),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '•',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withOpacity(0.45),
+                            fontSize: 12,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => _openExternalLink(context, _termsUrl),
+                          child: Text(
+                            'Terms of Use (EULA)',
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withOpacity(0.82),
+                            ),
                           ),
                         ),
                       ],

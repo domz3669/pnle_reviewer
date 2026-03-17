@@ -10,6 +10,10 @@ class SettingsScreen extends StatefulWidget {
   final DateTime? trialEndDate;
   final VoidCallback? onPremiumActivated;
   final Future<void> Function()? onRestorePurchases;
+  final String nickname;
+  final Future<void> Function(String nickname)? onNicknameChanged;
+  final bool muteAllSounds;
+  final Future<void> Function(bool muted)? onMuteAllSoundsChanged;
   final bool embedded;
 
   const SettingsScreen({
@@ -19,6 +23,10 @@ class SettingsScreen extends StatefulWidget {
     required this.trialEndDate,
     this.onPremiumActivated,
     this.onRestorePurchases,
+    this.nickname = '',
+    this.onNicknameChanged,
+    this.muteAllSounds = false,
+    this.onMuteAllSoundsChanged,
     this.embedded = false,
   });
 
@@ -30,6 +38,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _isPremium;
   late bool _isTrialActive;
   late DateTime? _trialEndDate;
+  late TextEditingController _nicknameController;
+  late bool _muteAllSounds;
 
   @override
   void initState() {
@@ -37,6 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _isPremium = widget.isPremium;
     _isTrialActive = widget.isTrialActive;
     _trialEndDate = widget.trialEndDate;
+    _nicknameController = TextEditingController(text: widget.nickname);
+    _muteAllSounds = widget.muteAllSounds;
   }
 
   @override
@@ -46,6 +58,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _isPremium = widget.isPremium;
     _isTrialActive = widget.isTrialActive;
     _trialEndDate = widget.trialEndDate;
+    if (_nicknameController.text != widget.nickname) {
+      _nicknameController.text = widget.nickname;
+    }
+    _muteAllSounds = widget.muteAllSounds;
+  }
+
+  @override
+  void dispose() {
+    _nicknameController.dispose();
+    super.dispose();
   }
 
   @override
@@ -71,6 +93,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Subscription Status
           _buildSectionTitle('SUBSCRIPTION'),
           _buildSubscriptionCard(),
+          const SizedBox(height: 24),
+
+          _buildSectionTitle('PROFILE'),
+          _buildSettingsTile(
+            icon: Icons.person_outline,
+            title: 'Nickname',
+            subtitle: _nicknameController.text.trim().isEmpty
+                ? 'Set your display name'
+                : _nicknameController.text.trim(),
+            trailing: const Icon(Icons.edit_rounded, color: Colors.white70),
+            onTap: _showNicknameDialog,
+          ),
+          const SizedBox(height: 24),
+
+          _buildSectionTitle('AUDIO'),
+          _buildToggleTile(
+            icon: Icons.volume_off_rounded,
+            title: 'Mute All Sounds',
+            subtitle: 'Disable sound effects and result music',
+            value: _muteAllSounds,
+            onChanged: (value) async {
+              setState(() => _muteAllSounds = value);
+              await widget.onMuteAllSoundsChanged?.call(value);
+            },
+          ),
           const SizedBox(height: 24),
 
           // Information
@@ -275,6 +322,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildToggleTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.15)),
+      ),
+      child: SwitchListTile(
+        value: value,
+        onChanged: onChanged,
+        activeColor: PnleTheme.accent,
+        secondary: Icon(icon, color: Colors.white.withOpacity(0.8)),
+        title: Text(
+          title,
+          style: GoogleFonts.outfit(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: GoogleFonts.outfit(
+            color: Colors.white.withOpacity(0.6),
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildGradientDialog({
     required BuildContext context,
     required String title,
@@ -375,6 +457,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showNicknameDialog() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => _buildGradientDialog(
+        context: context,
+        title: 'Edit Nickname',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _nicknameController,
+              autofocus: true,
+              maxLength: 24,
+              style: GoogleFonts.outfit(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Enter your nickname',
+                hintStyle: GoogleFonts.outfit(color: Colors.white38),
+                counterStyle: GoogleFonts.outfit(color: Colors.white54),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Colors.white.withOpacity(0.25)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: PnleTheme.accent),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  final updated = _nicknameController.text.trim();
+                  if (updated.isEmpty) return;
+                  await widget.onNicknameChanged?.call(updated);
+                  if (!mounted) return;
+                  setState(() {
+                    _nicknameController.text = updated;
+                  });
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: PnleTheme.accent,
+                ),
+                child: Text(
+                  'Save Nickname',
+                  style: GoogleFonts.outfit(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildHelpItem(String question, String answer) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,7 +573,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Version 1.0.3',
+                'Version 1.0.4',
                 style: GoogleFonts.outfit(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,

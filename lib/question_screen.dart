@@ -107,6 +107,13 @@ class _QuestionScreenState extends State<QuestionScreen>
 
   Question get currentQuestion => widget.questions[currentIndex];
 
+  String _sourceSuffixForCurrentQuestion() {
+    final source = (currentQuestion.source ?? '').toLowerCase();
+    if (source == 'deepseek') return '-D';
+    if (source == 'gemini') return '-G';
+    return '';
+  }
+
   // =========================
   // LIFECYCLE
   // =========================
@@ -340,7 +347,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   Color _choiceColor(int index) {
     // When time is up, highlight all choices red
     if (_timeUp) {
-      return PnleTheme.danger.withOpacity(0.2);
+      return PnleTheme.danger.withOpacity(0.25);
     }
     
     // When answer is selected, only highlight the user's choice
@@ -360,8 +367,8 @@ class _QuestionScreenState extends State<QuestionScreen>
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          PnleTheme.danger.withOpacity(0.22),
-          PnleTheme.danger.withOpacity(0.14),
+          PnleTheme.danger.withOpacity(0.30),
+          PnleTheme.danger.withOpacity(0.20),
           Colors.white.withOpacity(0.08),
         ],
       );
@@ -384,7 +391,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   Color _choiceBorderColor(int index) {
-    if (_timeUp) return PnleTheme.danger.withOpacity(0.6);
+    if (_timeUp) return PnleTheme.danger;
     if (_answerSelected && selectedChoiceIndex == index) {
       return index == _correctIndex
           ? PnleTheme.success
@@ -564,7 +571,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                           ),
                         ),
                         child: Text(
-                          'Q${currentIndex + 1} / ${widget.questions.length}',
+                          'Q${currentIndex + 1}/${widget.questions.length}${_sourceSuffixForCurrentQuestion()}',
                           style: GoogleFonts.outfit(
                             color: PnleTheme.accent,
                             fontSize: r.fontSize(12),

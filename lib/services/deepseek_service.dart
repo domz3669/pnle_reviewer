@@ -32,13 +32,19 @@ class DeepSeekService {
     String prompt,
     String eligibility, {
     Map<int, String>? categoryMap,
+    bool allowPartialResults = false,
   }) async {
     Exception? lastError;
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         debugPrint('🔄 DeepSeek attempt $attempt/$maxRetries...');
-        return await _doGenerateQuestions(prompt, eligibility, categoryMap: categoryMap);
+        return await _doGenerateQuestions(
+          prompt,
+          eligibility,
+          categoryMap: categoryMap,
+          allowPartialResults: allowPartialResults,
+        );
       } catch (e) {
         lastError = e is Exception ? e : Exception(e.toString());
         debugPrint('⚠ Attempt $attempt failed: $e');
@@ -56,6 +62,7 @@ class DeepSeekService {
     String prompt,
     String eligibility, {
     Map<int, String>? categoryMap,
+    bool allowPartialResults = false,
   }) async {
     final requestBody = jsonEncode({
       "model": "deepseek-chat",
@@ -152,9 +159,15 @@ class DeepSeekService {
 
     final expectedCount = _expectedQuestionCount(categoryMap);
     if (questionsJson.length < expectedCount) {
-      throw Exception(
-        'Incomplete AI JSON response (${questionsJson.length}/$expectedCount questions).',
-      );
+      if (allowPartialResults && questionsJson.isNotEmpty) {
+        debugPrint(
+          '⚠ DeepSeek returned partial questions (${questionsJson.length}/$expectedCount). Returning salvage set.',
+        );
+      } else {
+        throw Exception(
+          'Incomplete AI JSON response (${questionsJson.length}/$expectedCount questions).',
+        );
+      }
     }
 
     // UPCAT default random distribution (15 questions):
@@ -189,6 +202,7 @@ class DeepSeekService {
         choices: List<String>.from(q['choices']),
         answer: q['answer'],
         explanation: q['explanation'],
+        source: 'deepseek',
       ));
     }
 

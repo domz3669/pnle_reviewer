@@ -5,7 +5,7 @@ import 'dart:ui';
 import 'config/pnle_theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
-  final VoidCallback onComplete;
+  final ValueChanged<String> onComplete;
 
   const OnboardingScreen({super.key, required this.onComplete});
 
@@ -16,6 +16,7 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   late PageController _pageController;
   int _currentPage = 0;
+  final TextEditingController _nicknameController = TextEditingController();
 
   static const int _totalPages = 5;
 
@@ -28,21 +29,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void dispose() {
     _pageController.dispose();
+    _nicknameController.dispose();
     super.dispose();
   }
 
   Future<void> _completeOnboarding() async {
+    final nickname = _nicknameController.text.trim();
+    if (nickname.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Please enter your nickname to continue.',
+            style: GoogleFonts.outfit(),
+          ),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('onboarding_complete', true);
-    widget.onComplete();
+    await prefs.setString('user_nickname', nickname);
+    widget.onComplete(nickname);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(gradient: PnleTheme.appBackground),
-        child: Column(
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(gradient: PnleTheme.appBackground),
+          child: Column(
           children: [
             Expanded(
               child: PageView(
@@ -171,6 +190,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );
@@ -300,10 +320,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
           const SizedBox(height: 32),
+          TextField(
+            controller: _nicknameController,
+            textInputAction: TextInputAction.done,
+            onChanged: (_) => setState(() {}),
+            style: GoogleFonts.outfit(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Nickname (required)',
+              labelStyle: GoogleFonts.outfit(color: Colors.white70),
+              hintText: 'Ex. Nika or Miko',
+              hintStyle: GoogleFonts.outfit(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.08),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.25)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: PnleTheme.accent),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _completeOnboarding,
+              onPressed: _nicknameController.text.trim().isEmpty
+                  ? null
+                  : _completeOnboarding,
               style: ElevatedButton.styleFrom(
                 backgroundColor: PnleTheme.accent,
                 padding: const EdgeInsets.symmetric(vertical: 14),

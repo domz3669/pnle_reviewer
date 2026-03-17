@@ -1,4 +1,5 @@
 import 'package:audioplayers/audioplayers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Centralized sound service with pre-loaded audio for near-zero latency.
 /// All sounds are loaded into Android SoundPool at app startup via setSource().
@@ -9,6 +10,8 @@ class SoundService {
   SoundService._internal();
 
   bool _initialized = false;
+  bool _isMuted = false;
+  static const String _mutePrefsKey = 'mute_all_sounds';
 
   // Dedicated player per sound — each pre-loaded into SoundPool memory
   final AudioPlayer _correctPlayer = AudioPlayer();
@@ -21,13 +24,20 @@ class SoundService {
   Future<void> init() async {
     if (_initialized) return;
     try {
-      final players = [_correctPlayer, _wrongPlayer, _startPlayer, _readyPlayer, _endingPlayer];
+      final prefs = await SharedPreferences.getInstance();
+      _isMuted = prefs.getBool(_mutePrefsKey) ?? false;
+
+      final sfxPlayers = [_correctPlayer, _wrongPlayer, _startPlayer, _readyPlayer];
 
       // Set all to low-latency mode (uses Android SoundPool internally)
-      for (final p in players) {
+      for (final p in sfxPlayers) {
         await p.setPlayerMode(PlayerMode.lowLatency);
         await p.setReleaseMode(ReleaseMode.stop);
       }
+
+      // Use media player mode for long looped result audio for smoother loop points.
+      await _endingPlayer.setPlayerMode(PlayerMode.mediaPlayer);
+      await _endingPlayer.setReleaseMode(ReleaseMode.stop);
 
       // Pre-load audio data into SoundPool memory
       await Future.wait([
@@ -57,23 +67,34 @@ class SoundService {
   /// Replay a pre-loaded sound instantly.
   /// stop() resets the stream, resume() fires a new SoundPool.play().
   void _replay(AudioPlayer player) {
-    if (!_initialized) return;
+    if (!_initialized || _isMuted) return;
     player.stop().then((_) => player.resume());
   }
 
   // ─── Looping sounds (for results screen BGM) ───
 
   Future<void> playEndingSoundLoop() async {
-    if (!_initialized) return;
+    if (!_initialized || _isMuted) return;
     await _endingPlayer.stop();
     await _endingPlayer.setReleaseMode(ReleaseMode.loop);
-    await _endingPlayer.seek(Duration.zero);
     await _endingPlayer.resume();
   }
 
   Future<void> stopEndingSound() async {
     await _endingPlayer.stop();
     await _endingPlayer.setReleaseMode(ReleaseMode.stop);
+  }
+
+  bool get isMuted => _isMuted;
+
+  Future<void> setMuted(bool muted) async {
+    _isMuted = muted;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_mutePrefsKey, muted);
+
+    if (muted) {
+      await stopEndingSound();
+    }
   }
 
   void dispose() {

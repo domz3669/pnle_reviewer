@@ -10,6 +10,7 @@ class GeneratingTestDialog extends StatefulWidget {
   final Future<bool> Function() onGenerate;
   final Future<bool> Function()? onShowAd;
   final VoidCallback onStart;
+  final VoidCallback? onSkip;
   final VoidCallback? onSuccess;
   final bool isPremium;
   final bool isFocusMode;
@@ -21,6 +22,7 @@ class GeneratingTestDialog extends StatefulWidget {
     required this.onGenerate,
     this.onShowAd,
     required this.onStart,
+    this.onSkip,
     this.onSuccess,
     this.isPremium = false,
     this.isFocusMode = false,
@@ -91,10 +93,11 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
       ]);
       
       final success = results[0];
+      final adSuccess = results[1];
       
       if (!mounted) return;
       
-      if (success) {
+      if (success && adSuccess) {
         // Play success notification - multiple times for audibility
         _playSuccessNotification();
         
@@ -105,12 +108,20 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
         
         // Animate success icon
         _successAnimationController.forward();
-        
-        widget.onSuccess?.call();
+
+        if (widget.onSuccess != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            widget.onSuccess?.call();
+          });
+        }
       } else {
         setState(() {
           isGenerating = false;
           hasError = true;
+          _errorMessage = !adSuccess
+              ? 'Please finish watching the ad before starting the quiz.'
+              : null;
         });
       }
     } catch (e) {
@@ -648,6 +659,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                         Expanded(
                           child: TextButton(
                             onPressed: () {
+                              widget.onSkip?.call();
                               Navigator.pop(dialogContext); // Close warning
                               Navigator.pop(context); // Close generation dialog
                             },

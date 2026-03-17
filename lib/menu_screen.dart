@@ -26,6 +26,7 @@ import 'generating_dialog.dart';
 import 'subscription_dialog.dart';
 import 'settings_screen.dart';
 import 'onboarding_screen.dart';
+import 'services/sound_service.dart';
 
 class _SavedSession {
   final String title;
@@ -132,13 +133,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool _isFocusMode = false;
   String? _focusCategory;
   bool _isPrimingFreeDeepSeekCache = false;
+  bool _isPrimingRandomQuizCache = false;
+  Completer<void>? _randomQuizPrimeCompleter;
+  bool _usePregeneratedRandomQuiz = false;
+  bool _usedCachedRandomForLastGeneration = false;
   List<Question>? _cachedQuickPracticeQuestions;
   String? _cachedQuickPracticeCategory;
+  final Set<String> _usedQuickPracticeSavedSignatures = <String>{};
   final Map<String, List<Question>> _cachedFocusQuestions = {};
+  List<Question>? _cachedRandomQuizQuestions;
+  Map<String, String>? _cachedRandomQuizCoverage;
+  static const String _randomQuizCachePrefsKey = 'cachedRandomQuizPayload';
   static const bool _premiumTestMode = false;
   // bool _hasChosenEligibility = false; // Removed - not currently used
   bool _showFirstTimeFlow = false;
   bool _hasShownSpecializationDialog = false;
+  String _nickname = '';
+  bool _muteAllSounds = false;
 
 
   RewardedAd? _rewardedAd;
@@ -153,14 +164,27 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool _isStoreAvailable = false;
   bool _isPurchasePending = false;
   VoidCallback? _onPremiumPurchaseSuccess;
-  static const String _androidPremiumProductId = 'premium';
+  static const List<String> _androidPremiumProductIds = [
+    'upcat_m_199',
+    'premium',
+  ];
   static const String _iosPremiumProductId = 'upcat_m_199';
 
   String get _premiumProductId {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       return _iosPremiumProductId;
     }
-    return _androidPremiumProductId;
+    if (_premiumProductDetails != null) {
+      return _premiumProductDetails!.id;
+    }
+    return _androidPremiumProductIds.first;
+  }
+
+  Set<String> get _supportedPremiumProductIds {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return {_iosPremiumProductId};
+    }
+    return _androidPremiumProductIds.toSet();
   }
 
   Map<String, List<String>> get keyAreas => pnleKeyAreas;
@@ -244,9 +268,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _loadMenuInterstitialAd();
     _loadBannerAd();
     _initSubscriptionBilling();
+    _loadPersonalizationPrefs();
     _checkOnboarding();
     // Restore from RTDB first (survives reinstall), then local loads fill in gaps
     _restoreAllProgressFromRtdb().then((_) {
+      _loadRandomQuizCache();
       _loadStreak();
       _loadAccumulatedStats();
       _loadQuizActivityRecords();
@@ -256,6 +282,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _loadCategoryScores();
       _loadZeroAdSessions();
       _resetDailyCategoryScoresIfNeeded();
+      unawaited(_primeRandomQuizCacheIfEligible());
+      unawaited(_primeFreeDeepSeekCaches());
+      unawaited(_promptNicknameIfMissing());
     });
   }
 
@@ -301,7 +330,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         barrierDismissible: false,
         barrierColor: Colors.black87,
         builder: (context) => OnboardingScreen(
-          onComplete: () async {
+          onComplete: (nickname) async {
+            await _saveNickname(nickname);
             Navigator.pop(context);
             if (mounted) {
               setState(() {
@@ -313,6 +343,131 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       );
       setState(() => showOnboarding = true);
     }
+  }
+
+  Future<void> _loadPersonalizationPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _nickname = prefs.getString('user_nickname')?.trim() ?? '';
+      _muteAllSounds = prefs.getBool('mute_all_sounds') ?? false;
+    });
+    await SoundService().setMuted(_muteAllSounds);
+  }
+
+  Future<void> _saveNickname(String nickname) async {
+    final normalized = nickname.trim();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_nickname', normalized);
+    if (!mounted) return;
+    setState(() {
+      _nickname = normalized;
+    });
+    unawaited(_syncAllProgressToRtdb());
+  }
+
+  Future<void> _setMuteAllSounds(bool muted) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('mute_all_sounds', muted);
+    await SoundService().setMuted(muted);
+    if (!mounted) return;
+    setState(() {
+      _muteAllSounds = muted;
+    });
+    unawaited(_syncAllProgressToRtdb());
+  }
+
+  Future<void> _promptNicknameIfMissing() async {
+    if (!mounted) return;
+    if (showOnboarding) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+    if (!onboardingComplete) return;
+
+    final currentNickname = (_nickname.trim().isNotEmpty)
+        ? _nickname.trim()
+        : (prefs.getString('user_nickname')?.trim() ?? '');
+    if (currentNickname.isNotEmpty) {
+      if (_nickname != currentNickname && mounted) {
+        setState(() {
+          _nickname = currentNickname;
+        });
+      }
+      return;
+    }
+
+    final nicknameController = TextEditingController();
+    String entered = '';
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: PnleTheme.bgTop,
+              title: Text(
+                'Set Your Nickname',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: TextField(
+                controller: nicknameController,
+                autofocus: true,
+                maxLength: 24,
+                style: GoogleFonts.outfit(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Enter your nickname',
+                  hintStyle: GoogleFonts.outfit(color: Colors.white38),
+                  counterStyle: GoogleFonts.outfit(color: Colors.white54),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.white.withOpacity(0.25)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: PnleTheme.accent),
+                  ),
+                ),
+                onChanged: (value) {
+                  entered = value.trim();
+                  setDialogState(() {});
+                },
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: entered.isEmpty
+                      ? null
+                      : () async {
+                          await _saveNickname(entered);
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: PnleTheme.accent,
+                  ),
+                  child: Text(
+                    'Save',
+                    style: GoogleFonts.outfit(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nicknameController.dispose();
   }
 
   Future<void> _loadStreak() async {
@@ -547,8 +702,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _deviceId ??= await _deviceService.getDeviceId();
       if (_deviceId == null) return;
 
+      final prefs = await SharedPreferences.getInstance();
+
       final today = DateTime.now();
       final todayStr = DateTime(today.year, today.month, today.day).toIso8601String();
+      final storedFreeTestResetDate = prefs.getString('lastFreeTestResetDate') ?? todayStr;
 
       final progressData = <String, dynamic>{
         // Category scores
@@ -569,9 +727,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         // Eligibility
         'selectedEligibility': eligibility,
         'hasChosenEligibility': !_showFirstTimeFlow,
+        'nickname': _nickname,
+        'muteAllSounds': _muteAllSounds,
         // Free tests (also saved separately, but include here for completeness)
         'remainingFreeTests': remainingFreeTests,
-        'lastFreeTestResetDate': todayStr,
+        'lastFreeTestResetDate': storedFreeTestResetDate,
         // Rewarded ads tracking
         'rewardedAdsWatchedToday': rewardedAdsWatchedToday,
         'lastRewardedAdDay': lastRewardedAdDay?.toIso8601String() ?? todayStr,
@@ -671,6 +831,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
       _showFirstTimeFlow = false;
     }
+
+    final remoteNickname = (data['nickname'] as String?)?.trim();
+    if (remoteNickname != null && remoteNickname.isNotEmpty) {
+      _nickname = remoteNickname;
+    }
+
+    final remoteMute = data['muteAllSounds'] as bool?;
+    if (remoteMute != null) {
+      _muteAllSounds = remoteMute;
+      unawaited(SoundService().setMuted(remoteMute));
+    }
+
     _ensurePnleCategoryScores();
 
     // --- Zero-ad sessions (lifetime counter: min wins, preserves most progress) ---
@@ -773,6 +945,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
       await prefs.setString('selected_eligibility', eligibility);
       await prefs.setBool('has_chosen_eligibility', !_showFirstTimeFlow);
+      await prefs.setString('user_nickname', _nickname);
+      await prefs.setBool('mute_all_sounds', _muteAllSounds);
       await prefs.setInt('completedSessions', completedSessions);
       final now = DateTime.now();
       await prefs.setString('lastSessionDate', DateTime(now.year, now.month, now.day).toIso8601String());
@@ -838,8 +1012,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             
             // Update server date if new day
             if (today.isAfter(lastResetDay)) {
-              await ref.update({'lastResetDate': today.toIso8601String()});
+              await ref.update({
+                'remaining': 4,
+                'lastResetDate': today.toIso8601String(),
+              });
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setInt('remainingFreeTests', 4);
+              await prefs.setString('lastFreeTestResetDate', today.toIso8601String());
+              await prefs.setInt('rewardedAdsWatchedToday', 0);
             }
+          } else {
+            await ref.update({
+              'remaining': 4,
+              'lastResetDate': today.toIso8601String(),
+            });
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setInt('remainingFreeTests', 4);
+            await prefs.setString('lastFreeTestResetDate', today.toIso8601String());
+            await prefs.setInt('rewardedAdsWatchedToday', 0);
           }
           
           debugPrint('✓ Loaded free tests from Realtime DB');
@@ -910,6 +1100,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       });
       
       if (today.isAfter(lastResetDay)) {
+        await prefs.setInt('remainingFreeTests', 4);
         await prefs.setString('lastFreeTestResetDate', today.toIso8601String());
       }
     } catch (e) {
@@ -932,8 +1123,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _deviceId ??= await _deviceService.getDeviceId();
       if (_deviceId == null) return;
 
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+      final todayOnly = DateTime(now.year, now.month, now.day).toIso8601String();
+      final lastResetDate = prefs.getString('lastFreeTestResetDate') ?? todayOnly;
       final db = _rtdb;
-      await db.ref('devices/$_deviceId/freeTests/remaining').set(remainingFreeTests);
+      await db.ref('devices/$_deviceId/freeTests').update({
+        'remaining': remainingFreeTests,
+        'lastResetDate': lastResetDate,
+      });
       
       debugPrint('✓ Synced free tests to Realtime DB');
     } catch (e) {
@@ -1341,7 +1539,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Future<bool> _querySubscriptionProduct() async {
     try {
       final response = await _inAppPurchase.queryProductDetails(
-        {_premiumProductId},
+        _supportedPremiumProductIds,
       );
 
       if (!mounted) return false;
@@ -1358,8 +1556,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       if (response.productDetails.isNotEmpty) {
         ProductDetails? matchedProduct;
+        final preferredId = defaultTargetPlatform == TargetPlatform.iOS
+            ? _iosPremiumProductId
+            : _androidPremiumProductIds.first;
         for (final product in response.productDetails) {
-          if (product.id == _premiumProductId) {
+          if (product.id == preferredId) {
             matchedProduct = product;
             break;
           }
@@ -1432,7 +1633,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     List<PurchaseDetails> purchaseDetailsList,
   ) async {
     for (final purchaseDetails in purchaseDetailsList) {
-      if (purchaseDetails.productID != _premiumProductId) {
+      if (!_supportedPremiumProductIds.contains(purchaseDetails.productID)) {
         if (purchaseDetails.pendingCompletePurchase) {
           await _inAppPurchase.completePurchase(purchaseDetails);
         }
@@ -1669,6 +1870,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _zeroAdSessionsRemaining = remaining;
       });
     }
+    unawaited(_primeRandomQuizCacheIfEligible());
   }
 
   /// Persist zero-ad sessions remaining to SharedPreferences and RTDB
@@ -1797,11 +1999,32 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return pooled.take(5).toList();
   }
 
-  DeepSeekService _buildDeepSeekService({required bool fastMode, int? tokenCap}) {
+  String _quickPracticeSignature(Question q) {
+    return '${q.category}::${q.question}::${q.answer}';
+  }
+
+  List<Question> _quickPracticeFromUnusedSavedPool(String focusCategory) {
+    final pooled = _savedSessions
+        .expand((session) => session.questions)
+        .where((question) => question.category == focusCategory)
+        .where((question) => !_usedQuickPracticeSavedSignatures.contains(_quickPracticeSignature(question)))
+        .map((question) => question.shuffled())
+        .toList();
+    pooled.shuffle(Random());
+    return pooled.take(5).toList();
+  }
+
+  DeepSeekService _buildDeepSeekService({
+    required bool fastMode,
+    int? tokenCap,
+    Duration? requestTimeoutOverride,
+    int? maxRetriesOverride,
+  }) {
     return DeepSeekService(
       apiKey: DEEPSEEK_API_KEY,
-      requestTimeout: fastMode ? const Duration(seconds: 100) : const Duration(seconds: 90),
-      maxRetries: fastMode ? 1 : 3,
+      requestTimeout: requestTimeoutOverride ??
+          (fastMode ? const Duration(seconds: 100) : const Duration(seconds: 90)),
+      maxRetries: maxRetriesOverride ?? (fastMode ? 1 : 3),
       temperature: fastMode ? 0.2 : 0.3,
       maxTokens: tokenCap,
     );
@@ -1813,33 +2036,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final weakestCategory = _getWeakestCategory();
     if (weakestCategory.isEmpty) return;
 
-    final hasQuickCache =
-        _cachedQuickPracticeCategory == weakestCategory &&
-        (_cachedQuickPracticeQuestions?.length ?? 0) >= 5;
     final hasFocusCache = (_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15;
-    if (hasQuickCache && hasFocusCache) return;
+    if (hasFocusCache) return;
 
     _isPrimingFreeDeepSeekCache = true;
     try {
-      final quickService = _buildDeepSeekService(fastMode: true, tokenCap: 1800);
       final focusService = _buildDeepSeekService(fastMode: true, tokenCap: 3200);
-
-      if (!hasQuickCache) {
-        final quickCategoryMap = {
-          1: weakestCategory,
-          2: weakestCategory,
-          3: weakestCategory,
-          4: weakestCategory,
-          5: weakestCategory,
-        };
-        final quickQuestions = await quickService.generateQuestions(
-          _buildFastQuickPracticePrompt(weakestCategory),
-          eligibility,
-          categoryMap: quickCategoryMap,
-        );
-        _cachedQuickPracticeCategory = weakestCategory;
-        _cachedQuickPracticeQuestions = quickQuestions;
-      }
 
       if (!hasFocusCache) {
         final focusQuestions = await focusService.generateQuestions(
@@ -1856,10 +2058,265 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
+  bool _canUseDeepSeekPregeneration() {
+    return !isPremiumUser &&
+        !isTrialActive &&
+        !_showFirstTimeFlow &&
+        DEEPSEEK_API_KEY.trim().isNotEmpty;
+  }
+
+  String _categoryForQuestionNumber(int number) {
+    if (number >= 1 && number <= 2) return 'Language Proficiency';
+    if (number >= 3 && number <= 7) return 'Reading Comprehension';
+    if (number >= 8 && number <= 11) return 'Mathematics';
+    return 'Science';
+  }
+
+  Question _cloneQuestionWithNumber(Question source, int number) {
+    return Question(
+      number: number,
+      category: _categoryForQuestionNumber(number),
+      question: source.question,
+      choices: List<String>.from(source.choices),
+      answer: source.answer,
+      explanation: source.explanation,
+      source: source.source,
+    );
+  }
+
+  List<Question> _mergeQuestionSetsForRandomCache({
+    required List<Question> salvaged,
+    required List<Question> fallback,
+    int needed = 15,
+  }) {
+    final mergedByNumber = <int, Question>{};
+
+    for (final q in salvaged) {
+      if (q.number >= 1 && q.number <= needed && !mergedByNumber.containsKey(q.number)) {
+        mergedByNumber[q.number] = _cloneQuestionWithNumber(q, q.number);
+      }
+    }
+
+    for (final q in fallback) {
+      if (q.number >= 1 && q.number <= needed && !mergedByNumber.containsKey(q.number)) {
+        mergedByNumber[q.number] = _cloneQuestionWithNumber(q, q.number);
+      }
+    }
+
+    if (mergedByNumber.length < needed) {
+      for (final q in fallback) {
+        if (mergedByNumber.length >= needed) break;
+        int slot = 1;
+        while (slot <= needed && mergedByNumber.containsKey(slot)) {
+          slot++;
+        }
+        if (slot <= needed) {
+          mergedByNumber[slot] = _cloneQuestionWithNumber(q, slot);
+        }
+      }
+    }
+
+    final result = <Question>[];
+    for (int i = 1; i <= needed; i++) {
+      final q = mergedByNumber[i];
+      if (q != null) result.add(q);
+    }
+    return result;
+  }
+
+  Future<List<Question>> _buildRandomPregeneratedQuestions(Map<String, String> coverage) async {
+    final prompt = _buildFastPromptFromCoverage(coverage);
+    List<Question> salvagedDeepSeek = const [];
+
+    if (DEEPSEEK_API_KEY.trim().isNotEmpty) {
+      try {
+        final deepSeekService = _buildDeepSeekService(
+          fastMode: true,
+          requestTimeoutOverride: const Duration(seconds: 80),
+          maxRetriesOverride: 1,
+        );
+        salvagedDeepSeek = await deepSeekService.generateQuestions(
+          prompt,
+          eligibility,
+          allowPartialResults: true,
+        );
+      } catch (e) {
+        debugPrint('Random quiz pre-generation DeepSeek failed: $e');
+      }
+    }
+
+    if (salvagedDeepSeek.length >= 15) {
+      return salvagedDeepSeek.take(15).toList();
+    }
+
+    if (GEMINI_API_KEY.trim().isEmpty) {
+      if (salvagedDeepSeek.isNotEmpty) {
+        return salvagedDeepSeek;
+      }
+      throw Exception('Gemini API key missing for pre-generation fallback.');
+    }
+
+    final geminiService = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+    final fallbackGemini = await geminiService
+        .generateQuestions(prompt, eligibility)
+        .timeout(const Duration(seconds: 80));
+
+    if (salvagedDeepSeek.isEmpty) {
+      return fallbackGemini.take(15).toList();
+    }
+
+    return _mergeQuestionSetsForRandomCache(
+      salvaged: salvagedDeepSeek,
+      fallback: fallbackGemini,
+      needed: 15,
+    );
+  }
+
+  bool _coverageMatchesCachedRandom(Map<String, String>? coverage) {
+    if (coverage == null || _cachedRandomQuizCoverage == null) return false;
+    if (coverage.length != _cachedRandomQuizCoverage!.length) return false;
+    for (final entry in coverage.entries) {
+      if (_cachedRandomQuizCoverage![entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  Future<void> _loadRandomQuizCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = prefs.getString(_randomQuizCachePrefsKey);
+      if (payload == null || payload.isEmpty) return;
+
+      final decoded = jsonDecode(payload) as Map<String, dynamic>;
+      final coverageRaw = decoded['coverage'];
+      final questionsRaw = decoded['questions'];
+      if (coverageRaw is! Map || questionsRaw is! List) return;
+
+      final coverage = Map<String, String>.from(coverageRaw);
+      final questions = questionsRaw
+          .whereType<Map>()
+          .map((q) => Question.fromJson(Map<String, dynamic>.from(q)))
+          .toList();
+
+      if (questions.length < 15) return;
+
+      if (!mounted) return;
+      setState(() {
+        _cachedRandomQuizCoverage = coverage;
+        _cachedRandomQuizQuestions = questions;
+      });
+    } catch (e) {
+      debugPrint('Could not load random quiz pregen cache: $e');
+    }
+  }
+
+  Future<void> _persistRandomQuizCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_cachedRandomQuizCoverage == null || _cachedRandomQuizQuestions == null) {
+        await prefs.remove(_randomQuizCachePrefsKey);
+        return;
+      }
+
+      final payload = {
+        'coverage': _cachedRandomQuizCoverage,
+        'questions': _cachedRandomQuizQuestions!
+            .map((q) => {
+                  'number': q.number,
+                  'category': q.category,
+                  'question': q.question,
+                  'choices': q.choices,
+                  'answer': q.answer,
+                  'explanation': q.explanation,
+                  'source': q.source,
+                })
+            .toList(),
+      };
+      await prefs.setString(_randomQuizCachePrefsKey, jsonEncode(payload));
+    } catch (e) {
+      debugPrint('Could not persist random quiz pregen cache: $e');
+    }
+  }
+
+  Future<void> _clearRandomQuizCache() async {
+    if (!mounted) return;
+    setState(() {
+      _cachedRandomQuizCoverage = null;
+      _cachedRandomQuizQuestions = null;
+      _usePregeneratedRandomQuiz = false;
+    });
+    await _persistRandomQuizCache();
+  }
+
+  Future<void> _primeRandomQuizCacheIfEligible({
+    bool force = false,
+    Map<String, String>? coverageOverride,
+  }) async {
+    if (!_canUseDeepSeekPregeneration()) return;
+    if (_isPrimingRandomQuizCache) {
+      await _randomQuizPrimeCompleter?.future;
+      return;
+    }
+    if (!force && (_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
+      if (coverageOverride == null || _coverageMatchesCachedRandom(coverageOverride)) {
+        return;
+      }
+    }
+
+    _isPrimingRandomQuizCache = true;
+    _randomQuizPrimeCompleter = Completer<void>();
+    try {
+      final coverage = coverageOverride ?? _generateTestCoverage();
+      final questions = await _buildRandomPregeneratedQuestions(coverage);
+      if (questions.length < 15 || !mounted) return;
+
+      setState(() {
+        _cachedRandomQuizCoverage = Map<String, String>.from(coverage);
+        _cachedRandomQuizQuestions = questions;
+      });
+      await _persistRandomQuizCache();
+    } catch (e) {
+      debugPrint('Random quiz DeepSeek pre-generation skipped: $e');
+    } finally {
+      _isPrimingRandomQuizCache = false;
+      if (!(_randomQuizPrimeCompleter?.isCompleted ?? true)) {
+        _randomQuizPrimeCompleter?.complete();
+      }
+      _randomQuizPrimeCompleter = null;
+    }
+  }
+
+  Future<void> _primeFocusCacheForCategory(
+    String category, {
+    bool force = false,
+  }) async {
+    if (!_canUseDeepSeekPregeneration()) return;
+    final existing = _cachedFocusQuestions[category];
+    if (!force && (existing?.length ?? 0) >= 15) return;
+
+    try {
+      final service = _buildDeepSeekService(fastMode: true);
+      final focusQuestions = await service.generateQuestions(
+        _buildFastFocusPrompt(category),
+        eligibility,
+        categoryMap: _buildFocusCategoryMap(category),
+      );
+      if (focusQuestions.length < 15 || !mounted) return;
+
+      setState(() {
+        _cachedFocusQuestions[category] = focusQuestions;
+      });
+    } catch (e) {
+      debugPrint('Focus quiz pre-generation skipped: $e');
+    }
+  }
+
   // =========================
   // TEST GENERATION
   // =========================
   Future<bool> _generateTest({bool isFocusMode = false, String? focusCategory}) async {
+    _usedCachedRandomForLastGeneration = false;
+
     // Premium/Trial/Intro (first 4 sessions) → Gemini Flash Lite (fast), otherwise DeepSeek
     final useGemini =
       isPremiumUser || isTrialActive || _zeroAdSessionsRemaining > 0;
@@ -1921,10 +2378,22 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           );
         }
       } else {
-        final service = _buildDeepSeekService(fastMode: true);
-        _generatedQuestions = await service.generateQuestions(
-          deepSeekPrompt, eligibility, categoryMap: categoryMap,
-        );
+        if (_isPrimingRandomQuizCache) {
+          await _randomQuizPrimeCompleter?.future;
+        }
+
+        if ((_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
+          _usedCachedRandomForLastGeneration = true;
+          if (_cachedRandomQuizCoverage != null) {
+            _currentTestCoverage = Map<String, String>.from(_cachedRandomQuizCoverage!);
+          }
+          _generatedQuestions = _cachedRandomQuizQuestions!.take(15).toList();
+        } else {
+          final service = _buildDeepSeekService(fastMode: true);
+          _generatedQuestions = await service.generateQuestions(
+            deepSeekPrompt, eligibility, categoryMap: categoryMap,
+          );
+        }
       }
     }
     
@@ -2021,37 +2490,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if (!isPremiumUser &&
-        !isTrialActive &&
-        _cachedQuickPracticeCategory == weakestCategory &&
-        (_cachedQuickPracticeQuestions?.length ?? 0) >= 5) {
-      final cachedQuestions = _cachedQuickPracticeQuestions!.take(5).toList();
-      _cachedQuickPracticeQuestions = null;
-      _cachedQuickPracticeCategory = null;
-      unawaited(_primeFreeDeepSeekCaches());
-
-      final results = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => QuestionScreen(
-            questions: cachedQuestions,
-            isPremium: false,
-            recordResults: false,
-            testMode: 'quickPractice',
-            zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
-          ),
-        ),
-      );
-
-      if (results != null && mounted) {
-        _updateTestResults(results);
-      }
-      return;
-    }
-
-    final pooledQuestions = _quickPracticeFromSavedPool(weakestCategory);
+    final pooledQuestions = _quickPracticeFromUnusedSavedPool(weakestCategory);
 
     if (pooledQuestions.length >= 5) {
+      for (final q in pooledQuestions.take(5)) {
+        _usedQuickPracticeSavedSignatures.add(_quickPracticeSignature(q));
+      }
+
       final results = await Navigator.push(
         context,
         MaterialPageRoute(
@@ -2079,12 +2524,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           ? _showMenuInterstitialAd()
           : Future.value(true);
 
-        // Premium/Trial/Intro (first 4 sessions) → Gemini Flash Lite (fast), otherwise DeepSeek
-        final useGemini =
-          isPremiumUser || isTrialActive || _zeroAdSessionsRemaining > 0;
-        final prompt = useGemini
-          ? _buildQuickPracticePrompt(weakestCategory)
-          : _buildFastQuickPracticePrompt(weakestCategory);
+      final prompt = _buildFastQuickPracticePrompt(weakestCategory);
       
       // Build category map for Quick Practice (all 5 questions from weakest category)
       final categoryMap = <int, String>{
@@ -2096,31 +2536,32 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       };
       
       late final List<Question> questions;
-      if (useGemini) {
+      if (DEEPSEEK_API_KEY.trim().isEmpty) {
+        throw Exception('DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
+      }
+
+      try {
+        final service = _buildDeepSeekService(
+          fastMode: true,
+          tokenCap: 1800,
+          requestTimeoutOverride: const Duration(seconds: 60),
+          maxRetriesOverride: 1,
+        );
+        questions = await service.generateQuestions(
+          prompt,
+          eligibility,
+          categoryMap: categoryMap,
+        );
+      } catch (_) {
         if (GEMINI_API_KEY.trim().isEmpty) {
-          throw Exception('Gemini API key missing. Re-run with --dart-define=GEMINI_API_KEY=...');
+          rethrow;
         }
-        try {
-          final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
-          questions = await service.generateQuestions(prompt, eligibility, categoryMap: categoryMap);
-        } catch (e) {
-          final shouldFallbackToDeepSeek =
-              _zeroAdSessionsRemaining > 0 && !isPremiumUser && !isTrialActive;
-          if (!shouldFallbackToDeepSeek) rethrow;
-
-          if (DEEPSEEK_API_KEY.trim().isEmpty) {
-            throw Exception('DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
-          }
-
-          final service = _buildDeepSeekService(fastMode: false);
-          questions = await service.generateQuestions(prompt, eligibility, categoryMap: categoryMap);
-        }
-      } else {
-        if (DEEPSEEK_API_KEY.trim().isEmpty) {
-          throw Exception('DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
-        }
-        final service = _buildDeepSeekService(fastMode: true, tokenCap: 1800);
-        questions = await service.generateQuestions(prompt, eligibility, categoryMap: categoryMap);
+        final geminiService = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+        questions = await geminiService.generateQuestions(
+          _buildQuickPracticePrompt(weakestCategory),
+          eligibility,
+          categoryMap: categoryMap,
+        );
       }
         await adFuture;
       
@@ -2473,7 +2914,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _getGreetingWithName() {
-    return '${_getGreeting()} there! 👋';
+    final name = _nickname.trim();
+    if (name.isEmpty) {
+      return '${_getGreeting()} there! 👋';
+    }
+    return '${_getGreeting()} $name! 👋';
   }
 
   // =========================
@@ -2536,14 +2981,20 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   void _showGenerationDialog({String? modeLabel}) {
+    final bool activeIsFocusMode = _isFocusMode;
+    final String? activeFocusCategory = _focusCategory;
+    final Map<String, String>? activeCoverage = _currentTestCoverage == null
+      ? null
+      : Map<String, String>.from(_currentTestCoverage!);
+
     final effectiveModeLabel = modeLabel ??
-        (_isFocusMode
-            ? 'FOCUS MODE${_focusCategory != null ? ' • ${_focusCategory!}' : ''}'
+      (activeIsFocusMode
+        ? 'FOCUS MODE${activeFocusCategory != null ? ' • $activeFocusCategory' : ''}'
             : 'RANDOM QUIZ');
 
     // Check daily generation limit for premium users
     if (isPremiumUser || isTrialActive) {
-      if (!_canGenerateMoreQuestions(_isFocusMode ? 15 : 20)) {
+      if (!_canGenerateMoreQuestions(activeIsFocusMode ? 15 : 20)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -2558,7 +3009,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
     }
 
-    _shouldSkipAds(_isFocusMode ? 'focusMode' : 'randomQuiz').then((skipAds) {
+    _shouldSkipAds(activeIsFocusMode ? 'focusMode' : 'randomQuiz').then((skipAds) {
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -2567,14 +3018,61 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           return GeneratingTestDialog(
             onGenerate: _generateTest,
             onShowAd: (isPremiumUser || skipAds) ? null : _showRewardedAd,
-            onSuccess: isPremiumUser ? null : _onGenerationSuccess,
+            onSuccess: null,
+            onSkip: () {
+              if (!isPremiumUser && !isTrialActive) {
+                final consumed = _consumeFreeSessionAllowance();
+                if (!consumed) {
+                  return;
+                }
+              }
+
+              if (_usedCachedRandomForLastGeneration) {
+                unawaited(_clearRandomQuizCache());
+              }
+
+              if (activeIsFocusMode && activeFocusCategory != null) {
+                unawaited(_primeFocusCacheForCategory(activeFocusCategory, force: true));
+              } else {
+                unawaited(_primeRandomQuizCacheIfEligible(
+                  force: true,
+                ));
+                unawaited(_primeFreeDeepSeekCaches());
+              }
+            },
             isPremium: isPremiumUser,
-            isFocusMode: _isFocusMode,
-            focusCategory: _focusCategory,
+            isFocusMode: activeIsFocusMode,
+            focusCategory: activeFocusCategory,
             modeLabel: effectiveModeLabel,
             onStart: () async {
+              if (!isPremiumUser && !isTrialActive &&
+                  !_consumeFreeSessionAllowance()) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'No free sessions left for today.',
+                      style: GoogleFonts.outfit(),
+                    ),
+                    backgroundColor: Colors.red.shade700,
+                  ),
+                );
+                return;
+              }
+
+              if (_usedCachedRandomForLastGeneration) {
+                await _clearRandomQuizCache();
+              }
+
               Navigator.pop(context); // Close Test Coverage dialog
-              _addSavedSession(_generatedQuestions, _currentTestCoverage);
+              _addSavedSession(_generatedQuestions, activeCoverage);
+              if (activeIsFocusMode && activeFocusCategory != null) {
+                unawaited(_primeFocusCacheForCategory(activeFocusCategory, force: true));
+              } else {
+                unawaited(_primeRandomQuizCacheIfEligible(
+                  force: true,
+                ));
+                unawaited(_primeFreeDeepSeekCaches());
+              }
               // Function to start the test
               Future<void> startTest(List<Question> questions) async {
                 final results = await Navigator.push(
@@ -2584,7 +3082,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       questions: questions,
                       isPremium: isPremiumUser || isTrialActive,
                       recordResults: true,
-                      testMode: _isFocusMode ? 'focusMode' : 'randomQuiz',
+                      testMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
                       zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
                     ),
                   ),
@@ -2593,11 +3091,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   _updateTestResults(results);
                   final nextAction = results['nextAction'];
                   if (nextAction == 'playAgain') {
-                    if (_currentTestCoverage != null) {
+                    final replayCoverage = !activeIsFocusMode && _cachedRandomQuizCoverage != null
+                        ? Map<String, String>.from(_cachedRandomQuizCoverage!)
+                        : activeCoverage;
+                    if (replayCoverage != null) {
                       _showTestCoverageDialog(
-                        _currentTestCoverage!,
-                        isFocusMode: _isFocusMode,
-                        focusCategory: _focusCategory,
+                        replayCoverage,
+                        isFocusMode: activeIsFocusMode,
+                        focusCategory: activeFocusCategory,
                       );
                     }
                   } else if (nextAction == 'menu') {
@@ -2609,11 +3110,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 // Handle different return values
                 else if (results == 'playAgain' && mounted) {
                   // User clicked Play Again - show Test Coverage dialog again for new test
-                  if (_currentTestCoverage != null) {
+                  final replayCoverage = !activeIsFocusMode && _cachedRandomQuizCoverage != null
+                      ? Map<String, String>.from(_cachedRandomQuizCoverage!)
+                      : activeCoverage;
+                  if (replayCoverage != null) {
                     _showTestCoverageDialog(
-                      _currentTestCoverage!,
-                      isFocusMode: _isFocusMode,
-                      focusCategory: _focusCategory,
+                      replayCoverage,
+                      isFocusMode: activeIsFocusMode,
+                      focusCategory: activeFocusCategory,
                     );
                   }
                 } else if (results == 'menu' && mounted) {
@@ -2634,19 +3138,31 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _onGenerationSuccess() {
-    // Only called for free users on successful generation
+  bool _consumeFreeSessionAllowance() {
+    if (remainingFreeTests <= 0) {
+      return false;
+    }
+
     setState(() {
       remainingFreeTests--;
     });
+
     // Persist daily free tests locally
     _persistDailyFreeTests();
-    
+
     // Decrement zero-ad sessions for Random Quiz / Focus Mode
     if (_zeroAdSessionsRemaining > 0) {
       _zeroAdSessionsRemaining--;
       _persistZeroAdSessions();
+      if (_zeroAdSessionsRemaining <= 0) {
+        unawaited(_primeRandomQuizCacheIfEligible(
+          force: true,
+          coverageOverride: _currentTestCoverage,
+        ));
+      }
     }
+
+    return true;
   }
 
   String _pickSavedTitle(Map<String, String>? coverage) {
@@ -3237,6 +3753,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       isPremium: isPremiumUser,
       isTrialActive: isTrialActive,
       trialEndDate: trialEndDate,
+      nickname: _nickname,
+      muteAllSounds: _muteAllSounds,
+      onNicknameChanged: (nickname) async {
+        await _saveNickname(nickname);
+      },
+      onMuteAllSoundsChanged: (muted) async {
+        await _setMuteAllSounds(muted);
+      },
       embedded: true,
       onPremiumActivated: () {
         _startTrialFlow();
@@ -3653,8 +4177,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             ),
           ),
           const SizedBox(height: 14),
-        ] else
-          const SizedBox(height: 8),
+        ],
       ],
     );
   }
@@ -3971,7 +4494,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 onTap: canTakeQuiz
                     ? () async {
                         try {
-                          final coverage = _generateTestCoverage();
+                          final hasPregeneratedRandom =
+                              (_cachedRandomQuizQuestions?.length ?? 0) >= 15 &&
+                              _cachedRandomQuizCoverage != null;
+                          final coverage = hasPregeneratedRandom
+                              ? Map<String, String>.from(_cachedRandomQuizCoverage!)
+                              : _generateTestCoverage();
                           _showTestCoverageDialog(coverage);
                         } catch (e) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -4598,10 +5126,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     setState(() {
       currentScreen = index;
     });
-
-    if (index == 2) {
-      unawaited(_primeFreeDeepSeekCaches());
-    }
   }
 
   Widget _dailyPerformanceScreen() {
@@ -6199,6 +6723,8 @@ void _showLimitReachedDialog() {
   }) {
     // Store the test coverage for use in prompt generation
     _currentTestCoverage = coverage;
+    _usePregeneratedRandomQuiz =
+      !isFocusMode && _coverageMatchesCachedRandom(coverage);
     
     // Store focus mode parameters
     _isFocusMode = isFocusMode;
@@ -6698,12 +7224,14 @@ Output rules:
       throw Exception('Test coverage not generated');
     }
 
-    final language =
-        _currentTestCoverage!['Language Proficiency'] ?? 'General language proficiency topics';
-    final reading =
-        _currentTestCoverage!['Reading Comprehension'] ?? 'General reading comprehension topics';
-    final mathematics = _currentTestCoverage!['Mathematics'] ?? 'General mathematics topics';
-    final science = _currentTestCoverage!['Science'] ?? 'General science topics';
+    return _buildFastPromptFromCoverage(_currentTestCoverage!);
+  }
+
+  String _buildFastPromptFromCoverage(Map<String, String> coverage) {
+    final language = coverage['Language Proficiency'] ?? 'General language proficiency topics';
+    final reading = coverage['Reading Comprehension'] ?? 'General reading comprehension topics';
+    final mathematics = coverage['Mathematics'] ?? 'General mathematics topics';
+    final science = coverage['Science'] ?? 'General science topics';
 
     return '''Generate 15 reasoning-based UPCAT multiple-choice questions as raw JSON only.
 Format:

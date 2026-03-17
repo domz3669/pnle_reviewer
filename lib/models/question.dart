@@ -5,6 +5,7 @@ class Question {
   final List<String> choices;
   final String answer;
   final String? explanation; // ✅ optional now
+  final String? source; // 'deepseek' or 'gemini'
 
   Question({
     required this.number,
@@ -13,6 +14,7 @@ class Question {
     required this.choices,
     required this.answer,
     this.explanation,
+    this.source,
   });
 
   // Shuffle choices and update answer to match new position
@@ -38,6 +40,7 @@ class Question {
       choices: shuffledChoices,
       answer: newAnswer,
       explanation: explanation,
+      source: source,
     );
   }
 
@@ -49,6 +52,7 @@ class Question {
       choices: List<String>.from(json['choices']),
       answer: json['answer'],
       explanation: json['explanation'], // may be null
+      source: json['source'] as String?,
     );
   }
 }
