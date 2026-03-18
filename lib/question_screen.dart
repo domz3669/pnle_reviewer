@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -13,7 +14,6 @@ import 'config/pnle_theme.dart';
 import 'models/question.dart';
 import 'utils/responsive.dart';
 import 'animated_results_dialog.dart';
-import 'subscription_dialog.dart';
 import 'explanation_dialog.dart';
 import 'better_explanation_dialog.dart';
 import 'services/review_service.dart';
@@ -46,8 +46,11 @@ class _QuestionScreenState extends State<QuestionScreen>
   int? selectedChoiceIndex;
   bool _answerSelected = false;
   bool _explanationRequested = false;
-  bool _hasUsedExplainWhyInQuickPractice = false; // Track explain-why usage in quick practice
   int explanationCount = 0; // Track explanation requests per session
+  bool _explainAdUnlockedForCurrentQuestion = false;
+  int _explainAdUnlockCount = 0;
+  static const int _freeExplainLimit = 4;
+  static const int _maxExplainAdUnlocks = 2;
 
   // Pre-loaded sound service for zero-latency playback
   final SoundService _soundService = SoundService();
@@ -67,6 +70,10 @@ class _QuestionScreenState extends State<QuestionScreen>
   // Interstitial Ad
   InterstitialAd? _interstitialAd;
   bool _isInterstitialAdLoaded = false;
+
+  // Rewarded Ad for explain-limit unlock
+  RewardedAd? _explainRewardedAd;
+  bool _isExplainRewardedAdLoaded = false;
 
   // =========================
   // ANSWER & SCORE HELPERS
@@ -129,10 +136,9 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     // Count total questions per category
     for (final q in widget.questions) {
-      _totalCount[q.category] =
-          (_totalCount[q.category] ?? 0) + 1;
+      _totalCount[q.category] = (_totalCount[q.category] ?? 0) + 1;
     }
-    
+
     // Initialize correct count for all categories (including zeros)
     for (final category in _totalCount.keys) {
       _correctCount.putIfAbsent(category, () => 0);
@@ -176,6 +182,9 @@ class _QuestionScreenState extends State<QuestionScreen>
     if (!widget.isPremium && widget.testMode != 'quickPractice') {
       _loadInterstitialAd();
     }
+    if (!widget.isPremium) {
+      _loadExplainRewardedAd();
+    }
   }
 
   void _loadBannerAd() {
@@ -212,16 +221,31 @@ class _QuestionScreenState extends State<QuestionScreen>
     );
   }
 
+  void _loadExplainRewardedAd() {
+    RewardedAd.load(
+      adUnitId: AdMobIds.rewarded,
+      request: const AdRequest(),
+      rewardedAdLoadCallback: RewardedAdLoadCallback(
+        onAdLoaded: (ad) {
+          _explainRewardedAd = ad;
+          _isExplainRewardedAdLoaded = true;
+        },
+        onAdFailedToLoad: (error) {
+          _isExplainRewardedAdLoaded = false;
+        },
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _timeController.dispose();
     _choiceAnimationController.dispose();
     _bannerAd?.dispose();
     _interstitialAd?.dispose();
+    _explainRewardedAd?.dispose();
     super.dispose();
   }
-
-
 
   // =========================
   // TIMER CONTROL
@@ -255,8 +279,7 @@ class _QuestionScreenState extends State<QuestionScreen>
         return AnimatedBuilder(
           animation: _timeController,
           builder: (context, _) {
-            final ratio =
-                (1.0 - _timeController.value).clamp(0.03, 1.0);
+            final ratio = (1.0 - _timeController.value).clamp(0.03, 1.0);
             final isCritical = ratio <= 0.3;
             final barColor = _timeColorFromRatio(ratio);
             final barWidth = constraints.maxWidth * ratio;
@@ -264,7 +287,7 @@ class _QuestionScreenState extends State<QuestionScreen>
             return Container(
               height: 6,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.12),
+                color: Colors.white.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Stack(
@@ -280,16 +303,16 @@ class _QuestionScreenState extends State<QuestionScreen>
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [
-                            barColor.withOpacity(0.95),
-                            barColor.withOpacity(0.72),
-                            Colors.white.withOpacity(0.18),
+                            barColor.withValues(alpha: 0.95),
+                            barColor.withValues(alpha: 0.72),
+                            Colors.white.withValues(alpha: 0.18),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(10),
                         boxShadow: isCritical
                             ? [
                                 BoxShadow(
-                                  color: barColor.withOpacity(0.7),
+                                  color: barColor.withValues(alpha: 0.7),
                                   blurRadius: 10,
                                   spreadRadius: 1.5,
                                 ),
@@ -318,10 +341,12 @@ class _QuestionScreenState extends State<QuestionScreen>
                               height: sparkleSize,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: Colors.white.withOpacity(sparkleOpacity),
+                                color: Colors.white
+                                    .withValues(alpha: sparkleOpacity),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.white.withOpacity(sparkleOpacity * 0.6),
+                                    color: Colors.white.withValues(
+                                        alpha: sparkleOpacity * 0.6),
                                     blurRadius: 4,
                                     spreadRadius: 1,
                                   ),
@@ -347,18 +372,18 @@ class _QuestionScreenState extends State<QuestionScreen>
   Color _choiceColor(int index) {
     // When time is up, highlight all choices red
     if (_timeUp) {
-      return PnleTheme.danger.withOpacity(0.25);
+      return PnleTheme.danger.withValues(alpha: 0.25);
     }
-    
+
     // When answer is selected, only highlight the user's choice
     if (_answerSelected && selectedChoiceIndex == index) {
       // Green if correct, red if wrong
       return index == _correctIndex
-          ? PnleTheme.success.withOpacity(0.25)
-          : PnleTheme.danger.withOpacity(0.25);
+          ? PnleTheme.success.withValues(alpha: 0.25)
+          : PnleTheme.danger.withValues(alpha: 0.25);
     }
-    
-    return Colors.white.withOpacity(0.08);
+
+    return Colors.white.withValues(alpha: 0.08);
   }
 
   LinearGradient? _choiceGradient(int index) {
@@ -367,22 +392,23 @@ class _QuestionScreenState extends State<QuestionScreen>
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          PnleTheme.danger.withOpacity(0.30),
-          PnleTheme.danger.withOpacity(0.20),
-          Colors.white.withOpacity(0.08),
+          PnleTheme.danger.withValues(alpha: 0.30),
+          PnleTheme.danger.withValues(alpha: 0.20),
+          Colors.white.withValues(alpha: 0.08),
         ],
       );
     }
 
     if (_answerSelected && selectedChoiceIndex == index) {
-      final base = index == _correctIndex ? PnleTheme.success : PnleTheme.danger;
+      final base =
+          index == _correctIndex ? PnleTheme.success : PnleTheme.danger;
       return LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          base.withOpacity(0.30),
-          base.withOpacity(0.20),
-          Colors.white.withOpacity(0.08),
+          base.withValues(alpha: 0.30),
+          base.withValues(alpha: 0.20),
+          Colors.white.withValues(alpha: 0.08),
         ],
       );
     }
@@ -393,67 +419,69 @@ class _QuestionScreenState extends State<QuestionScreen>
   Color _choiceBorderColor(int index) {
     if (_timeUp) return PnleTheme.danger;
     if (_answerSelected && selectedChoiceIndex == index) {
-      return index == _correctIndex
-          ? PnleTheme.success
-          : PnleTheme.danger;
+      return index == _correctIndex ? PnleTheme.success : PnleTheme.danger;
     }
-    return Colors.white.withOpacity(0.2);
+    return Colors.white.withValues(alpha: 0.2);
   }
 
   Color _choiceTextColor(int index) {
     if (_timeUp) return Colors.white;
     if (_answerSelected && selectedChoiceIndex == index) return Colors.white;
-    return Colors.white.withOpacity(0.9);
+    return Colors.white.withValues(alpha: 0.9);
   }
 
   // =========================
   // HELPER METHODS
   // =========================
   bool _canUseExplainWhy() {
-    // In Quick Practice, free users can only use Explain Why once
-    if (widget.testMode == 'quickPractice' && !widget.isPremium) {
-      return !_hasUsedExplainWhyInQuickPractice;
-    }
-    // All other modes have unlimited explain why
-    return true;
+    if (widget.isPremium) return true;
+    if (_explainAdUnlockedForCurrentQuestion) return true;
+    return explanationCount < _freeExplainLimit;
   }
 
-
+  bool _canOfferExplainAdUnlock() {
+    if (widget.isPremium) return false;
+    if (_canUseExplainWhy()) return false;
+    return _explainAdUnlockCount < _maxExplainAdUnlocks;
+  }
 
   // =========================
   // REPORT CONTENT
   // =========================
   void _reportContent() async {
     final question = currentQuestion.question;
-    
+
     // Try to send report via backend webhook
     bool sentSuccessfully = false;
     try {
       // Send to backend webhook to process and email
-      final response = await http.post(
-        Uri.parse('https://your-backend.com/api/report-question'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'question': question,
-          'category': currentQuestion.category,
-          'questionNumber': currentQuestion.number,
-          'timestamp': DateTime.now().toIso8601String(),
-          'userEmail': 'domingotambasacan@gmail.com', // TODO: Get from user auth
-        }),
-      ).timeout(const Duration(seconds: 5));
-      
+      final response = await http
+          .post(
+            Uri.parse('https://your-backend.com/api/report-question'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'question': question,
+              'category': currentQuestion.category,
+              'questionNumber': currentQuestion.number,
+              'timestamp': DateTime.now().toIso8601String(),
+              'userEmail':
+                  'domingotambasacan@gmail.com', // TODO: Get from user auth
+            }),
+          )
+          .timeout(const Duration(seconds: 5));
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         sentSuccessfully = true;
       }
     } catch (e) {
-      print('Failed to send report via webhook: $e');
+      debugPrint('Failed to send report via webhook: $e');
     }
-    
+
     // Always store locally as backup
     try {
       final prefs = await SharedPreferences.getInstance();
       final reports = prefs.getStringList('pendingReports') ?? [];
-      
+
       final reportEntry = {
         'question': question,
         'category': currentQuestion.category,
@@ -461,13 +489,15 @@ class _QuestionScreenState extends State<QuestionScreen>
         'questionNumber': currentQuestion.number,
         'synced': sentSuccessfully,
       };
-      
+
       reports.add(jsonEncode(reportEntry));
       await prefs.setStringList('pendingReports', reports);
     } catch (e) {
-      print('Error storing local report: $e');
+      debugPrint('Error storing local report: $e');
     }
-    
+
+    if (!mounted) return;
+
     showDialog(
       context: context,
       barrierColor: Colors.black87,
@@ -478,9 +508,9 @@ class _QuestionScreenState extends State<QuestionScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              sentSuccessfully 
-                ? '✓ Your report has been sent via email.' 
-                : '✓ Your report has been recorded.',
+              sentSuccessfully
+                  ? '✓ Your report has been sent via email.'
+                  : '✓ Your report has been recorded.',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -493,8 +523,8 @@ class _QuestionScreenState extends State<QuestionScreen>
             const SizedBox(height: 12),
             Text(
               sentSuccessfully
-                ? 'Check your email at domingotambasacan@gmail.com for confirmation. Thank you!'
-                : 'Reports will be synced when you reconnect. Thank you for your feedback!',
+                  ? 'Check your email at domingotambasacan@gmail.com for confirmation. Thank you!'
+                  : 'Reports will be synced when you reconnect. Thank you for your feedback!',
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -516,8 +546,8 @@ class _QuestionScreenState extends State<QuestionScreen>
   Widget build(BuildContext context) {
     final r = context.responsive;
 
-    return WillPopScope(
-      onWillPop: () async => false, // Prevent back button
+    return PopScope(
+      canPop: false,
       child: Scaffold(
         body: Container(
           decoration: const BoxDecoration(
@@ -538,10 +568,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.12),
+                            color: Colors.white.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.2),
+                              color: Colors.white.withValues(alpha: 0.2),
                             ),
                           ),
                           child: Text(
@@ -564,10 +594,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: PnleTheme.accent.withOpacity(0.2),
+                          color: PnleTheme.accent.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: PnleTheme.accent.withOpacity(0.5),
+                            color: PnleTheme.accent.withValues(alpha: 0.5),
                           ),
                         ),
                         child: Text(
@@ -595,10 +625,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                         vertical: 24,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
+                        color: Colors.white.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                         ),
                       ),
                       child: SingleChildScrollView(
@@ -612,7 +642,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                     ? r.fontSize(16)
                                     : r.fontSize(18),
                             fontWeight: FontWeight.w600,
-                            color: Colors.white.withOpacity(0.95),
+                            color: Colors.white.withValues(alpha: 0.95),
                             height: 1.4,
                           ),
                         ),
@@ -633,123 +663,132 @@ class _QuestionScreenState extends State<QuestionScreen>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: List.generate(
-                          currentQuestion.choices.length,
-                          (index) => GestureDetector(
-                            onTap: (_isLocked || _timeUp)
-                                ? null
-                                : () {
-                                    final isCorrect = index == _correctIndex;
+                            currentQuestion.choices.length,
+                            (index) => GestureDetector(
+                              onTap: (_isLocked || _timeUp)
+                                  ? null
+                                  : () {
+                                      final isCorrect = index == _correctIndex;
 
-                                    setState(() {
-                                      selectedChoiceIndex = index;
-                                      _isLocked = true;
-                                      _answerSelected = true;
+                                      setState(() {
+                                        selectedChoiceIndex = index;
+                                        _isLocked = true;
+                                        _answerSelected = true;
+
+                                        if (isCorrect) {
+                                          _correctCount[
+                                                  currentQuestion.category] =
+                                              (_correctCount[currentQuestion
+                                                          .category] ??
+                                                      0) +
+                                                  1;
+                                        }
+                                      });
 
                                       if (isCorrect) {
-                                        _correctCount[
-                                                currentQuestion.category] =
-                                            (_correctCount[
-                                                    currentQuestion
-                                                        .category] ??
-                                                0) +
-                                            1;
+                                        _soundService.playCorrectAnswer();
+                                      } else {
+                                        _soundService.playWrongAnswer();
                                       }
-                                    });
 
-                                    if (isCorrect) {
-                                      _soundService.playCorrectAnswer();
-                                    } else {
-                                      _soundService.playWrongAnswer();
-                                    }
+                                      _timeController.stop();
+                                      // Trigger animation
+                                      _choiceAnimationController.forward(
+                                          from: 0);
+                                    },
+                              child: AnimatedBuilder(
+                                animation: _choiceAnimationController,
+                                builder: (context, child) {
+                                  if (child == null) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  final isAnimating = _answerSelected &&
+                                      selectedChoiceIndex == index &&
+                                      _choiceAnimationController.isAnimating;
+                                  final isCorrect = index == _correctIndex;
 
-                                    _timeController.stop();
-                                    // Trigger animation
-                                    _choiceAnimationController.forward(from: 0);
-                                  },
-                            child: AnimatedBuilder(
-                              animation: _choiceAnimationController,
-                              builder: (context, child) {
-                                final isAnimating = _answerSelected && 
-                                    selectedChoiceIndex == index && 
-                                    _choiceAnimationController.isAnimating;
-                                final isCorrect = index == _correctIndex;
-                                
-                                // Apply scale for correct, shake for wrong
-                                Matrix4 transform;
-                                if (isAnimating && isCorrect) {
-                                  transform = Matrix4.identity()..scale(_scaleAnimation.value);
-                                } else if (isAnimating && !isCorrect) {
-                                  // Oscillate left-right: -10px, 10px, -10px, etc
-                                  final shakeAmount = _shakeAnimation.value;
-                                  final oscillation = (sin(shakeAmount * pi * 4) * 10);
-                                  transform = Matrix4.identity()..translate(oscillation, 0.0, 0.0);
-                                } else {
-                                  transform = Matrix4.identity();
-                                }
+                                  if (isAnimating && isCorrect) {
+                                    return Transform.scale(
+                                      scale: _scaleAnimation.value,
+                                      alignment: Alignment.center,
+                                      child: child,
+                                    );
+                                  }
 
-                                return Transform(
-                                  transform: transform,
-                                  alignment: Alignment.center,
-                                  child: child,
-                                );
-                              },
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.all(16),
-                                constraints: const BoxConstraints(minHeight: 60),
-                                alignment: Alignment.centerLeft,
-                                decoration: BoxDecoration(
-                                color: _choiceGradient(index) == null
-                                    ? _choiceColor(index)
-                                    : null,
-                                gradient: _choiceGradient(index),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: _choiceBorderColor(index),
-                                  width: 1.2,
-                                ),
-                                boxShadow: _answerSelected && selectedChoiceIndex == index
-                                    ? [
-                                        BoxShadow(
-                                          color: _choiceBorderColor(index).withOpacity(0.4),
-                                          blurRadius: 12,
-                                          spreadRadius: 1,
+                                  if (isAnimating && !isCorrect) {
+                                    // Oscillate left-right: -10px, 10px, -10px, etc
+                                    final shakeAmount = _shakeAnimation.value;
+                                    final oscillation =
+                                        (sin(shakeAmount * pi * 4) * 10);
+                                    return Transform.translate(
+                                      offset: Offset(oscillation, 0),
+                                      child: child,
+                                    );
+                                  }
+
+                                  return child;
+                                },
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(16),
+                                  constraints:
+                                      const BoxConstraints(minHeight: 60),
+                                  alignment: Alignment.centerLeft,
+                                  decoration: BoxDecoration(
+                                    color: _choiceGradient(index) == null
+                                        ? _choiceColor(index)
+                                        : null,
+                                    gradient: _choiceGradient(index),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: _choiceBorderColor(index),
+                                      width: 1.2,
+                                    ),
+                                    boxShadow: _answerSelected &&
+                                            selectedChoiceIndex == index
+                                        ? [
+                                            BoxShadow(
+                                              color: _choiceBorderColor(index)
+                                                  .withValues(alpha: 0.4),
+                                              blurRadius: 12,
+                                              spreadRadius: 1,
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.max,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '${String.fromCharCode(65 + index)}.',
+                                        style: GoogleFonts.outfit(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: r.fontSize(16),
+                                          color: _choiceTextColor(index),
                                         ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.max,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    '${String.fromCharCode(65 + index)}.',
-                                    style: GoogleFonts.outfit(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: r.fontSize(16),
-                                      color: _choiceTextColor(index),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Text(
-                                      currentQuestion.choices[index],
-                                      style: GoogleFonts.outfit(
-                                        fontSize: r.fontSize(15),
-                                        color: _choiceTextColor(index),
-                                        height: 1.3,
                                       ),
-                                    ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Text(
+                                          currentQuestion.choices[index],
+                                          style: GoogleFonts.outfit(
+                                            fontSize: r.fontSize(15),
+                                            color: _choiceTextColor(index),
+                                            height: 1.3,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  ),
                   ),
 
                   const SizedBox(height: 16),
@@ -765,13 +804,13 @@ class _QuestionScreenState extends State<QuestionScreen>
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
-                                PnleTheme.danger.withOpacity(0.15),
-                                PnleTheme.danger.withOpacity(0.08),
+                                PnleTheme.danger.withValues(alpha: 0.15),
+                                PnleTheme.danger.withValues(alpha: 0.08),
                               ],
                             ),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: PnleTheme.danger.withOpacity(0.4),
+                              color: PnleTheme.danger.withValues(alpha: 0.4),
                               width: 1.5,
                             ),
                           ),
@@ -783,7 +822,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(
+                                  const Icon(
                                     Icons.flag_outlined,
                                     color: PnleTheme.danger,
                                     size: 18,
@@ -805,76 +844,115 @@ class _QuestionScreenState extends State<QuestionScreen>
                       ),
                       const SizedBox(width: 12),
                       // Explain Why Button
-                      Expanded(
-                        flex: 2,
-                        child: Container(
-                          height: 48,
-                          decoration: BoxDecoration(
-                            gradient: (_answerSelected && !_explanationRequested && _canUseExplainWhy())
-                                ? const LinearGradient(
-                                    colors: [
-                                      PnleTheme.success,
-                                      Color(0xFF4CAF6F),
+                      Builder(
+                        builder: (context) {
+                          final hasExplainAccess = _canUseExplainWhy();
+                          final canOfferExplainAd = _canOfferExplainAdUnlock();
+                          final canTapExplain = _answerSelected &&
+                              !_explanationRequested &&
+                              (hasExplainAccess || canOfferExplainAd);
+
+                          return Expanded(
+                            flex: 2,
+                            child: Container(
+                              height: 48,
+                              decoration: BoxDecoration(
+                                gradient: (canTapExplain && hasExplainAccess)
+                                    ? const LinearGradient(
+                                        colors: [
+                                          PnleTheme.success,
+                                          Color(0xFF4CAF6F),
+                                        ],
+                                      )
+                                    : (canTapExplain && !hasExplainAccess)
+                                        ? const LinearGradient(
+                                            colors: [
+                                              Color(0xFFF6AD55),
+                                              Color(0xFFED8936),
+                                            ],
+                                          )
+                                        : LinearGradient(
+                                            colors: [
+                                              Colors.white
+                                                  .withValues(alpha: 0.12),
+                                              Colors.white
+                                                  .withValues(alpha: 0.06),
+                                            ],
+                                          ),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: (canTapExplain && hasExplainAccess)
+                                      ? PnleTheme.success.withValues(alpha: 0.6)
+                                      : (canTapExplain && !hasExplainAccess)
+                                          ? const Color(0xFFED8936)
+                                              .withValues(alpha: 0.75)
+                                          : Colors.white.withValues(alpha: 0.2),
+                                  width: 1.5,
+                                ),
+                                boxShadow: (canTapExplain && hasExplainAccess)
+                                    ? [
+                                        BoxShadow(
+                                          color: PnleTheme.success
+                                              .withValues(alpha: 0.3),
+                                          blurRadius: 8,
+                                          spreadRadius: 1,
+                                        ),
+                                      ]
+                                    : (canTapExplain && !hasExplainAccess)
+                                        ? [
+                                            BoxShadow(
+                                              color: const Color(0xFFED8936)
+                                                  .withValues(alpha: 0.25),
+                                              blurRadius: 8,
+                                              spreadRadius: 1,
+                                            ),
+                                          ]
+                                        : null,
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap:
+                                      canTapExplain ? _showExplanation : null,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      (_answerSelected &&
+                                              !hasExplainAccess &&
+                                              canOfferExplainAd)
+                                          ? Image.asset(
+                                              'assets/images/ads.png',
+                                              width: 20,
+                                              height: 20,
+                                            )
+                                          : Icon(
+                                              Icons.lightbulb_outline_rounded,
+                                              color: canTapExplain
+                                                  ? PnleTheme.bgBottom
+                                                  : Colors.white
+                                                      .withValues(alpha: 0.4),
+                                              size: 20,
+                                            ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Explain Why',
+                                        style: GoogleFonts.outfit(
+                                          color: canTapExplain
+                                              ? PnleTheme.bgBottom
+                                              : Colors.white
+                                                  .withValues(alpha: 0.4),
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                        ),
+                                      ),
                                     ],
-                                  )
-                                : LinearGradient(
-                                    colors: [
-                                      Colors.white.withOpacity(0.12),
-                                      Colors.white.withOpacity(0.06),
-                                    ],
                                   ),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: (_answerSelected && !_explanationRequested && _canUseExplainWhy())
-                                  ? PnleTheme.success.withOpacity(0.6)
-                                  : Colors.white.withOpacity(0.2),
-                              width: 1.5,
-                            ),
-                            boxShadow: (_answerSelected && !_explanationRequested && _canUseExplainWhy())
-                                ? [
-                                    BoxShadow(
-                                      color: PnleTheme.success.withOpacity(0.3),
-                                      blurRadius: 8,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: (_answerSelected && !_explanationRequested && _canUseExplainWhy())
-                                  ? _showExplanation
-                                  : null,
-                              borderRadius: BorderRadius.circular(16),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.lightbulb_outline_rounded,
-                                    color: (_answerSelected && !_explanationRequested && _canUseExplainWhy())
-                                        ? PnleTheme.bgBottom
-                                        : Colors.white.withOpacity(0.4),
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    (_answerSelected && !_canUseExplainWhy())
-                                        ? 'Limit Reached'
-                                        : 'Explain Why?',
-                                    style: GoogleFonts.outfit(
-                                      color: (_answerSelected && !_explanationRequested && _canUseExplainWhy())
-                                          ? PnleTheme.bgBottom
-                                          : Colors.white.withOpacity(0.4),
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -882,7 +960,9 @@ class _QuestionScreenState extends State<QuestionScreen>
                   const SizedBox(height: 12),
 
                   // BANNER AD
-                  if (!widget.isPremium && _isBannerAdLoaded && _bannerAd != null)
+                  if (!widget.isPremium &&
+                      _isBannerAdLoaded &&
+                      _bannerAd != null)
                     Container(
                       alignment: Alignment.center,
                       width: _bannerAd!.size.width.toDouble(),
@@ -897,10 +977,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.08),
+                      color: Colors.white.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                       ),
                     ),
                     child: Row(
@@ -917,19 +997,19 @@ class _QuestionScreenState extends State<QuestionScreen>
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                                 side: BorderSide(
-                                  color: Colors.white.withOpacity(0.3),
+                                  color: Colors.white.withValues(alpha: 0.3),
                                 ),
                               ),
                             ),
                             icon: Icon(
                               Icons.exit_to_app_rounded,
-                              color: Colors.white.withOpacity(0.9),
+                              color: Colors.white.withValues(alpha: 0.9),
                               size: 18,
                             ),
                             label: Text(
                               'MENU',
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withOpacity(0.9),
+                                color: Colors.white.withValues(alpha: 0.9),
                                 fontWeight: FontWeight.bold,
                                 fontSize: r.fontSize(14),
                               ),
@@ -940,11 +1020,12 @@ class _QuestionScreenState extends State<QuestionScreen>
                         Expanded(
                           flex: 2,
                           child: ElevatedButton.icon(
-                            onPressed: _answerSelected ? () => _nextQuestion() : null,
+                            onPressed:
+                                _answerSelected ? () => _nextQuestion() : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _answerSelected
                                   ? PnleTheme.accent
-                                  : Colors.white.withOpacity(0.15),
+                                  : Colors.white.withValues(alpha: 0.15),
                               shadowColor: Colors.transparent,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               minimumSize: const Size.fromHeight(56),
@@ -952,7 +1033,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               disabledBackgroundColor:
-                                  Colors.white.withOpacity(0.15),
+                                  Colors.white.withValues(alpha: 0.15),
                             ),
                             icon: Icon(
                               currentIndex == widget.questions.length - 1
@@ -960,7 +1041,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                   : Icons.arrow_forward_rounded,
                               color: _answerSelected
                                   ? PnleTheme.bgBottom
-                                  : Colors.white.withOpacity(0.5),
+                                  : Colors.white.withValues(alpha: 0.5),
                               size: r.size(20),
                             ),
                             label: Text(
@@ -970,7 +1051,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                               style: GoogleFonts.outfit(
                                 color: _answerSelected
                                     ? PnleTheme.bgBottom
-                                    : Colors.white.withOpacity(0.5),
+                                    : Colors.white.withValues(alpha: 0.5),
                                 fontWeight: FontWeight.bold,
                                 fontSize: r.fontSize(15),
                               ),
@@ -997,6 +1078,40 @@ class _QuestionScreenState extends State<QuestionScreen>
     Navigator.pop(context);
   }
 
+  Future<void> _showEndQuizInterstitialIfNeeded() async {
+    if (widget.isPremium || widget.testMode == 'quickPractice') {
+      return;
+    }
+    if (!_isInterstitialAdLoaded || _interstitialAd == null) {
+      return;
+    }
+
+    final completer = Completer<void>();
+    _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _interstitialAd = null;
+        _isInterstitialAdLoaded = false;
+        _loadInterstitialAd();
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _interstitialAd = null;
+        _isInterstitialAdLoaded = false;
+        _loadInterstitialAd();
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      },
+    );
+
+    _interstitialAd!.show();
+    await completer.future;
+  }
+
   Future<void> _nextQuestion() async {
     if (currentIndex < widget.questions.length - 1) {
       _timeController.stop();
@@ -1009,6 +1124,7 @@ class _QuestionScreenState extends State<QuestionScreen>
         _isLocked = false;
         _answerSelected = false;
         _explanationRequested = false;
+        _explainAdUnlockedForCurrentQuestion = false;
       });
 
       // Update timer duration for the new question's category
@@ -1019,13 +1135,20 @@ class _QuestionScreenState extends State<QuestionScreen>
       _startTimer();
     } else {
       _timeController.stop();
+
+      // Show interstitial first for free users; only show animated results after ad closes.
+      await _showEndQuizInterstitialIfNeeded();
+      if (!mounted) return;
+      // Let route lifecycle settle after full-screen ad before mounting results dialog.
+      await Future.delayed(const Duration(milliseconds: 120));
+      if (!mounted) return;
+
       await _showResultsDialog();
     }
   }
 
   Future<void> _showResultsDialog() async {
-    final totalCorrect =
-        _correctCount.values.fold(0, (sum, val) => sum + val);
+    final totalCorrect = _correctCount.values.fold(0, (sum, val) => sum + val);
     final totalQuestions = widget.questions.length;
     final percentageValue = (totalCorrect / totalQuestions) * 100;
     final isPerfect = percentageValue == 100.0;
@@ -1038,9 +1161,10 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     final action = await showDialog<String>(
       context: context,
+      useRootNavigator: true,
       barrierDismissible: false,
       barrierColor: Colors.black87,
-      builder: (_) {
+      builder: (dialogContext) {
         return AnimatedResultsDialog(
           totalCorrect: totalCorrect,
           totalQuestions: totalQuestions,
@@ -1049,13 +1173,11 @@ class _QuestionScreenState extends State<QuestionScreen>
           correctCount: _correctCount,
           totalCount: _totalCount,
           isPremium: widget.isPremium,
-          isInterstitialAdLoaded: _isInterstitialAdLoaded,
-          interstitialAd: _interstitialAd,
           testMode: widget.testMode,
           elapsedSeconds: elapsedSeconds,
           zeroAdSessionsRemaining: widget.zeroAdSessionsRemaining,
           onResultAction: (action) {
-            Navigator.pop(context, action);
+            Navigator.of(dialogContext, rootNavigator: true).pop(action);
           },
         );
       },
@@ -1089,6 +1211,7 @@ class _QuestionScreenState extends State<QuestionScreen>
           'correctCount': Map<String, int>.from(_correctCount),
           'totalCount': Map<String, int>.from(_totalCount),
           'nextAction': 'playAgain',
+          'testMode': widget.testMode,
         };
         Navigator.pop(context, results);
       } else {
@@ -1100,6 +1223,7 @@ class _QuestionScreenState extends State<QuestionScreen>
         'correctCount': Map<String, int>.from(_correctCount),
         'totalCount': Map<String, int>.from(_totalCount),
         'nextAction': 'menu',
+        'testMode': widget.testMode,
       };
       Navigator.pop(context, widget.recordResults ? results : 'menu');
     }
@@ -1108,38 +1232,220 @@ class _QuestionScreenState extends State<QuestionScreen>
   // OLD RESULTS DIALOG - Removed. Using AnimatedResultsDialog instead.
   // _showResultsDialog_REMOVED method removed - using AnimatedResultsDialog  // _resultItem removed - not used
 
-  void _showExplanation() {
-    // Check if free user has reached limit (5th explanation)
-    if (!widget.isPremium && explanationCount >= 4) {
-      showDialog(
-        context: context,
-        barrierColor: Colors.black87,
-        builder: (_) => SubscriptionDialog(
-          triggerSource: 'explain_limit',
-          onStartTrial: () {
-            Navigator.pop(context);
-            // In a real app, this would activate trial in MenuScreen
-            // For now, we'll just show a message
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('✓ 3-Day Free Trial Activated!'),
-                duration: Duration(seconds: 2),
-              ),
-            );
-          },
-          onClose: () => Navigator.pop(context),
+  Future<void> _showExplainAdOfferDialog() async {
+    if (!_canOfferExplainAdUnlock()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ad unlock limit reached for this quiz. Try again next quiz session.',
+            style: GoogleFonts.outfit(),
+          ),
+          duration: const Duration(seconds: 2),
         ),
       );
       return;
     }
 
-    // Mark as requested and increment count
+    final remainingAdUnlocks = _maxExplainAdUnlocks - _explainAdUnlockCount;
+    final shouldWatch = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                PnleTheme.bgTop.withValues(alpha: 0.96),
+                PnleTheme.bgBottom.withValues(alpha: 0.96),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.3),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.info_outline_rounded,
+                      color: Color(0xFFFFC86A),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Free Explain Limit Reached',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Watch an ad to unlock Explain Why for this question.',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Ad unlocks left this quiz: $remainingAdUnlocks/$_maxExplainAdUnlocks',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.72),
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.45),
+                        ),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        'Not now',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: PnleTheme.accent,
+                        foregroundColor: PnleTheme.bgBottom,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Image.asset(
+                            'assets/images/ads.png',
+                            width: 18,
+                            height: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Explain Why',
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (shouldWatch != true || !mounted) return;
+
+    final unlocked = await _showExplainRewardedAd();
+    if (!mounted) return;
+
+    if (!unlocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ad not available yet. Please try again in a moment.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _explainAdUnlockedForCurrentQuestion = true;
+      _explainAdUnlockCount++;
+    });
+
+    _openExplanationDialog(countAsFreeUsage: false);
+  }
+
+  Future<bool> _showExplainRewardedAd() async {
+    if (!_isExplainRewardedAdLoaded || _explainRewardedAd == null) {
+      _loadExplainRewardedAd();
+      return false;
+    }
+
+    final completer = Completer<bool>();
+    var rewardEarned = false;
+
+    _explainRewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        _explainRewardedAd = null;
+        _isExplainRewardedAdLoaded = false;
+        _loadExplainRewardedAd();
+        if (!completer.isCompleted) completer.complete(rewardEarned);
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        _explainRewardedAd = null;
+        _isExplainRewardedAdLoaded = false;
+        _loadExplainRewardedAd();
+        if (!completer.isCompleted) completer.complete(false);
+      },
+    );
+
+    _explainRewardedAd!.show(
+      onUserEarnedReward: (_, __) {
+        rewardEarned = true;
+      },
+    );
+
+    return completer.future;
+  }
+
+  void _openExplanationDialog({required bool countAsFreeUsage}) {
     setState(() {
       _explanationRequested = true;
-      explanationCount++;
-      // In Quick Practice, mark that free user has used explain why
-      if (widget.testMode == 'quickPractice' && !widget.isPremium) {
-        _hasUsedExplainWhyInQuickPractice = true;
+      if (countAsFreeUsage && !widget.isPremium) {
+        explanationCount++;
       }
     });
 
@@ -1147,10 +1453,10 @@ class _QuestionScreenState extends State<QuestionScreen>
     final userAnswerText = selectedChoiceIndex != null
         ? currentQuestion.choices[selectedChoiceIndex!]
         : 'No answer selected';
-    
+
     // Get correct answer text
     final correctAnswerText = currentQuestion.choices[_correctIndex];
-    
+
     // Check if user is correct
     final isCorrect = selectedChoiceIndex == _correctIndex;
 
@@ -1175,25 +1481,18 @@ class _QuestionScreenState extends State<QuestionScreen>
         onReportContent: _reportContent,
         onUseBetterAI: () async {
           Navigator.pop(context);
-          
+
           // Get user's selected answer text
           final userAnswerText = selectedChoiceIndex != null
               ? currentQuestion.choices[selectedChoiceIndex!]
               : 'No answer selected';
-          
+
           // Get correct answer text
           final correctAnswerText = currentQuestion.choices[_correctIndex];
-          
+
           // Check if user is correct
           final isCorrect = selectedChoiceIndex == _correctIndex;
-          
-          // Show interstitial ad for free users
-          if (!widget.isPremium && _isInterstitialAdLoaded && _interstitialAd != null) {
-            await _interstitialAd!.show();
-            // Reload ad after showing
-            _loadInterstitialAd();
-          }
-          
+
           if (mounted) {
             showDialog(
               context: context,
@@ -1220,5 +1519,28 @@ class _QuestionScreenState extends State<QuestionScreen>
       ),
     );
   }
-}
 
+  void _showExplanation() {
+    if (!widget.isPremium && !_canUseExplainWhy()) {
+      if (!_canOfferExplainAdUnlock()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Ad unlock limit reached for this quiz. Try again next quiz session.',
+              style: GoogleFonts.outfit(),
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        return;
+      }
+      _showExplainAdOfferDialog();
+      return;
+    }
+
+    _openExplanationDialog(
+      countAsFreeUsage:
+          !widget.isPremium && !_explainAdUnlockedForCurrentQuestion,
+    );
+  }
+}

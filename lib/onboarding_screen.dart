@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:ui';
 import 'config/pnle_theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -56,140 +55,146 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+
     return PopScope(
       canPop: false,
       child: Scaffold(
         body: Container(
           decoration: const BoxDecoration(gradient: PnleTheme.appBackground),
           child: Column(
-          children: [
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                onPageChanged: (int page) =>
-                    setState(() => _currentPage = page),
-                children: [
-                  _buildOnboardingPage(
-                    icon: Icons.quiz_rounded,
-                    title: 'Welcome to UPCAT AI Reviewer 2027',
-                    description:
-                        'Master your UPCAT preparation with AI-powered questions and expert explanations.',
-                    color: PnleTheme.accent,
-                  ),
-                  _buildOnboardingPage(
-                    icon: Icons.assessment_outlined,
-                    title: '4 Daily Sessions',
-                    description:
-                        'Complete 4 quiz sessions each day to build comprehensive exam knowledge across all categories.',
-                    color: const Color(0xFF34D399),
-                  ),
-                  _buildOnboardingPage(
-                    icon: Icons.trending_up_outlined,
-                    title: 'Track Your Progress',
-                    description:
-                      'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your UPCAT subject areas.',
-                    color: const Color(0xFF0891B2),
-                  ),
-                  _buildOnboardingPage(
-                    icon: Icons.lightbulb_outline,
-                    title: 'Smart Explanations',
-                    description:
-                        'Get instant AI-powered explanations for every question. Premium plans offer advanced insights.',
-                    color: const Color(0xFFFF6B6B),
-                  ),
-                  _buildGetStartedPage(),
-                ],
+            children: [
+              Expanded(
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (int page) =>
+                      setState(() => _currentPage = page),
+                  children: [
+                    _buildOnboardingPage(
+                      icon: Icons.quiz_rounded,
+                      title: 'Welcome to UPCAT AI Reviewer 2027',
+                      description:
+                          'Master your UPCAT preparation with AI-powered questions and expert explanations.',
+                      color: PnleTheme.accent,
+                    ),
+                    _buildOnboardingPage(
+                      icon: Icons.assessment_outlined,
+                      title: '4 Daily Sessions',
+                      description:
+                          'Complete 4 quiz sessions each day to build comprehensive exam knowledge across all categories.',
+                      color: const Color(0xFF34D399),
+                    ),
+                    _buildOnboardingPage(
+                      icon: Icons.trending_up_outlined,
+                      title: 'Track Your Progress',
+                      description:
+                          'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your UPCAT subject areas.',
+                      color: const Color(0xFF0891B2),
+                    ),
+                    _buildOnboardingPage(
+                      icon: Icons.lightbulb_outline,
+                      title: 'Smart Explanations',
+                      description:
+                          'Get instant AI-powered explanations for every question. Premium plans offer advanced insights.',
+                      color: const Color(0xFFFF6B6B),
+                    ),
+                    _buildGetStartedPage(),
+                  ],
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  // Dots indicator
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      _totalPages,
-                      (index) => Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: _currentPage == index ? 24 : 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(4),
-                          color: _currentPage == index
-                              ? PnleTheme.accent
-                              : Colors.white.withOpacity(0.3),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    if (!(_currentPage == _totalPages - 1 &&
+                        keyboardVisible)) ...[
+                      // Dots indicator
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(
+                          _totalPages,
+                          (index) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            width: _currentPage == index ? 24 : 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(4),
+                              color: _currentPage == index
+                                  ? PnleTheme.accent
+                                  : Colors.white.withValues(alpha: 0.3),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  // Navigation buttons (only on pages before the last)
-                  if (_currentPage < _totalPages - 1)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (_currentPage > 0)
-                          ElevatedButton(
-                            onPressed: () {
-                              _pageController.previousPage(
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeInOut,
-                              );
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white.withOpacity(0.15),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                      const SizedBox(height: 32),
+                      // Navigation buttons (only on pages before the last)
+                      if (_currentPage < _totalPages - 1)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            if (_currentPage > 0)
+                              ElevatedButton(
+                                onPressed: () {
+                                  _pageController.previousPage(
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.easeInOut,
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor:
+                                      Colors.white.withValues(alpha: 0.15),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 24,
+                                    vertical: 12,
+                                  ),
+                                ),
+                                child: Text(
+                                  'Back',
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              )
+                            else
+                              const SizedBox(width: 80),
+                            ElevatedButton(
+                              onPressed: () {
+                                _pageController.nextPage(
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: PnleTheme.accent,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 12,
+                                ),
                               ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 12,
+                              child: Text(
+                                'Next',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                            child: Text(
-                              'Back',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          )
-                        else
-                          const SizedBox(width: 80),
-                        ElevatedButton(
-                          onPressed: () {
-                            _pageController.nextPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: PnleTheme.accent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                          ),
-                          child: Text(
-                            'Next',
-                            style: GoogleFonts.outfit(
-                              color: Colors.black,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
-                  else
-                    const SizedBox.shrink(),
-                ],
+                          ],
+                        )
+                      else
+                        const SizedBox.shrink(),
+                    ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
           ),
         ),
       ),
@@ -213,7 +218,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
-                colors: [color, color.withOpacity(0.5)],
+                colors: [color, color.withValues(alpha: 0.5)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -236,7 +241,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             description,
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
-              color: Colors.white.withOpacity(0.8),
+              color: Colors.white.withValues(alpha: 0.8),
               fontSize: 16,
               height: 1.6,
               letterSpacing: 0.2,
@@ -248,125 +253,175 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildGetStartedPage() {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  PnleTheme.accent,
-                  PnleTheme.accent.withOpacity(0.5),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: const Icon(Icons.rocket_launch_rounded,
-                size: 64, color: Colors.white),
-          ),
-          const SizedBox(height: 32),
-          Text(
-            'Ready to Start!',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.outfit(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 28,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.2),
-              ),
-              color: Colors.white.withOpacity(0.05),
-            ),
-            child: Column(
-              children: [
-                _buildBenefitRow(
-                  icon: Icons.ad_units_rounded,
-                  title: 'Zero Ads for 4 Sessions',
-                  description: 'Enjoy your first 4 sessions ad-free!',
+    final viewInsets = MediaQuery.of(context).viewInsets;
+    final keyboardVisible = viewInsets.bottom > 0;
+    final isReady = _nicknameController.text.trim().isNotEmpty;
+
+    return SafeArea(
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.fromLTRB(32, 24, 32, 24),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      children: [
+                        const SizedBox(height: 8),
+                        if (!keyboardVisible) ...[
+                          Container(
+                            width: 120,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [
+                                  PnleTheme.accent,
+                                  PnleTheme.accent.withValues(alpha: 0.5),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: const Icon(Icons.rocket_launch_rounded,
+                                size: 64, color: Colors.white),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                        Text(
+                          'Ready to Start!',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: keyboardVisible ? 24 : 28,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        if (!keyboardVisible)
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.2),
+                              ),
+                              color: Colors.white.withValues(alpha: 0.05),
+                            ),
+                            child: Column(
+                              children: [
+                                _buildBenefitRow(
+                                  icon: Icons.insights_rounded,
+                                  title: 'Smart Practice Sessions',
+                                  description:
+                                      'Clear feedback after every completed quiz',
+                                ),
+                                const SizedBox(height: 14),
+                                _buildBenefitRow(
+                                  icon: Icons.assessment_outlined,
+                                  title: 'Daily Progress Tracking',
+                                  description:
+                                      'Complete 4 sessions to finish your daily mock',
+                                ),
+                                const SizedBox(height: 14),
+                                _buildBenefitRow(
+                                  icon: Icons.local_fire_department_rounded,
+                                  title: 'Build Your Streak',
+                                  description:
+                                      'Stay consistent to build your study streak',
+                                ),
+                                const SizedBox(height: 14),
+                                _buildBenefitRow(
+                                  icon: Icons.auto_awesome_rounded,
+                                  title: 'AI-Powered Questions',
+                                  description:
+                                      'Fresh questions generated every session',
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Column(
+                      children: [
+                        TextField(
+                          controller: _nicknameController,
+                          textInputAction: TextInputAction.done,
+                          onChanged: (_) => setState(() {}),
+                          onSubmitted: (_) {
+                            if (_nicknameController.text.trim().isNotEmpty) {
+                              _completeOnboarding();
+                            }
+                          },
+                          onTapOutside: (_) => FocusScope.of(context).unfocus(),
+                          style: GoogleFonts.outfit(color: Colors.white),
+                          decoration: InputDecoration(
+                            labelText: 'Nickname (required)',
+                            labelStyle:
+                                GoogleFonts.outfit(color: Colors.white70),
+                            hintText: 'Ex. Nika or Miko',
+                            hintStyle:
+                                GoogleFonts.outfit(color: Colors.white38),
+                            filled: true,
+                            fillColor: Colors.white.withValues(alpha: 0.08),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.25),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide:
+                                  const BorderSide(color: PnleTheme.accent),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: isReady
+                                ? () {
+                                    FocusScope.of(context).unfocus();
+                                    _completeOnboarding();
+                                  }
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: PnleTheme.accent,
+                              disabledBackgroundColor:
+                                  Colors.white.withValues(alpha: 0.16),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: Text(
+                              'Get Started',
+                              style: GoogleFonts.outfit(
+                                color: isReady ? Colors.black : Colors.white54,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                _buildBenefitRow(
-                  icon: Icons.assessment_outlined,
-                  title: 'Daily Progress Tracking',
-                  description: 'Complete 4 sessions to finish your daily mock',
-                ),
-                const SizedBox(height: 14),
-                _buildBenefitRow(
-                  icon: Icons.local_fire_department_rounded,
-                  title: 'Build Your Streak',
-                  description: 'Stay consistent to build your study streak',
-                ),
-                const SizedBox(height: 14),
-                _buildBenefitRow(
-                  icon: Icons.auto_awesome_rounded,
-                  title: 'AI-Powered Questions',
-                  description: 'Fresh questions generated every session',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-          TextField(
-            controller: _nicknameController,
-            textInputAction: TextInputAction.done,
-            onChanged: (_) => setState(() {}),
-            style: GoogleFonts.outfit(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Nickname (required)',
-              labelStyle: GoogleFonts.outfit(color: Colors.white70),
-              hintText: 'Ex. Nika or Miko',
-              hintStyle: GoogleFonts.outfit(color: Colors.white38),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.08),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.25)),
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: PnleTheme.accent),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _nicknameController.text.trim().isEmpty
-                  ? null
-                  : _completeOnboarding,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: PnleTheme.accent,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: Text(
-                'Get Started',
-                style: GoogleFonts.outfit(
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
-        ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -395,7 +450,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Text(
                 description,
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withOpacity(0.7),
+                  color: Colors.white.withValues(alpha: 0.7),
                   fontSize: 11,
                 ),
               ),

@@ -1,15 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:ui';
 import 'config/pnle_theme.dart';
-import 'subscription_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
-  final bool isPremium;
-  final bool isTrialActive;
-  final DateTime? trialEndDate;
-  final VoidCallback? onPremiumActivated;
-  final Future<void> Function()? onRestorePurchases;
   final String nickname;
   final Future<void> Function(String nickname)? onNicknameChanged;
   final bool muteAllSounds;
@@ -18,11 +11,6 @@ class SettingsScreen extends StatefulWidget {
 
   const SettingsScreen({
     super.key,
-    required this.isPremium,
-    required this.isTrialActive,
-    required this.trialEndDate,
-    this.onPremiumActivated,
-    this.onRestorePurchases,
     this.nickname = '',
     this.onNicknameChanged,
     this.muteAllSounds = false,
@@ -35,18 +23,12 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late bool _isPremium;
-  late bool _isTrialActive;
-  late DateTime? _trialEndDate;
   late TextEditingController _nicknameController;
   late bool _muteAllSounds;
 
   @override
   void initState() {
     super.initState();
-    _isPremium = widget.isPremium;
-    _isTrialActive = widget.isTrialActive;
-    _trialEndDate = widget.trialEndDate;
     _nicknameController = TextEditingController(text: widget.nickname);
     _muteAllSounds = widget.muteAllSounds;
   }
@@ -54,10 +36,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void didUpdateWidget(SettingsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Update local state if widget props change
-    _isPremium = widget.isPremium;
-    _isTrialActive = widget.isTrialActive;
-    _trialEndDate = widget.trialEndDate;
     if (_nicknameController.text != widget.nickname) {
       _nicknameController.text = widget.nickname;
     }
@@ -77,7 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (widget.embedded) ...[          
+          if (widget.embedded) ...[
             const SizedBox(height: 8),
             Text(
               'Settings',
@@ -90,11 +68,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
           ],
-          // Subscription Status
-          _buildSectionTitle('SUBSCRIPTION'),
-          _buildSubscriptionCard(),
-          const SizedBox(height: 24),
-
           _buildSectionTitle('PROFILE'),
           _buildSettingsTile(
             icon: Icons.person_outline,
@@ -122,32 +95,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // Information
           _buildSectionTitle('INFORMATION'),
-            _buildSettingsTile(
-              icon: Icons.help_outline,
-              title: 'Help & FAQ',
-              subtitle: 'Learn how to use the app',
-              onTap: _showHelpDialog,
-            ),
-            const SizedBox(height: 12),
-            _buildSettingsTile(
-              icon: Icons.privacy_tip_outlined,
-              title: 'Privacy Policy',
-              subtitle: 'Our commitment to you',
-              onTap: _showPrivacyDialog,
-            ),
-            const SizedBox(height: 12),
-            _buildSettingsTile(
-              icon: Icons.info_outline,
-              title: 'About',
-              subtitle: 'App version & credits',
-              onTap: _showAboutDialog,
-            ),
-            const SizedBox(height: 24),
+          _buildSettingsTile(
+            icon: Icons.help_outline,
+            title: 'Help & FAQ',
+            subtitle: 'Learn how to use the app',
+            onTap: _showHelpDialog,
+          ),
+          const SizedBox(height: 12),
+          _buildSettingsTile(
+            icon: Icons.privacy_tip_outlined,
+            title: 'Privacy Policy',
+            subtitle: 'Our commitment to you',
+            onTap: _showPrivacyDialog,
+          ),
+          const SizedBox(height: 12),
+          _buildSettingsTile(
+            icon: Icons.info_outline,
+            title: 'About',
+            subtitle: 'App version & credits',
+            onTap: _showAboutDialog,
+          ),
+          const SizedBox(height: 24),
 
-            const SizedBox(height: 32),
-          ],
-        ),
-      );
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
 
     if (widget.embedded) {
       return body;
@@ -182,111 +155,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSubscriptionCard() {
-    final isExpired = _isTrialActive &&
-        _trialEndDate != null &&
-        DateTime.now().isAfter(_trialEndDate!);
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.18),
-              width: 1,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _isPremium ? '👑 Premium Member' : '🎯 Free Trial',
-                    style: GoogleFonts.outfit(
-                      color: PnleTheme.accent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _isPremium
-                          ? Colors.green.withOpacity(0.3)
-                          : Colors.amber.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _isPremium ? 'Active' : isExpired ? 'Expired' : 'Active',
-                      style: GoogleFonts.outfit(
-                        color: _isPremium ? Colors.green : isExpired ? Colors.red : Colors.amber,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (_isTrialActive && !isExpired && _trialEndDate != null)
-                Text(
-                  'Trial expires in ${_trialEndDate!.difference(DateTime.now()).inDays} days',
-                  style: GoogleFonts.outfit(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 13,
-                  ),
-                )
-              else if (_isPremium)
-                Text(
-                  'Enjoy ad-free experience & unlimited explanations!',
-                  style: GoogleFonts.outfit(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 13,
-                  ),
-                )
-              else
-                Text(
-                  'Upgrade to Premium for unlimited access',
-                  style: GoogleFonts.outfit(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 13,
-                  ),
-                ),
-              if (!_isPremium) ...[
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: _showSubscriptionDialog,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: PnleTheme.accent,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 10,
-                    ),
-                  ),
-                  child: Text(
-                    'Upgrade Now',
-                    style: GoogleFonts.outfit(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildSettingsTile({
     required IconData icon,
     required String title,
@@ -298,11 +166,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.15)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
       ),
       child: ListTile(
         onTap: onTap,
-        leading: Icon(icon, color: textColor.withOpacity(0.8)),
+        leading: Icon(icon, color: textColor.withValues(alpha: 0.8)),
         title: Text(
           title,
           style: GoogleFonts.outfit(
@@ -313,11 +181,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: Text(
           subtitle,
           style: GoogleFonts.outfit(
-            color: Colors.white.withOpacity(0.6),
+            color: Colors.white.withValues(alpha: 0.6),
             fontSize: 12,
           ),
         ),
-        trailing: trailing ?? Icon(Icons.chevron_right, color: textColor.withOpacity(0.6)),
+        trailing: trailing ??
+            Icon(Icons.chevron_right, color: textColor.withValues(alpha: 0.6)),
       ),
     );
   }
@@ -332,13 +201,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.15)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
       ),
       child: SwitchListTile(
         value: value,
         onChanged: onChanged,
-        activeColor: PnleTheme.accent,
-        secondary: Icon(icon, color: Colors.white.withOpacity(0.8)),
+        activeThumbColor: PnleTheme.accent,
+        secondary: Icon(icon, color: Colors.white.withValues(alpha: 0.8)),
         title: Text(
           title,
           style: GoogleFonts.outfit(
@@ -349,7 +218,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         subtitle: Text(
           subtitle,
           style: GoogleFonts.outfit(
-            color: Colors.white.withOpacity(0.6),
+            color: Colors.white.withValues(alpha: 0.6),
             fontSize: 12,
           ),
         ),
@@ -371,12 +240,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              PnleTheme.bgTop.withOpacity(0.98),
-              PnleTheme.bgBottom.withOpacity(0.96),
+              PnleTheme.bgTop.withValues(alpha: 0.98),
+              PnleTheme.bgBottom.withValues(alpha: 0.96),
             ],
           ),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: PnleTheme.accent.withOpacity(0.32)),
+          border: Border.all(color: PnleTheme.accent.withValues(alpha: 0.32)),
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
@@ -399,7 +268,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   IconButton(
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close_rounded),
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withValues(alpha: 0.8),
                     splashRadius: 20,
                   ),
                 ],
@@ -479,7 +348,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 counterStyle: GoogleFonts.outfit(color: Colors.white54),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: Colors.white.withOpacity(0.25)),
+                  borderSide:
+                      BorderSide(color: Colors.white.withValues(alpha: 0.25)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -499,7 +369,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   setState(() {
                     _nicknameController.text = updated;
                   });
-                  Navigator.pop(context);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: PnleTheme.accent,
@@ -533,7 +405,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 4),
         Text(
           answer,
-          style: GoogleFonts.outfit(color: Colors.white.withOpacity(0.8)),
+          style: GoogleFonts.outfit(color: Colors.white.withValues(alpha: 0.8)),
         ),
         const SizedBox(height: 12),
       ],
@@ -553,7 +425,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'Your progress data is backed up through Firebase to keep your data safe across sessions.\n\n'
             'We do not sell your personal data. Third-party services used by the app may include Firebase and Google Mobile Ads.\n\n'
             'For Google Play release: replace this in-app summary with your final published Privacy Policy link and approved legal text.',
-            style: GoogleFonts.outfit(color: Colors.white.withOpacity(0.8)),
+            style:
+                GoogleFonts.outfit(color: Colors.white.withValues(alpha: 0.8)),
           ),
         ),
       ),
@@ -582,7 +455,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               Text(
                 'A comprehensive exam preparation app powered by AI-generated questions and explanations.',
-                style: GoogleFonts.outfit(color: Colors.white.withOpacity(0.8)),
+                style: GoogleFonts.outfit(
+                    color: Colors.white.withValues(alpha: 0.8)),
               ),
               const SizedBox(height: 16),
               Text(
@@ -615,7 +489,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 'domingotambasacan@gmail.com',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withOpacity(0.9),
+                  color: Colors.white.withValues(alpha: 0.9),
                   fontSize: 13,
                 ),
               ),
@@ -630,27 +504,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  void _showSubscriptionDialog() {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (context) => SubscriptionDialog(
-        onStartTrial: () async {
-          Navigator.pop(context);
-          widget.onPremiumActivated?.call();
-        },
-        onRestorePurchases: () async {
-          Navigator.pop(context);
-          await widget.onRestorePurchases?.call();
-        },
-        onClose: () {
-          Navigator.pop(context);
-        },
-        triggerSource: 'settings',
       ),
     );
   }

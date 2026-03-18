@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'config/pnle_theme.dart';
 import 'services/sound_service.dart';
 
@@ -12,8 +11,6 @@ class AnimatedResultsDialog extends StatefulWidget {
   final Map<String, int> correctCount;
   final Map<String, int> totalCount;
   final bool isPremium;
-  final bool isInterstitialAdLoaded;
-  final InterstitialAd? interstitialAd;
   final String? testMode;
   final int elapsedSeconds;
   final Function(String) onResultAction;
@@ -27,8 +24,6 @@ class AnimatedResultsDialog extends StatefulWidget {
     required this.correctCount,
     required this.totalCount,
     required this.isPremium,
-    required this.isInterstitialAdLoaded,
-    required this.interstitialAd,
     required this.testMode,
     this.elapsedSeconds = 0,
     required this.onResultAction,
@@ -71,16 +66,16 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
     )..repeat(reverse: true);
 
     _percentageAnimation = Tween<double>(begin: 0, end: widget.percentageValue)
-        .animate(CurvedAnimation(parent: _percentageController, curve: Curves.easeOutCubic));
+        .animate(CurvedAnimation(
+            parent: _percentageController, curve: Curves.easeOutCubic));
 
-    _buttonGlowAnimation = Tween<double>(begin: 0.0, end: 1.0)
-        .animate(CurvedAnimation(parent: _buttonGlowController, curve: Curves.easeInOut));
+    _buttonGlowAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(
+            parent: _buttonGlowController, curve: Curves.easeInOut));
 
     _percentageController.forward();
     _progressController.forward();
   }
-
-
 
   @override
   void dispose() {
@@ -159,14 +154,16 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
               AnimatedBuilder(
                 animation: _percentageAnimation,
                 builder: (context, child) {
-                  final displayPercentage = _percentageAnimation.value.toStringAsFixed(1);
+                  final displayPercentage =
+                      _percentageAnimation.value.toStringAsFixed(1);
                   final color = _getPercentageColor(_percentageAnimation.value);
                   final scale = 0.95 + (_percentageAnimation.value / 100) * 0.1;
 
                   return Transform.scale(
                     scale: scale,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 20),
                       decoration: BoxDecoration(
                         color: color.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(16),
@@ -205,13 +202,13 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          if (widget.elapsedSeconds > 0) ...
-                          [
+                          if (widget.elapsedSeconds > 0) ...[
                             const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.timer_outlined, color: Colors.white54, size: 16),
+                                Icon(Icons.timer_outlined,
+                                    color: Colors.white54, size: 16),
                                 const SizedBox(width: 6),
                                 Text(
                                   'Time: ${_formatTime(widget.elapsedSeconds)}',
@@ -247,8 +244,10 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                 return AnimatedBuilder(
                   animation: _progressController,
                   builder: (context, _) {
-                    final animatedValue = (correct / total) * _progressController.value;
-                    final percentage = ((correct / total) * 100).toStringAsFixed(0);
+                    final animatedValue =
+                        (correct / total) * _progressController.value;
+                    final percentage =
+                        ((correct / total) * 100).toStringAsFixed(0);
 
                     return _ResultCategoryItem(
                       category: category,
@@ -265,15 +264,8 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                 children: [
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () async {
+                      onPressed: () {
                         _soundService.stopEndingSound();
-                        if (!widget.isPremium &&
-                            widget.testMode != 'quickPractice' &&
-                            widget.zeroAdSessionsRemaining == 0 &&
-                            widget.isInterstitialAdLoaded &&
-                            widget.interstitialAd != null) {
-                          await widget.interstitialAd!.show();
-                        }
                         widget.onResultAction('menu');
                       },
                       style: ElevatedButton.styleFrom(
@@ -288,7 +280,7 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                         ),
                       ),
                       child: Text(
-                        'MAIN MENU',
+                        'QUIZ MENU',
                         style: GoogleFonts.outfit(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -306,24 +298,19 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
                             BoxShadow(
-                              color: PnleTheme.accent
-                                  .withOpacity(0.4 + (_buttonGlowAnimation.value * 0.3)),
+                              color: PnleTheme.accent.withOpacity(
+                                  0.4 + (_buttonGlowAnimation.value * 0.3)),
                               blurRadius: 8 + (_buttonGlowAnimation.value * 8),
-                              spreadRadius: 1 + (_buttonGlowAnimation.value * 2),
+                              spreadRadius:
+                                  1 + (_buttonGlowAnimation.value * 2),
                             ),
                           ],
                         ),
                         child: child,
                       ),
                       child: ElevatedButton(
-                        onPressed: () async {
+                        onPressed: () {
                           _soundService.stopEndingSound();
-                          if (!widget.isPremium &&
-                              widget.zeroAdSessionsRemaining == 0 &&
-                              widget.isInterstitialAdLoaded &&
-                              widget.interstitialAd != null) {
-                            await widget.interstitialAd!.show();
-                          }
                           widget.onResultAction('playAgain');
                         },
                         style: ElevatedButton.styleFrom(

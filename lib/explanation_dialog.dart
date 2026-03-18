@@ -60,11 +60,11 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
 
     try {
       final result = await widget.onGenerate();
-      
+
       if (!mounted) return;
 
       _timer?.cancel();
-      
+
       setState(() {
         isGenerating = false;
         explanation = result;
@@ -72,7 +72,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
       });
     } catch (e) {
       if (!mounted) return;
-      
+
       _timer?.cancel();
       setState(() {
         isGenerating = false;
@@ -438,27 +438,6 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                 fontSize: r.fontSize(14),
                               ),
                             ),
-                            if (!widget.isPremium) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: PnleTheme.accent,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  'AD',
-                                  style: GoogleFonts.outfit(
-                                    color: PnleTheme.bgBottom,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: r.fontSize(10),
-                                  ),
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ),
@@ -472,7 +451,8 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
             // Button (counter or CLOSE)
             if (isGenerating)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -497,7 +477,8 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                   onTap: () => Navigator.pop(context),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 48, vertical: 14),
                     decoration: BoxDecoration(
                       color: PnleTheme.bgTop.withOpacity(0.35),
                       borderRadius: BorderRadius.circular(12),
