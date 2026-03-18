@@ -1448,8 +1448,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       await prefs.setBool('mute_all_sounds', _muteAllSounds);
       await prefs.setInt('completedSessions', completedSessions);
       final now = DateTime.now();
-      await prefs.setString('lastSessionDate',
-          DateTime(now.year, now.month, now.day).toIso8601String());
+      final remoteLastSessionDate = data['lastSessionDate'] as String?;
+      if (remoteLastSessionDate != null && remoteLastSessionDate.isNotEmpty) {
+        await prefs.setString('lastSessionDate', remoteLastSessionDate);
+      } else {
+        await prefs.setString('lastSessionDate',
+            DateTime(now.year, now.month, now.day).toIso8601String());
+      }
       await prefs.setInt('remainingFreeTests', remainingFreeTests);
       await prefs.setInt('extraSessionAdChances', _extraSessionAdChances);
       if (_nextExtraSessionAdRefillAt != null) {
@@ -4754,6 +4759,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final hasFocusReady = weakestCategory.isNotEmpty &&
         ((_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15);
     final hasChallengeReady = (_cachedChallengeQuestions?.length ?? 0) >= 10;
+    final showPregenerationState = _canUseDeepSeekPregeneration();
+    final isRandomFetching =
+        showPregenerationState && _isPrimingRandomQuizCache && !hasRandomReady;
+    final isFocusFetching = _hasUnlockedAdvancedModes &&
+        _isPrimingFreeDeepSeekCache &&
+        !hasFocusReady;
+    final isChallengeFetching = _hasUnlockedAdvancedModes &&
+        _isPrimingChallengeCache &&
+        !hasChallengeReady;
 
     return Stack(
       children: [
@@ -5176,6 +5190,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 isPrimary: true,
                 badge: canTakeQuiz ? null : 'NO CREDITS',
                 showReadyBadge: hasRandomReady,
+                showFetchingBadge: isRandomFetching,
                 isLocked: !canTakeQuiz,
               ),
               const SizedBox(height: 12),
@@ -5217,6 +5232,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
                 showReadyBadge: hasFocusReady,
+                showFetchingBadge: isFocusFetching,
                 isLocked: !canTakeQuiz ||
                     !_hasUnlockedAdvancedModes ||
                     weakestCategory.isEmpty,
@@ -5259,6 +5275,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
                 showReadyBadge: hasChallengeReady,
+                showFetchingBadge: isChallengeFetching,
                 isLocked: !canTakeQuiz || !_hasUnlockedAdvancedModes,
                 showPremiumBanner: false,
               ),
@@ -5398,6 +5415,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     bool isPrimary = false,
     String? badge,
     bool showReadyBadge = false,
+    bool showFetchingBadge = false,
     bool isLocked = false,
     bool showPremiumBanner = false,
   }) {
@@ -5473,7 +5491,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             ),
                           ),
                           if (!showPremiumBanner &&
-                              (badge != null || showReadyBadge))
+                              (badge != null ||
+                                  showReadyBadge ||
+                                  showFetchingBadge))
                             Wrap(
                               spacing: 6,
                               runSpacing: 4,
@@ -5515,6 +5535,31 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     ),
                                     child: Text(
                                       'READY',
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                  ),
+                                if (!showReadyBadge && showFetchingBadge)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1565C0)
+                                          .withValues(alpha: 0.95),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: Colors.white
+                                            .withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'FETCHING',
                                       style: GoogleFonts.outfit(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
@@ -6256,6 +6301,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   List<Map<String, dynamic>> _buildTenDayActivity() {
     final now = DateTime.now();
+    final today = _dateOnly(now);
     final activity = <DateTime, Map<String, num>>{};
 
     for (int i = 9; i >= 0; i--) {
@@ -6278,6 +6324,25 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           (activity[day]!['correct'] ?? 0) + record.correctCount;
       activity[day]!['percentSum'] =
           (activity[day]!['percentSum'] ?? 0) + record.scorePercent;
+    }
+
+    final todayData = activity[today];
+    if (todayData != null &&
+        (todayData['quizzes'] ?? 0) == 0 &&
+        completedSessions > 0) {
+      final fallbackQuestions = completedSessions * 15;
+      final fallbackCorrect = categoryScores.values.fold<int>(
+        0,
+        (sum, value) => sum + ((value['correct'] as int?) ?? 0),
+      );
+      final fallbackPercent = fallbackQuestions > 0
+          ? (fallbackCorrect / fallbackQuestions) * 100
+          : 0.0;
+
+      todayData['quizzes'] = completedSessions;
+      todayData['questions'] = fallbackQuestions;
+      todayData['correct'] = fallbackCorrect;
+      todayData['percentSum'] = fallbackPercent * completedSessions;
     }
 
     final entries = activity.entries.toList()

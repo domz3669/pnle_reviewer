@@ -92,6 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: Icons.volume_off_rounded,
             title: 'Mute All Sounds',
             subtitle: 'Disable sound effects and result music',
+            tileKey: const Key('toggle_mute_all_sounds'),
             value: _muteAllSounds,
             onChanged: (value) async {
               setState(() => _muteAllSounds = value);
@@ -105,6 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: Icons.notifications_active_outlined,
             title: 'Study Notifications',
             subtitle: 'Daily session reset and ad refill alerts',
+            tileKey: const Key('toggle_notifications'),
             value: _notificationsEnabled,
             onChanged: (value) async {
               final applied =
@@ -217,6 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required IconData icon,
     required String title,
     required String subtitle,
+    Key? tileKey,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
@@ -226,6 +229,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
       ),
       child: SwitchListTile(
+        key: tileKey,
         value: value,
         onChanged: onChanged,
         activeThumbColor: PnleTheme.accent,
