@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'dart:convert';
 
@@ -1894,50 +1895,68 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // =========================
   // ADMOB
   // =========================
-  String get _rewardedAdUnitId {
+  String _rewardedAdUnitId({bool forceTestFallback = false}) {
+    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosRewardedTest;
     return AdMobIds.rewarded;
   }
 
-  String get _bannerAdUnitId {
+  String _bannerAdUnitId({bool forceTestFallback = false}) {
+    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosBannerTest;
     return AdMobIds.banner;
   }
 
-  String get _menuInterstitialAdUnitId {
+  String _menuInterstitialAdUnitId({bool forceTestFallback = false}) {
+    if (forceTestFallback && Platform.isIOS) {
+      return AdMobIds.iosInterstitialTest;
+    }
     return AdMobIds.interstitial;
   }
 
-  void _loadRewardedAd() {
+  void _loadRewardedAd({bool useTestFallback = false}) {
     RewardedAd.load(
-      adUnitId: _rewardedAdUnitId,
+      adUnitId: _rewardedAdUnitId(forceTestFallback: useTestFallback),
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
           _rewardedAd = ad;
           _isAdLoaded = true;
         },
-        onAdFailedToLoad: (_) {
+        onAdFailedToLoad: (error) {
           _isAdLoaded = false;
+          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
+            debugPrint(
+              'iOS rewarded ad failed (${error.code}: ${error.message}). Retrying with test rewarded ID fallback.',
+            );
+            _loadRewardedAd(useTestFallback: true);
+          }
         },
       ),
     );
   }
 
-  void _loadMenuInterstitialAd() {
+  void _loadMenuInterstitialAd({bool useTestFallback = false}) {
     InterstitialAd.load(
-      adUnitId: _menuInterstitialAdUnitId,
+      adUnitId: _menuInterstitialAdUnitId(forceTestFallback: useTestFallback),
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _menuInterstitialAd = ad;
         },
-        onAdFailedToLoad: (_) {},
+        onAdFailedToLoad: (error) {
+          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
+            debugPrint(
+              'iOS interstitial ad failed (${error.code}: ${error.message}). Retrying with test interstitial ID fallback.',
+            );
+            _loadMenuInterstitialAd(useTestFallback: true);
+          }
+        },
       ),
     );
   }
 
-  void _loadBannerAd() {
+  void _loadBannerAd({bool useTestFallback = false}) {
     _bannerAd = BannerAd(
-      adUnitId: _bannerAdUnitId,
+      adUnitId: _bannerAdUnitId(forceTestFallback: useTestFallback),
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -1946,6 +1965,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         },
         onAdFailedToLoad: (ad, error) {
           ad.dispose();
+          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
+            debugPrint(
+              'iOS banner ad failed (${error.code}: ${error.message}). Retrying with test banner ID fallback.',
+            );
+            _loadBannerAd(useTestFallback: true);
+          }
         },
       ),
     )..load();

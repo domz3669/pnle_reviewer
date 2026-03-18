@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -187,9 +188,26 @@ class _QuestionScreenState extends State<QuestionScreen>
     }
   }
 
-  void _loadBannerAd() {
+  String _bannerAdUnitId({bool forceTestFallback = false}) {
+    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosBannerTest;
+    return AdMobIds.banner;
+  }
+
+  String _interstitialAdUnitId({bool forceTestFallback = false}) {
+    if (forceTestFallback && Platform.isIOS) {
+      return AdMobIds.iosInterstitialTest;
+    }
+    return AdMobIds.interstitial;
+  }
+
+  String _explainRewardedAdUnitId({bool forceTestFallback = false}) {
+    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosRewardedTest;
+    return AdMobIds.rewarded;
+  }
+
+  void _loadBannerAd({bool useTestFallback = false}) {
     _bannerAd = BannerAd(
-      adUnitId: AdMobIds.banner,
+      adUnitId: _bannerAdUnitId(forceTestFallback: useTestFallback),
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -200,14 +218,24 @@ class _QuestionScreenState extends State<QuestionScreen>
         },
         onAdFailedToLoad: (ad, error) {
           ad.dispose();
+          _isBannerAdLoaded = false;
+          if (Platform.isIOS &&
+              !AdMobIds.useTestAds &&
+              !useTestFallback &&
+              mounted) {
+            debugPrint(
+              'iOS banner ad failed (${error.code}: ${error.message}). Retrying with test banner ID fallback.',
+            );
+            _loadBannerAd(useTestFallback: true);
+          }
         },
       ),
     )..load();
   }
 
-  void _loadInterstitialAd() {
+  void _loadInterstitialAd({bool useTestFallback = false}) {
     InterstitialAd.load(
-      adUnitId: AdMobIds.interstitial,
+      adUnitId: _interstitialAdUnitId(forceTestFallback: useTestFallback),
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
@@ -216,14 +244,20 @@ class _QuestionScreenState extends State<QuestionScreen>
         },
         onAdFailedToLoad: (error) {
           _isInterstitialAdLoaded = false;
+          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
+            debugPrint(
+              'iOS interstitial failed (${error.code}: ${error.message}). Retrying with test interstitial ID fallback.',
+            );
+            _loadInterstitialAd(useTestFallback: true);
+          }
         },
       ),
     );
   }
 
-  void _loadExplainRewardedAd() {
+  void _loadExplainRewardedAd({bool useTestFallback = false}) {
     RewardedAd.load(
-      adUnitId: AdMobIds.rewarded,
+      adUnitId: _explainRewardedAdUnitId(forceTestFallback: useTestFallback),
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
@@ -232,6 +266,12 @@ class _QuestionScreenState extends State<QuestionScreen>
         },
         onAdFailedToLoad: (error) {
           _isExplainRewardedAdLoaded = false;
+          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
+            debugPrint(
+              'iOS rewarded failed (${error.code}: ${error.message}). Retrying with test rewarded ID fallback.',
+            );
+            _loadExplainRewardedAd(useTestFallback: true);
+          }
         },
       ),
     );
@@ -609,6 +649,61 @@ class _QuestionScreenState extends State<QuestionScreen>
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _reportContent,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: PnleTheme.danger.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: PnleTheme.danger.withValues(alpha: 0.45),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.flag_outlined,
+                                color: PnleTheme.danger,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Report',
+                                style: GoogleFonts.outfit(
+                                  color: PnleTheme.danger,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: r.fontSize(12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _menuPressed,
+                        child: Container(
+                          padding: const EdgeInsets.all(9),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.home_rounded,
+                            color: Colors.white.withValues(alpha: 0.9),
+                            size: 18,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
 
@@ -641,7 +736,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 : currentQuestion.question.length > 200
                                     ? r.fontSize(16)
                                     : r.fontSize(18),
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w400,
                             color: Colors.white.withValues(alpha: 0.95),
                             height: 1.4,
                           ),
@@ -793,56 +888,10 @@ class _QuestionScreenState extends State<QuestionScreen>
 
                   const SizedBox(height: 16),
 
-                  // REPORT CONTENT & EXPLAIN WHY (Redesigned with icons)
+                  // BOTTOM ACTIONS: EXPLAIN + NEXT
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Report Content Button
-                      Expanded(
-                        child: Container(
-                          height: 48,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                PnleTheme.danger.withValues(alpha: 0.15),
-                                PnleTheme.danger.withValues(alpha: 0.08),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: PnleTheme.danger.withValues(alpha: 0.4),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: _reportContent,
-                              borderRadius: BorderRadius.circular(16),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.flag_outlined,
-                                    color: PnleTheme.danger,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Report',
-                                    style: GoogleFonts.outfit(
-                                      color: PnleTheme.danger,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
                       // Explain Why Button
                       Builder(
                         builder: (context) {
@@ -936,7 +985,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                             ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        'Explain Why',
+                                        'Explain',
                                         style: GoogleFonts.outfit(
                                           color: canTapExplain
                                               ? PnleTheme.bgBottom
@@ -953,6 +1002,45 @@ class _QuestionScreenState extends State<QuestionScreen>
                             ),
                           );
                         },
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed:
+                              _answerSelected ? () => _nextQuestion() : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _answerSelected
+                                ? PnleTheme.accent
+                                : Colors.white.withValues(alpha: 0.15),
+                            shadowColor: Colors.transparent,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            minimumSize: const Size.fromHeight(48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            disabledBackgroundColor:
+                                Colors.white.withValues(alpha: 0.15),
+                          ),
+                          icon: Icon(
+                            currentIndex == widget.questions.length - 1
+                                ? Icons.emoji_events_rounded
+                                : Icons.arrow_forward_rounded,
+                            color: _answerSelected
+                                ? PnleTheme.bgBottom
+                                : Colors.white.withValues(alpha: 0.5),
+                            size: r.size(18),
+                          ),
+                          label: Text(
+                            'NEXT',
+                            style: GoogleFonts.outfit(
+                              color: _answerSelected
+                                  ? PnleTheme.bgBottom
+                                  : Colors.white.withValues(alpha: 0.5),
+                              fontWeight: FontWeight.bold,
+                              fontSize: r.fontSize(14),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -972,95 +1060,6 @@ class _QuestionScreenState extends State<QuestionScreen>
 
                   if (!widget.isPremium && _isBannerAdLoaded)
                     const SizedBox(height: 12),
-
-                  // MENU & NEXT QUESTION / SHOW SCORE
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: 1,
-                          child: ElevatedButton.icon(
-                            onPressed: _menuPressed,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              minimumSize: const Size.fromHeight(52),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                side: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.3),
-                                ),
-                              ),
-                            ),
-                            icon: Icon(
-                              Icons.exit_to_app_rounded,
-                              color: Colors.white.withValues(alpha: 0.9),
-                              size: 18,
-                            ),
-                            label: Text(
-                              'MENU',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.9),
-                                fontWeight: FontWeight.bold,
-                                fontSize: r.fontSize(14),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: ElevatedButton.icon(
-                            onPressed:
-                                _answerSelected ? () => _nextQuestion() : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _answerSelected
-                                  ? PnleTheme.accent
-                                  : Colors.white.withValues(alpha: 0.15),
-                              shadowColor: Colors.transparent,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              minimumSize: const Size.fromHeight(56),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              disabledBackgroundColor:
-                                  Colors.white.withValues(alpha: 0.15),
-                            ),
-                            icon: Icon(
-                              currentIndex == widget.questions.length - 1
-                                  ? Icons.emoji_events_rounded
-                                  : Icons.arrow_forward_rounded,
-                              color: _answerSelected
-                                  ? PnleTheme.bgBottom
-                                  : Colors.white.withValues(alpha: 0.5),
-                              size: r.size(20),
-                            ),
-                            label: Text(
-                              currentIndex == widget.questions.length - 1
-                                  ? 'SHOW SCORE'
-                                  : 'NEXT QUESTION',
-                              style: GoogleFonts.outfit(
-                                color: _answerSelected
-                                    ? PnleTheme.bgBottom
-                                    : Colors.white.withValues(alpha: 0.5),
-                                fontWeight: FontWeight.bold,
-                                fontSize: r.fontSize(15),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
