@@ -72,9 +72,9 @@ class _QuestionScreenState extends State<QuestionScreen>
   InterstitialAd? _interstitialAd;
   bool _isInterstitialAdLoaded = false;
 
-  // Rewarded Ad for explain-limit unlock
-  RewardedAd? _explainRewardedAd;
-  bool _isExplainRewardedAdLoaded = false;
+  // Interstitial Ad for explain-limit unlock
+  InterstitialAd? _explainInterstitialAd;
+  bool _isExplainInterstitialAdLoaded = false;
 
   // =========================
   // ANSWER & SCORE HELPERS
@@ -184,7 +184,7 @@ class _QuestionScreenState extends State<QuestionScreen>
       _loadInterstitialAd();
     }
     if (!widget.isPremium) {
-      _loadExplainRewardedAd();
+      _loadExplainInterstitialAd();
     }
   }
 
@@ -200,9 +200,11 @@ class _QuestionScreenState extends State<QuestionScreen>
     return AdMobIds.interstitial;
   }
 
-  String _explainRewardedAdUnitId({bool forceTestFallback = false}) {
-    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosRewardedTest;
-    return AdMobIds.rewarded;
+  String _explainInterstitialAdUnitId({bool forceTestFallback = false}) {
+    if (forceTestFallback && Platform.isIOS) {
+      return AdMobIds.iosInterstitialTest;
+    }
+    return AdMobIds.interstitial;
   }
 
   void _loadBannerAd({bool useTestFallback = false}) {
@@ -255,22 +257,23 @@ class _QuestionScreenState extends State<QuestionScreen>
     );
   }
 
-  void _loadExplainRewardedAd({bool useTestFallback = false}) {
-    RewardedAd.load(
-      adUnitId: _explainRewardedAdUnitId(forceTestFallback: useTestFallback),
+  void _loadExplainInterstitialAd({bool useTestFallback = false}) {
+    InterstitialAd.load(
+      adUnitId:
+          _explainInterstitialAdUnitId(forceTestFallback: useTestFallback),
       request: const AdRequest(),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
+      adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
-          _explainRewardedAd = ad;
-          _isExplainRewardedAdLoaded = true;
+          _explainInterstitialAd = ad;
+          _isExplainInterstitialAdLoaded = true;
         },
         onAdFailedToLoad: (error) {
-          _isExplainRewardedAdLoaded = false;
+          _isExplainInterstitialAdLoaded = false;
           if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
             debugPrint(
-              'iOS rewarded failed (${error.code}: ${error.message}). Retrying with test rewarded ID fallback.',
+              'iOS explain interstitial failed (${error.code}: ${error.message}). Retrying with test interstitial ID fallback.',
             );
-            _loadExplainRewardedAd(useTestFallback: true);
+            _loadExplainInterstitialAd(useTestFallback: true);
           }
         },
       ),
@@ -283,7 +286,7 @@ class _QuestionScreenState extends State<QuestionScreen>
     _choiceAnimationController.dispose();
     _bannerAd?.dispose();
     _interstitialAd?.dispose();
-    _explainRewardedAd?.dispose();
+    _explainInterstitialAd?.dispose();
     super.dispose();
   }
 
@@ -476,13 +479,21 @@ class _QuestionScreenState extends State<QuestionScreen>
   bool _canUseExplainWhy() {
     if (widget.isPremium) return true;
     if (_explainAdUnlockedForCurrentQuestion) return true;
-    return explanationCount < _freeExplainLimit;
+    return explanationCount < _freeExplainLimitForCurrentMode;
   }
 
   bool _canOfferExplainAdUnlock() {
     if (widget.isPremium) return false;
     if (_canUseExplainWhy()) return false;
-    return _explainAdUnlockCount < _maxExplainAdUnlocks;
+    return _explainAdUnlockCount < _maxExplainAdUnlocksForCurrentMode;
+  }
+
+  int get _freeExplainLimitForCurrentMode {
+    return widget.testMode == 'quickPractice' ? 1 : _freeExplainLimit;
+  }
+
+  int get _maxExplainAdUnlocksForCurrentMode {
+    return widget.testMode == 'quickPractice' ? 1 : _maxExplainAdUnlocks;
   }
 
   // =========================
@@ -644,7 +655,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                           'Q${currentIndex + 1}/${widget.questions.length}${_sourceSuffixForCurrentQuestion()}',
                           style: GoogleFonts.outfit(
                             color: PnleTheme.accent,
-                            fontSize: r.fontSize(12),
+                            fontSize: r.fontSize(11),
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -902,7 +913,6 @@ class _QuestionScreenState extends State<QuestionScreen>
                               (hasExplainAccess || canOfferExplainAd);
 
                           return Expanded(
-                            flex: 2,
                             child: Container(
                               height: 48,
                               decoration: BoxDecoration(
@@ -992,7 +1002,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                               : Colors.white
                                                   .withValues(alpha: 0.4),
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 15,
+                                          fontSize: r.fontSize(11),
                                         ),
                                       ),
                                     ],
@@ -1031,7 +1041,9 @@ class _QuestionScreenState extends State<QuestionScreen>
                             size: r.size(18),
                           ),
                           label: Text(
-                            'NEXT',
+                            currentIndex == widget.questions.length - 1
+                                ? 'SHOW SCORE'
+                                : 'NEXT',
                             style: GoogleFonts.outfit(
                               color: _answerSelected
                                   ? PnleTheme.bgBottom
@@ -1246,7 +1258,8 @@ class _QuestionScreenState extends State<QuestionScreen>
       return;
     }
 
-    final remainingAdUnlocks = _maxExplainAdUnlocks - _explainAdUnlockCount;
+    final remainingAdUnlocks =
+        _maxExplainAdUnlocksForCurrentMode - _explainAdUnlockCount;
     final shouldWatch = await showDialog<bool>(
       context: context,
       barrierColor: Colors.black87,
@@ -1321,7 +1334,7 @@ class _QuestionScreenState extends State<QuestionScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                'Ad unlocks left this quiz: $remainingAdUnlocks/$_maxExplainAdUnlocks',
+                'Ad unlocks left this quiz: $remainingAdUnlocks/$_maxExplainAdUnlocksForCurrentMode',
                 style: GoogleFonts.outfit(
                   color: Colors.white.withValues(alpha: 0.72),
                   fontSize: 13,
@@ -1384,7 +1397,7 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     if (shouldWatch != true || !mounted) return;
 
-    final unlocked = await _showExplainRewardedAd();
+    final unlocked = await _showExplainInterstitialAd();
     if (!mounted) return;
 
     if (!unlocked) {
@@ -1405,37 +1418,33 @@ class _QuestionScreenState extends State<QuestionScreen>
     _openExplanationDialog(countAsFreeUsage: false);
   }
 
-  Future<bool> _showExplainRewardedAd() async {
-    if (!_isExplainRewardedAdLoaded || _explainRewardedAd == null) {
-      _loadExplainRewardedAd();
+  Future<bool> _showExplainInterstitialAd() async {
+    if (!_isExplainInterstitialAdLoaded || _explainInterstitialAd == null) {
+      _loadExplainInterstitialAd();
       return false;
     }
 
     final completer = Completer<bool>();
-    var rewardEarned = false;
 
-    _explainRewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+    _explainInterstitialAd!.fullScreenContentCallback =
+        FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
-        _explainRewardedAd = null;
-        _isExplainRewardedAdLoaded = false;
-        _loadExplainRewardedAd();
-        if (!completer.isCompleted) completer.complete(rewardEarned);
+        _explainInterstitialAd = null;
+        _isExplainInterstitialAdLoaded = false;
+        _loadExplainInterstitialAd();
+        if (!completer.isCompleted) completer.complete(true);
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         ad.dispose();
-        _explainRewardedAd = null;
-        _isExplainRewardedAdLoaded = false;
-        _loadExplainRewardedAd();
+        _explainInterstitialAd = null;
+        _isExplainInterstitialAdLoaded = false;
+        _loadExplainInterstitialAd();
         if (!completer.isCompleted) completer.complete(false);
       },
     );
 
-    _explainRewardedAd!.show(
-      onUserEarnedReward: (_, __) {
-        rewardEarned = true;
-      },
-    );
+    _explainInterstitialAd!.show();
 
     return completer.future;
   }

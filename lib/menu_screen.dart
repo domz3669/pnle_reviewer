@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'services/device_service.dart';
+import 'services/notification_service.dart';
 
 import 'question_screen.dart';
 import 'models/question.dart';
@@ -89,20 +90,28 @@ class _SavedSession {
 class _QuizActivityRecord {
   final DateTime date;
   final int questionCount;
+  final int correctCount;
+  final double scorePercent;
 
   const _QuizActivityRecord({
     required this.date,
     required this.questionCount,
+    required this.correctCount,
+    required this.scorePercent,
   });
 
   Map<String, dynamic> toJson() => {
         'date': date.toIso8601String(),
         'questionCount': questionCount,
+        'correctCount': correctCount,
+        'scorePercent': scorePercent,
       };
 
   static _QuizActivityRecord? fromJson(Map<String, dynamic> json) {
     final dateRaw = json['date'] ?? json['d'];
     final questionRaw = json['questionCount'] ?? json['q'];
+    final correctRaw = json['correctCount'] ?? json['c'];
+    final scoreRaw = json['scorePercent'] ?? json['p'];
     if (dateRaw is! String || questionRaw is! num) return null;
 
     final parsedDate = DateTime.tryParse(dateRaw);
@@ -111,6 +120,8 @@ class _QuizActivityRecord {
     return _QuizActivityRecord(
       date: parsedDate,
       questionCount: questionRaw.toInt(),
+      correctCount: (correctRaw is num) ? correctRaw.toInt() : 0,
+      scorePercent: (scoreRaw is num) ? scoreRaw.toDouble() : 0,
     );
   }
 }
@@ -212,6 +223,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool _showFirstTimeFlow = false;
   String _nickname = '';
   bool _muteAllSounds = false;
+  bool _notificationsEnabled = false;
 
   RewardedAd? _rewardedAd;
   bool _isAdLoaded = false;
@@ -337,6 +349,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _initRealtimeStatusListeners();
     _loadPersonalizationPrefs();
     _checkOnboarding();
+
+    // Kick off pre-generation immediately so first-time users can warm caches
+    // even while RTDB restore/network permission prompts are in progress.
+    _kickoffInitialPregenerationWarmup();
+
     // Restore from RTDB first (survives reinstall), then local loads fill in gaps
     _restoreAllProgressFromRtdb().then((_) {
       _loadSavedSessions();
@@ -352,10 +369,31 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _loadCategoryScores();
       _loadZeroAdSessions();
       _resetDailyCategoryScoresIfNeeded();
-      unawaited(_primeRandomQuizCacheIfEligible());
-      unawaited(_primeFreeDeepSeekCaches());
-      unawaited(_primeChallengeCacheIfEligible());
+      unawaited(_primeMissingCachesAsNeeded());
       unawaited(_promptNicknameIfMissing());
+    });
+  }
+
+  Future<void> _primeMissingCachesAsNeeded() async {
+    unawaited(_primeRandomQuizCacheIfEligible());
+
+    if (!_hasUnlockedAdvancedModes) return;
+
+    final weakestCategory = _getWeakestCategory();
+    if (weakestCategory.isNotEmpty) {
+      unawaited(_primeFreeDeepSeekCaches());
+    }
+    unawaited(_primeChallengeCacheIfEligible());
+  }
+
+  void _kickoffInitialPregenerationWarmup() {
+    unawaited(_primeMissingCachesAsNeeded());
+
+    // Retry shortly after startup to catch cases where network permission dialog
+    // delayed initial requests on first app open (notably iOS first launch).
+    Future.delayed(const Duration(seconds: 4), () {
+      if (!mounted) return;
+      unawaited(_primeMissingCachesAsNeeded());
     });
   }
 
@@ -406,6 +444,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _hasReceivedConnectionEvent = true;
         _isOnline = connected;
         if (connected) {
+          unawaited(_restoreAllProgressFromRtdb());
           unawaited(_syncAllProgressToRtdb());
         }
         return;
@@ -422,6 +461,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             _isOnline = true;
           });
           ScaffoldMessenger.of(context).clearSnackBars();
+          unawaited(_restoreAllProgressFromRtdb());
           unawaited(_syncAllProgressToRtdb());
         }
         return;
@@ -553,8 +593,73 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     setState(() {
       _nickname = prefs.getString('user_nickname')?.trim() ?? '';
       _muteAllSounds = prefs.getBool('mute_all_sounds') ?? false;
+      _notificationsEnabled = prefs.getBool('notifications_enabled') ?? false;
     });
     await SoundService().setMuted(_muteAllSounds);
+    if (_notificationsEnabled) {
+      await _syncNotificationSchedules();
+    }
+  }
+
+  Future<bool> _setNotificationsEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (enabled) {
+      final granted = await NotificationService.instance.requestPermissions();
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Notification permission denied. You can enable it in system settings.',
+                style: GoogleFonts.outfit(),
+              ),
+            ),
+          );
+        }
+        return false;
+      }
+
+      await NotificationService.instance.scheduleDailySessionsReady();
+      await prefs.setBool('notifications_enabled', true);
+      if (mounted) {
+        setState(() {
+          _notificationsEnabled = true;
+        });
+      } else {
+        _notificationsEnabled = true;
+      }
+      await _syncNotificationSchedules();
+      return true;
+    }
+
+    await NotificationService.instance.cancelAllManaged();
+    await prefs.setBool('notifications_enabled', false);
+    if (mounted) {
+      setState(() {
+        _notificationsEnabled = false;
+      });
+    } else {
+      _notificationsEnabled = false;
+    }
+    return false;
+  }
+
+  Future<void> _syncNotificationSchedules() async {
+    if (!_notificationsEnabled) return;
+
+    await NotificationService.instance.scheduleDailySessionsReady();
+
+    if (_extraSessionAdChances >= _maxExtraSessionAdChances ||
+        _nextExtraSessionAdRefillAt == null) {
+      await NotificationService.instance.cancelAdCapsRefilled();
+      return;
+    }
+
+    final missing = _maxExtraSessionAdChances - _extraSessionAdChances;
+    final target = _nextExtraSessionAdRefillAt!
+        .add(_extraSessionAdRefillDuration * (missing - 1));
+    await NotificationService.instance.scheduleAdCapsRefilled(target);
   }
 
   Future<void> _saveNickname(String nickname) async {
@@ -685,14 +790,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         // Same day, keep higher streak
         setState(() => currentStreak = max(currentStreak, streak));
       } else if (difference == 1) {
-        // Next day, increment streak
-        setState(() => currentStreak = max(currentStreak, streak + 1));
+        // Do not auto-increment on app open; streak only increments after
+        // the user completes required sessions for the day.
+        setState(() => currentStreak = max(currentStreak, streak));
       } else {
-        // Missed a day, reset streak (but only if RTDB/Firestore didn't restore higher)
-        if (currentStreak == 0) {
-          setState(() => currentStreak = 0);
-        }
+        // Missed a day, reset streak.
+        setState(() => currentStreak = 0);
       }
+    } else {
+      setState(() => currentStreak = max(currentStreak, streak));
     }
 
     setState(() {
@@ -728,6 +834,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     _processExtraSessionAdRefill(forcePersist: false);
     _ensureExtraSessionRefillTicker();
+    unawaited(_syncNotificationSchedules());
   }
 
   Future<void> _persistExtraSessionAdState() async {
@@ -801,6 +908,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (hasChanges && forcePersist) {
       await _persistExtraSessionAdState();
       unawaited(_syncAllProgressToRtdb());
+      unawaited(_syncNotificationSchedules());
     }
   }
 
@@ -1099,6 +1207,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             .map((record) => {
                   'd': record.date.toIso8601String(),
                   'q': record.questionCount,
+                  'c': record.correctCount,
+                  'p': record.scorePercent,
                 })
             .toList(),
         // Daily reset tracking (prevents re-reset after app data clear)
@@ -2073,12 +2183,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final adWatched = await _showRewardedAd();
 
     if (adWatched && mounted) {
+      final now = _serverNow();
       setState(() {
         remainingFreeTests++; // Grant 1 extra quiz
         _extraSessionAdChances = max(0, _extraSessionAdChances - 1);
         if (_extraSessionAdChances < _maxExtraSessionAdChances) {
-          _nextExtraSessionAdRefillAt =
-              _serverNow().add(_extraSessionAdRefillDuration);
+          // Keep the existing refill countdown if one is already running.
+          if (_nextExtraSessionAdRefillAt == null ||
+              !_nextExtraSessionAdRefillAt!.isAfter(now)) {
+            _nextExtraSessionAdRefillAt =
+                now.add(_extraSessionAdRefillDuration);
+          }
         }
       });
 
@@ -2087,6 +2202,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       await _persistExtraSessionAdState();
       _ensureExtraSessionRefillTicker();
       await _syncAllProgressToRtdb();
+      await _syncNotificationSchedules();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2135,6 +2251,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _primeFreeDeepSeekCaches() async {
     if (isPremiumUser || isTrialActive || _isPrimingFreeDeepSeekCache) return;
+    if (!_hasUnlockedAdvancedModes) return;
 
     final weakestCategory = _getWeakestCategory();
     if (weakestCategory.isEmpty) return;
@@ -3576,22 +3693,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       questions: questions,
       sourceMode: sourceMode,
     );
-    final activityRecord = _QuizActivityRecord(
-      date: DateTime.now(),
-      questionCount: questions.length,
-    );
-
     setState(() {
       _savedSessions.insert(0, savedSession);
       if (_savedSessions.length > _maxSavedSessions) {
         _savedSessions.removeLast();
       }
-
-      _quizActivityRecords.insert(0, activityRecord);
-      _pruneQuizActivityRecords();
     });
 
-    _persistQuizActivityRecords();
     unawaited(_persistSavedSessions());
     _syncAllProgressToRtdb();
   }
@@ -4069,12 +4177,34 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (resultMode == 'randomQuiz') {
         _lifetimeRandomQuizzesCompleted++;
       }
+
+      final sessionQuestions =
+          totalCount.values.fold<int>(0, (sum, value) => sum + value);
+      final sessionCorrect =
+          correctCount.values.fold<int>(0, (sum, value) => sum + value);
+      final sessionPercent = sessionQuestions > 0
+          ? (sessionCorrect / sessionQuestions) * 100
+          : 0.0;
+
+      _quizActivityRecords.insert(
+        0,
+        _QuizActivityRecord(
+          date: DateTime.now(),
+          questionCount: sessionQuestions,
+          correctCount: sessionCorrect,
+          scorePercent: sessionPercent,
+        ),
+      );
+      _pruneQuizActivityRecords();
     });
 
     // Persist all data
+    _persistQuizActivityRecords();
     _persistAccumulatedStats();
     _persistCategoryScores();
     _persistCompletedSessions();
+    unawaited(_syncNotificationSchedules());
+    unawaited(_primeMissingCachesAsNeeded());
 
     if (shouldUpdateStreak) {
       unawaited(_updateStreakAfterQuiz());
@@ -4179,11 +4309,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return SettingsScreen(
       nickname: _nickname,
       muteAllSounds: _muteAllSounds,
+      notificationsEnabled: _notificationsEnabled,
       onNicknameChanged: (nickname) async {
         await _saveNickname(nickname);
       },
       onMuteAllSoundsChanged: (muted) async {
         await _setMuteAllSounds(muted);
+      },
+      onNotificationsChanged: (enabled) async {
+        return _setNotificationsEnabled(enabled);
       },
       embedded: true,
     );
@@ -4615,6 +4749,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final totalQuestionsAnswered = accumulatedQuestionsAnswered;
     final bestScore = totalAvg;
     final canTakeQuiz = remainingFreeTests > 0;
+    final hasRandomReady = (_cachedRandomQuizQuestions?.length ?? 0) >= 15 &&
+        _cachedRandomQuizCoverage != null;
+    final hasFocusReady = weakestCategory.isNotEmpty &&
+        ((_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15);
+    final hasChallengeReady = (_cachedChallengeQuestions?.length ?? 0) >= 10;
 
     return Stack(
       children: [
@@ -5036,6 +5175,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     : null,
                 isPrimary: true,
                 badge: canTakeQuiz ? null : 'NO CREDITS',
+                showReadyBadge: hasRandomReady,
                 isLocked: !canTakeQuiz,
               ),
               const SizedBox(height: 12),
@@ -5076,6 +5216,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
+                showReadyBadge: hasFocusReady,
                 isLocked: !canTakeQuiz ||
                     !_hasUnlockedAdvancedModes ||
                     weakestCategory.isEmpty,
@@ -5117,6 +5258,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
+                showReadyBadge: hasChallengeReady,
                 isLocked: !canTakeQuiz || !_hasUnlockedAdvancedModes,
                 showPremiumBanner: false,
               ),
@@ -5255,6 +5397,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     VoidCallback? onTap,
     bool isPrimary = false,
     String? badge,
+    bool showReadyBadge = false,
     bool isLocked = false,
     bool showPremiumBanner = false,
   }) {
@@ -5329,24 +5472,58 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               ),
                             ),
                           ),
-                          if (badge != null && !showPremiumBanner)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                badge,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
+                          if (!showPremiumBanner &&
+                              (badge != null || showReadyBadge))
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                if (badge != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.92),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      badge,
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ),
+                                if (showReadyBadge)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF2E7D32)
+                                          .withValues(alpha: 0.95),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: Colors.white
+                                            .withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'READY',
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                        letterSpacing: 0.3,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                         ],
                       ),
@@ -6079,11 +6256,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   List<Map<String, dynamic>> _buildTenDayActivity() {
     final now = DateTime.now();
-    final activity = <DateTime, Map<String, int>>{};
+    final activity = <DateTime, Map<String, num>>{};
 
     for (int i = 9; i >= 0; i--) {
       final day = _dateOnly(now.subtract(Duration(days: i)));
-      activity[day] = {'quizzes': 0, 'questions': 0, 'correct': 0};
+      activity[day] = {
+        'quizzes': 0,
+        'questions': 0,
+        'correct': 0,
+        'percentSum': 0,
+      };
     }
 
     for (final record in _quizActivityRecords) {
@@ -6092,13 +6274,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       activity[day]!['quizzes'] = (activity[day]!['quizzes'] ?? 0) + 1;
       activity[day]!['questions'] =
           (activity[day]!['questions'] ?? 0) + record.questionCount;
-      // Calculate actual correct answers from session data
-      int sessionCorrect = 0;
-      // TODO: Track answer results in _SavedSession model
-      // For now, use questions count as approximation
-      sessionCorrect = 0;
       activity[day]!['correct'] =
-          (activity[day]!['correct'] ?? 0) + sessionCorrect;
+          (activity[day]!['correct'] ?? 0) + record.correctCount;
+      activity[day]!['percentSum'] =
+          (activity[day]!['percentSum'] ?? 0) + record.scorePercent;
     }
 
     final entries = activity.entries.toList()
@@ -6111,15 +6290,25 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             'quizzes': entry.value['quizzes'] ?? 0,
             'questions': entry.value['questions'] ?? 0,
             'correct': entry.value['correct'] ?? 0,
+            'percentSum': entry.value['percentSum'] ?? 0,
           },
         )
         .toList();
   }
 
-  double _calculateDayOverallAverage(DateTime day) {
-    // Return the user's overall average across all tests
-    // This gives a meaningful percentage even for days with partial completion
-    return _calculateTotalAverage();
+  double _calculateDayOverallAverage(Map<String, dynamic> day) {
+    final quizzes = day['quizzes'] as int;
+    final questions = day['questions'] as int;
+    final correct = day['correct'] as int;
+    final percentSum = (day['percentSum'] as num?)?.toDouble() ?? 0;
+
+    if (questions > 0) {
+      return (correct / questions) * 100;
+    }
+    if (quizzes > 0) {
+      return percentSum / quizzes;
+    }
+    return 0;
   }
 
   Widget _premiumHistoryScreen() {
@@ -6134,12 +6323,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       0,
       (sum, day) => sum + (day['questions'] as int),
     );
-    final maxQuizzes = tenDayActivity.fold<int>(
-      1,
-      (max, day) =>
-          (day['quizzes'] as int) > max ? (day['quizzes'] as int) : max,
-    );
-
     return Stack(
       children: [
         SingleChildScrollView(
@@ -6268,13 +6451,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: tenDayActivity.map((day) {
-                          final quizzes = day['quizzes'] as int;
                           final date = day['date'] as DateTime;
-                          final percentage =
-                              ((quizzes / maxQuizzes) * 100).clamp(0.0, 100.0);
+                          final percentage = _calculateDayOverallAverage(day)
+                              .clamp(0.0, 100.0);
                           return _buildChartBar(
                             percentage,
                             '${date.day}',
+                            '${percentage.toStringAsFixed(0)}%',
                             true,
                           );
                         }).toList(),
@@ -6316,13 +6499,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         statusColor = Colors.white.withValues(alpha: 0.4);
                       } else if (!isComplete) {
                         // Show current overall average if not finished
-                        final dayOverallAvg = _calculateDayOverallAverage(date);
+                        final dayOverallAvg = _calculateDayOverallAverage(day);
                         statusText =
                             '${dayOverallAvg.toStringAsFixed(0)}% - UNFINISHED';
                         statusColor = const Color(0xFFFFA726);
                       } else {
                         // Show pass/fail only when 4 tests are complete
-                        final dayOverallAvg = _calculateDayOverallAverage(date);
+                        final dayOverallAvg = _calculateDayOverallAverage(day);
                         if (dayOverallAvg >= 80) {
                           statusText =
                               '${dayOverallAvg.toStringAsFixed(0)}% - Passed ✓';
@@ -6384,11 +6567,27 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   // Helper method to build feature items
   // Helper method to build chart bars
-  Widget _buildChartBar(double percentage, String label, bool unlocked) {
+  Widget _buildChartBar(
+    double percentage,
+    String label,
+    String percentLabel,
+    bool unlocked,
+  ) {
     return Expanded(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          Text(
+            percentLabel,
+            style: GoogleFonts.outfit(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: unlocked
+                  ? Colors.white.withValues(alpha: 0.9)
+                  : Colors.white.withValues(alpha: 0.35),
+            ),
+          ),
+          const SizedBox(height: 4),
           Container(
             height: (percentage / 100) * 100,
             margin: const EdgeInsets.symmetric(horizontal: 4),

@@ -7,6 +7,8 @@ class SettingsScreen extends StatefulWidget {
   final Future<void> Function(String nickname)? onNicknameChanged;
   final bool muteAllSounds;
   final Future<void> Function(bool muted)? onMuteAllSoundsChanged;
+  final bool notificationsEnabled;
+  final Future<bool> Function(bool enabled)? onNotificationsChanged;
   final bool embedded;
 
   const SettingsScreen({
@@ -15,6 +17,8 @@ class SettingsScreen extends StatefulWidget {
     this.onNicknameChanged,
     this.muteAllSounds = false,
     this.onMuteAllSoundsChanged,
+    this.notificationsEnabled = false,
+    this.onNotificationsChanged,
     this.embedded = false,
   });
 
@@ -25,12 +29,14 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _nicknameController;
   late bool _muteAllSounds;
+  late bool _notificationsEnabled;
 
   @override
   void initState() {
     super.initState();
     _nicknameController = TextEditingController(text: widget.nickname);
     _muteAllSounds = widget.muteAllSounds;
+    _notificationsEnabled = widget.notificationsEnabled;
   }
 
   @override
@@ -40,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _nicknameController.text = widget.nickname;
     }
     _muteAllSounds = widget.muteAllSounds;
+    _notificationsEnabled = widget.notificationsEnabled;
   }
 
   @override
@@ -89,6 +96,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (value) async {
               setState(() => _muteAllSounds = value);
               await widget.onMuteAllSoundsChanged?.call(value);
+            },
+          ),
+          const SizedBox(height: 24),
+
+          _buildSectionTitle('NOTIFICATIONS'),
+          _buildToggleTile(
+            icon: Icons.notifications_active_outlined,
+            title: 'Study Notifications',
+            subtitle: 'Daily session reset and ad refill alerts',
+            value: _notificationsEnabled,
+            onChanged: (value) async {
+              final applied =
+                  await widget.onNotificationsChanged?.call(value) ?? value;
+              if (!mounted) return;
+              setState(() => _notificationsEnabled = applied);
             },
           ),
           const SizedBox(height: 24),
