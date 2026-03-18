@@ -9,6 +9,8 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      groups:
+        - Secure
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.niotron.domingotambasacan.upcataireviewer2027
@@ -16,7 +18,7 @@ workflows:
         BUNDLE_ID: "com.niotron.domingotambasacan.upcataireviewer2027"
         XCODE_WORKSPACE: "Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        FLUTTER_BUILD_NAME: "1.0.3"
+        FLUTTER_BUILD_NAME: "1.0.6"
         FLUTTER_BUILD_NUMBER: "$PROJECT_BUILD_NUMBER"
     triggering:
       events:
@@ -51,12 +53,18 @@ workflows:
 
       - name: Build IPA for TestFlight
         script: |
+          if [ -z "$GPT_API_KEY" ] || [ -z "$GEMINI_API_KEY" ] || [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "Missing one or more API keys in environment group 'Secure'."
+            echo "Make sure GPT_API_KEY, GEMINI_API_KEY, and DEEPSEEK_API_KEY exist in Codemagic and this workflow imports that group."
+            exit 1
+          fi
+
           flutter build ipa --release \
             --build-name="$FLUTTER_BUILD_NAME" \
             --build-number="${FLUTTER_BUILD_NUMBER:-1}" \
-            --dart-define=GPT_API_KEY=$GPT_API_KEY \
-            --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY \
-            --dart-define=DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
+            --dart-define=GPT_API_KEY="${GPT_API_KEY}" \
+            --dart-define=GEMINI_API_KEY="${GEMINI_API_KEY}" \
+            --dart-define=DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY}" \
             --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:
