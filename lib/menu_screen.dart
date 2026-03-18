@@ -4554,7 +4554,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         const SizedBox(height: 24),
 
         // Smart Recommendation
-        if (weakestCategory.isNotEmpty && accumulatedQuizzesCompleted > 0) ...[
+        if (accumulatedQuizzesCompleted > 0) ...[
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -4587,7 +4587,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Improve $weakestCategory to boost your score',
+                        weakestCategory.isNotEmpty
+                            ? 'Improve $weakestCategory to boost your score'
+                            : 'Keep answering quizzes to detect your weakest area',
                         style: GoogleFonts.outfit(
                           color: Colors.white.withValues(alpha: 0.8),
                           fontSize: 12,

@@ -18,7 +18,7 @@ workflows:
         BUNDLE_ID: "com.niotron.domingotambasacan.upcataireviewer2027"
         XCODE_WORKSPACE: "Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        FLUTTER_BUILD_NAME: "1.0.6"
+        FLUTTER_BUILD_NAME: "1.0.7"
         FLUTTER_BUILD_NUMBER: "$PROJECT_BUILD_NUMBER"
     triggering:
       events:
