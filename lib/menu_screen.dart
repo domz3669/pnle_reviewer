@@ -209,7 +209,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool _usedCachedRandomForLastGeneration = false;
   bool _isPrimingChallengeCache = false;
   Completer<void>? _challengePrimeCompleter;
-  final Set<String> _usedQuickPracticeSavedSignatures = <String>{};
   final Map<String, List<Question>> _cachedFocusQuestions = {};
   final Map<String, String> _lastPickedKeyAreaByCategory = {};
   List<Question>? _cachedRandomQuizQuestions;
@@ -2205,20 +2204,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
-  String _quickPracticeSignature(Question q) {
-    return '${q.category}::${q.question}::${q.answer}';
-  }
+  List<Question> _quickPracticeFromSavedPool() {
+    final pool = _savedSessions.expand((session) => session.questions).toList();
+    if (pool.isEmpty) return const [];
 
-  List<Question> _quickPracticeFromUnusedSavedPool(String focusCategory) {
-    final pooled = _savedSessions
-        .expand((session) => session.questions)
-        .where((question) => question.category == focusCategory)
-        .where((question) => !_usedQuickPracticeSavedSignatures
-            .contains(_quickPracticeSignature(question)))
-        .map((question) => question.shuffled())
-        .toList();
-    pooled.shuffle(Random());
-    return pooled.take(5).toList();
+    final random = Random();
+    return List<Question>.generate(5, (_) {
+      final picked = pool[random.nextInt(pool.length)];
+      return picked.shuffled();
+    });
   }
 
   DeepSeekService _buildDeepSeekService({
@@ -2931,17 +2925,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final weakestCategory = _getWeakestCategory();
-    final targetCategory = weakestCategory.isNotEmpty
-        ? weakestCategory
-        : _savedSessions.first.questions.first.category;
-
-    final pooledQuestions = _quickPracticeFromUnusedSavedPool(targetCategory);
-    if (pooledQuestions.isEmpty) {
+    final pooledQuestions = _quickPracticeFromSavedPool();
+    if (pooledQuestions.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'No saved questions available for Quick Practice yet. Finish and save more tests first.',
+            'Quick Practice needs saved tests with available questions.',
             style: GoogleFonts.outfit(),
           ),
           duration: const Duration(seconds: 3),
@@ -2950,17 +2939,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       return;
     }
 
-    final selectedQuestions =
-        pooledQuestions.take(min(5, pooledQuestions.length)).toList();
-    for (final q in selectedQuestions) {
-      _usedQuickPracticeSavedSignatures.add(_quickPracticeSignature(q));
-    }
-
     final results = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => QuestionScreen(
-          questions: selectedQuestions,
+          questions: pooledQuestions,
           isPremium: isPremiumUser || isTrialActive,
           recordResults: false,
           testMode: 'quickPractice',
@@ -4633,7 +4616,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final isChallengeFetching = _hasUnlockedAdvancedModes &&
         _isPrimingChallengeCache &&
         !hasChallengeReady;
-    final showRandomPregenBadge = canTakeQuiz;
+    final showRandomPregenBadge = canTakeQuiz && showPregenerationState;
 
     return Stack(
       children: [
