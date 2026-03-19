@@ -130,16 +130,6 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'TEST RESULTS',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
               if (widget.isPerfect) ...[
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -356,18 +346,18 @@ class _ResultCategoryItem extends StatelessWidget {
     required this.animatedProgress,
   });
 
-  String _getCategoryIcon(String cat) {
+  IconData _getCategoryIcon(String cat) {
     switch (cat) {
       case 'Language Proficiency':
-        return '🗣️';
+        return Icons.record_voice_over_rounded;
       case 'Reading Comprehension':
-        return '📖';
+        return Icons.menu_book_rounded;
       case 'Mathematics':
-        return '➗';
+        return Icons.calculate_rounded;
       case 'Science':
-        return '🔬';
+        return Icons.science_rounded;
       default:
-        return '📝';
+        return Icons.edit_note_rounded;
     }
   }
 
@@ -392,9 +382,10 @@ class _ResultCategoryItem extends StatelessWidget {
               Expanded(
                 child: Row(
                   children: [
-                    Text(
+                    Icon(
                       _getCategoryIcon(category),
-                      style: const TextStyle(fontSize: 18),
+                      size: 19,
+                      color: Colors.white.withOpacity(0.95),
                     ),
                     const SizedBox(width: 8),
                     Expanded(

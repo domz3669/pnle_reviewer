@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -188,28 +187,21 @@ class _QuestionScreenState extends State<QuestionScreen>
     }
   }
 
-  String _bannerAdUnitId({bool forceTestFallback = false}) {
-    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosBannerTest;
+  String _bannerAdUnitId() {
     return AdMobIds.banner;
   }
 
-  String _interstitialAdUnitId({bool forceTestFallback = false}) {
-    if (forceTestFallback && Platform.isIOS) {
-      return AdMobIds.iosInterstitialTest;
-    }
+  String _interstitialAdUnitId() {
     return AdMobIds.interstitial;
   }
 
-  String _explainInterstitialAdUnitId({bool forceTestFallback = false}) {
-    if (forceTestFallback && Platform.isIOS) {
-      return AdMobIds.iosInterstitialTest;
-    }
+  String _explainInterstitialAdUnitId() {
     return AdMobIds.interstitial;
   }
 
-  void _loadBannerAd({bool useTestFallback = false}) {
+  void _loadBannerAd() {
     _bannerAd = BannerAd(
-      adUnitId: _bannerAdUnitId(forceTestFallback: useTestFallback),
+      adUnitId: _bannerAdUnitId(),
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -221,23 +213,16 @@ class _QuestionScreenState extends State<QuestionScreen>
         onAdFailedToLoad: (ad, error) {
           ad.dispose();
           _isBannerAdLoaded = false;
-          if (Platform.isIOS &&
-              !AdMobIds.useTestAds &&
-              !useTestFallback &&
-              mounted) {
-            debugPrint(
-              'iOS banner ad failed (${error.code}: ${error.message}). Retrying with test banner ID fallback.',
-            );
-            _loadBannerAd(useTestFallback: true);
-          }
+          debugPrint(
+              'Banner ad failed to load (${error.code}: ${error.message})');
         },
       ),
     )..load();
   }
 
-  void _loadInterstitialAd({bool useTestFallback = false}) {
+  void _loadInterstitialAd() {
     InterstitialAd.load(
-      adUnitId: _interstitialAdUnitId(forceTestFallback: useTestFallback),
+      adUnitId: _interstitialAdUnitId(),
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
@@ -246,21 +231,17 @@ class _QuestionScreenState extends State<QuestionScreen>
         },
         onAdFailedToLoad: (error) {
           _isInterstitialAdLoaded = false;
-          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
-            debugPrint(
-              'iOS interstitial failed (${error.code}: ${error.message}). Retrying with test interstitial ID fallback.',
-            );
-            _loadInterstitialAd(useTestFallback: true);
-          }
+          debugPrint(
+            'Interstitial ad failed to load (${error.code}: ${error.message})',
+          );
         },
       ),
     );
   }
 
-  void _loadExplainInterstitialAd({bool useTestFallback = false}) {
+  void _loadExplainInterstitialAd() {
     InterstitialAd.load(
-      adUnitId:
-          _explainInterstitialAdUnitId(forceTestFallback: useTestFallback),
+      adUnitId: _explainInterstitialAdUnitId(),
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
@@ -269,12 +250,9 @@ class _QuestionScreenState extends State<QuestionScreen>
         },
         onAdFailedToLoad: (error) {
           _isExplainInterstitialAdLoaded = false;
-          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
-            debugPrint(
-              'iOS explain interstitial failed (${error.code}: ${error.message}). Retrying with test interstitial ID fallback.',
-            );
-            _loadExplainInterstitialAd(useTestFallback: true);
-          }
+          debugPrint(
+            'Explain interstitial ad failed to load (${error.code}: ${error.message})',
+          );
         },
       ),
     );
@@ -897,7 +875,21 @@ class _QuestionScreenState extends State<QuestionScreen>
                     ),
                   ),
 
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+
+                  // BANNER AD (placed above bottom actions)
+                  if (!widget.isPremium &&
+                      _isBannerAdLoaded &&
+                      _bannerAd != null)
+                    Container(
+                      alignment: Alignment.center,
+                      width: _bannerAd!.size.width.toDouble(),
+                      height: _bannerAd!.size.height.toDouble(),
+                      child: AdWidget(ad: _bannerAd!),
+                    ),
+
+                  if (!widget.isPremium && _isBannerAdLoaded)
+                    const SizedBox(height: 12),
 
                   // BOTTOM ACTIONS: EXPLAIN + NEXT
                   Row(
@@ -1058,20 +1050,6 @@ class _QuestionScreenState extends State<QuestionScreen>
                   ),
 
                   const SizedBox(height: 12),
-
-                  // BANNER AD
-                  if (!widget.isPremium &&
-                      _isBannerAdLoaded &&
-                      _bannerAd != null)
-                    Container(
-                      alignment: Alignment.center,
-                      width: _bannerAd!.size.width.toDouble(),
-                      height: _bannerAd!.size.height.toDouble(),
-                      child: AdWidget(ad: _bannerAd!),
-                    ),
-
-                  if (!widget.isPremium && _isBannerAdLoaded)
-                    const SizedBox(height: 12),
                 ],
               ),
             ),

@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui';
 import 'dart:convert';
 
@@ -2010,26 +2009,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // =========================
   // ADMOB
   // =========================
-  String _rewardedAdUnitId({bool forceTestFallback = false}) {
-    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosRewardedTest;
+  String _rewardedAdUnitId() {
     return AdMobIds.rewarded;
   }
 
-  String _bannerAdUnitId({bool forceTestFallback = false}) {
-    if (forceTestFallback && Platform.isIOS) return AdMobIds.iosBannerTest;
+  String _bannerAdUnitId() {
     return AdMobIds.banner;
   }
 
-  String _menuInterstitialAdUnitId({bool forceTestFallback = false}) {
-    if (forceTestFallback && Platform.isIOS) {
-      return AdMobIds.iosInterstitialTest;
-    }
+  String _menuInterstitialAdUnitId() {
     return AdMobIds.interstitial;
   }
 
-  void _loadRewardedAd({bool useTestFallback = false}) {
+  void _loadRewardedAd() {
     RewardedAd.load(
-      adUnitId: _rewardedAdUnitId(forceTestFallback: useTestFallback),
+      adUnitId: _rewardedAdUnitId(),
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
@@ -2038,40 +2032,34 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         },
         onAdFailedToLoad: (error) {
           _isAdLoaded = false;
-          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
-            debugPrint(
-              'iOS rewarded ad failed (${error.code}: ${error.message}). Retrying with test rewarded ID fallback.',
-            );
-            _loadRewardedAd(useTestFallback: true);
-          }
+          debugPrint(
+            'Rewarded ad failed to load (${error.code}: ${error.message})',
+          );
         },
       ),
     );
   }
 
-  void _loadMenuInterstitialAd({bool useTestFallback = false}) {
+  void _loadMenuInterstitialAd() {
     InterstitialAd.load(
-      adUnitId: _menuInterstitialAdUnitId(forceTestFallback: useTestFallback),
+      adUnitId: _menuInterstitialAdUnitId(),
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _menuInterstitialAd = ad;
         },
         onAdFailedToLoad: (error) {
-          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
-            debugPrint(
-              'iOS interstitial ad failed (${error.code}: ${error.message}). Retrying with test interstitial ID fallback.',
-            );
-            _loadMenuInterstitialAd(useTestFallback: true);
-          }
+          debugPrint(
+            'Menu interstitial ad failed to load (${error.code}: ${error.message})',
+          );
         },
       ),
     );
   }
 
-  void _loadBannerAd({bool useTestFallback = false}) {
+  void _loadBannerAd() {
     _bannerAd = BannerAd(
-      adUnitId: _bannerAdUnitId(forceTestFallback: useTestFallback),
+      adUnitId: _bannerAdUnitId(),
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -2080,12 +2068,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         },
         onAdFailedToLoad: (ad, error) {
           ad.dispose();
-          if (Platform.isIOS && !AdMobIds.useTestAds && !useTestFallback) {
-            debugPrint(
-              'iOS banner ad failed (${error.code}: ${error.message}). Retrying with test banner ID fallback.',
-            );
-            _loadBannerAd(useTestFallback: true);
-          }
+          debugPrint(
+            'Menu banner ad failed to load (${error.code}: ${error.message})',
+          );
         },
       ),
     )..load();
@@ -4759,6 +4744,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final hasFocusReady = weakestCategory.isNotEmpty &&
         ((_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15);
     final hasChallengeReady = (_cachedChallengeQuestions?.length ?? 0) >= 10;
+    final isFocusModeLocked =
+        !canTakeQuiz || !_hasUnlockedAdvancedModes || weakestCategory.isEmpty;
+    final isChallengeModeLocked = !canTakeQuiz || !_hasUnlockedAdvancedModes;
     final showPregenerationState = _canUseDeepSeekPregeneration();
     final isRandomFetching =
         showPregenerationState && _isPrimingRandomQuizCache && !hasRandomReady;
@@ -5231,11 +5219,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
-                showReadyBadge: hasFocusReady,
-                showFetchingBadge: isFocusFetching,
-                isLocked: !canTakeQuiz ||
-                    !_hasUnlockedAdvancedModes ||
-                    weakestCategory.isEmpty,
+                showReadyBadge: !isFocusModeLocked && hasFocusReady,
+                showFetchingBadge: !isFocusModeLocked && isFocusFetching,
+                isLocked: isFocusModeLocked,
               ),
               const SizedBox(height: 12),
 
@@ -5274,9 +5260,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
-                showReadyBadge: hasChallengeReady,
-                showFetchingBadge: isChallengeFetching,
-                isLocked: !canTakeQuiz || !_hasUnlockedAdvancedModes,
+                showReadyBadge: !isChallengeModeLocked && hasChallengeReady,
+                showFetchingBadge:
+                    !isChallengeModeLocked && isChallengeFetching,
+                isLocked: isChallengeModeLocked,
                 showPremiumBanner: false,
               ),
               const SizedBox(height: 12),
