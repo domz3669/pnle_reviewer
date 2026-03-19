@@ -66,6 +66,8 @@ class _QuestionScreenState extends State<QuestionScreen>
   // Banner Ad
   BannerAd? _bannerAd;
   bool _isBannerAdLoaded = false;
+  int _bannerLoadRetryCount = 0;
+  static const int _maxBannerLoadRetries = 3;
 
   // Interstitial Ad
   InterstitialAd? _interstitialAd;
@@ -200,6 +202,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   void _loadBannerAd() {
+    _bannerAd?.dispose();
     _bannerAd = BannerAd(
       adUnitId: _bannerAdUnitId(),
       size: AdSize.banner,
@@ -208,6 +211,7 @@ class _QuestionScreenState extends State<QuestionScreen>
         onAdLoaded: (_) {
           setState(() {
             _isBannerAdLoaded = true;
+            _bannerLoadRetryCount = 0;
           });
         },
         onAdFailedToLoad: (ad, error) {
@@ -215,6 +219,13 @@ class _QuestionScreenState extends State<QuestionScreen>
           _isBannerAdLoaded = false;
           debugPrint(
               'Banner ad failed to load (${error.code}: ${error.message})');
+          if (!mounted || widget.isPremium) return;
+          if (_bannerLoadRetryCount >= _maxBannerLoadRetries) return;
+          _bannerLoadRetryCount++;
+          Future.delayed(const Duration(seconds: 2), () {
+            if (!mounted || widget.isPremium) return;
+            _loadBannerAd();
+          });
         },
       ),
     )..load();
@@ -878,18 +889,29 @@ class _QuestionScreenState extends State<QuestionScreen>
                   const SizedBox(height: 12),
 
                   // BANNER AD (placed above bottom actions)
-                  if (!widget.isPremium &&
-                      _isBannerAdLoaded &&
-                      _bannerAd != null)
-                    Container(
-                      alignment: Alignment.center,
-                      width: _bannerAd!.size.width.toDouble(),
-                      height: _bannerAd!.size.height.toDouble(),
-                      child: AdWidget(ad: _bannerAd!),
+                  if (!widget.isPremium)
+                    SizedBox(
+                      height: 50,
+                      child: (_isBannerAdLoaded && _bannerAd != null)
+                          ? Center(
+                              child: SizedBox(
+                                width: _bannerAd!.size.width.toDouble(),
+                                height: _bannerAd!.size.height.toDouble(),
+                                child: AdWidget(ad: _bannerAd!),
+                              ),
+                            )
+                          : Center(
+                              child: Text(
+                                'Loading ad...',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white.withValues(alpha: 0.45),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
                     ),
 
-                  if (!widget.isPremium && _isBannerAdLoaded)
-                    const SizedBox(height: 12),
+                  if (!widget.isPremium) const SizedBox(height: 12),
 
                   // BOTTOM ACTIONS: EXPLAIN + NEXT
                   Row(

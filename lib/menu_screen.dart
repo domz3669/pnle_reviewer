@@ -2937,105 +2937,40 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         : _savedSessions.first.questions.first.category;
 
     final pooledQuestions = _quickPracticeFromUnusedSavedPool(targetCategory);
-
-    if (pooledQuestions.length >= 5) {
-      for (final q in pooledQuestions.take(5)) {
-        _usedQuickPracticeSavedSignatures.add(_quickPracticeSignature(q));
-      }
-
-      final results = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => QuestionScreen(
-            questions: pooledQuestions,
-            isPremium: isPremiumUser || isTrialActive,
-            recordResults: false,
-            testMode: 'quickPractice',
-            zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+    if (pooledQuestions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No saved questions available for Quick Practice yet. Finish and save more tests first.',
+            style: GoogleFonts.outfit(),
           ),
+          duration: const Duration(seconds: 3),
         ),
       );
-
-      if (results != null && mounted) {
-        _updateTestResults(results);
-      }
       return;
     }
 
-    _showQuickPracticeDialog();
+    final selectedQuestions =
+        pooledQuestions.take(min(5, pooledQuestions.length)).toList();
+    for (final q in selectedQuestions) {
+      _usedQuickPracticeSavedSignatures.add(_quickPracticeSignature(q));
+    }
 
-    try {
-      final prompt = _buildFastQuickPracticePrompt(targetCategory);
+    final results = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => QuestionScreen(
+          questions: selectedQuestions,
+          isPremium: isPremiumUser || isTrialActive,
+          recordResults: false,
+          testMode: 'quickPractice',
+          zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+        ),
+      ),
+    );
 
-      // Build category map for Quick Practice (all 5 questions from weakest category)
-      final categoryMap = <int, String>{
-        1: targetCategory,
-        2: targetCategory,
-        3: targetCategory,
-        4: targetCategory,
-        5: targetCategory,
-      };
-
-      late final List<Question> questions;
-      if (DEEPSEEK_API_KEY.trim().isEmpty) {
-        throw Exception(
-            'DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
-      }
-
-      try {
-        final service = _buildDeepSeekService(
-          fastMode: true,
-          tokenCap: 1800,
-          requestTimeoutOverride: const Duration(seconds: 60),
-          maxRetriesOverride: 1,
-        );
-        questions = await service.generateQuestions(
-          prompt,
-          eligibility,
-          categoryMap: categoryMap,
-        );
-      } catch (_) {
-        if (GEMINI_API_KEY.trim().isEmpty) {
-          rethrow;
-        }
-        final geminiService = QuestionGenerationService(apiKey: GEMINI_API_KEY);
-        questions = await geminiService.generateQuestions(
-          _buildQuickPracticePrompt(targetCategory),
-          eligibility,
-          categoryMap: categoryMap,
-        );
-      }
-
-      if (!mounted) return;
-      Navigator.pop(context); // Close generation dialog
-
-      if (questions.isNotEmpty) {
-        final results = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => QuestionScreen(
-              questions: questions.take(5).toList(),
-              isPremium: isPremiumUser || isTrialActive,
-              recordResults:
-                  false, // Quick Practice doesn't count toward objective
-              testMode: 'quickPractice',
-              zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
-            ),
-          ),
-        );
-
-        if (results != null && mounted) {
-          _updateTestResults(results);
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error generating questions: ${e.toString()}')),
-        );
-      }
+    if (results != null && mounted) {
+      _updateTestResults(results);
     }
   }
 
@@ -3418,64 +3353,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // =========================
   // GENERATION DIALOG
   // =========================
-  void _showQuickPracticeDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black87,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                PnleTheme.bgTop.withValues(alpha: 0.95),
-                PnleTheme.bgBottom.withValues(alpha: 0.95),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-                color: Colors.purple.withValues(alpha: 0.5), width: 2),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.flash_on_rounded,
-                      color: Colors.purple.shade200, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    'QUICK PRACTICE',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              CircularProgressIndicator(
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(Colors.purple.shade200),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Generating questions...',
-                style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   void _showGenerationDialog({String? modeLabel}) {
     final bool activeIsFocusMode = _isFocusMode;
@@ -4756,6 +4633,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final isChallengeFetching = _hasUnlockedAdvancedModes &&
         _isPrimingChallengeCache &&
         !hasChallengeReady;
+    final showRandomPregenBadge = canTakeQuiz;
 
     return Stack(
       children: [
@@ -5177,8 +5055,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     : null,
                 isPrimary: true,
                 badge: canTakeQuiz ? null : 'NO CREDITS',
-                showReadyBadge: hasRandomReady,
-                showFetchingBadge: isRandomFetching,
+                showReadyBadge: showRandomPregenBadge && hasRandomReady,
+                showFetchingBadge: showRandomPregenBadge && isRandomFetching,
                 isLocked: !canTakeQuiz,
               ),
               const SizedBox(height: 12),
@@ -7859,78 +7737,6 @@ Rules:
 - Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
   - Use practical UPCAT-style scenarios with interpretation and application
   - Keep wording concise and academically accurate
-  - Keep choices similar in length and tone (target 8-14 words when feasible)
-- Make distractors plausible based on common student misconceptions
-- Avoid giveaway wording like "always", "never", or obvious textbook clues
-- Vary stem style (analysis, inference, best answer, problem-solving)
-  - Do not make correct answer obviously longest/shortest by wording
-  - Randomize answer letters across A/B/C/D without obvious streaks
-  - No markdown, no asterisks, no extra text
-- Return JSON only, no markdown.''';
-  }
-
-  String _buildQuickPracticePrompt(String focusCategory) {
-    final focusTopic = keyAreas[focusCategory]?.isNotEmpty ?? false
-        ? keyAreas[focusCategory]![
-            Random().nextInt(keyAreas[focusCategory]!.length)]
-        : 'General topics';
-
-    return '''Create 5 unique, practical multiple-choice questions in JSON format for a UPCAT AI Reviewer app.
-
-Each question must include:
-- "number": Question number (1 to 5)
-- "question": The full question text
-- "choices": A list of exactly 4 answer choices
-- "answer": The correct answer letter ("A", "B", "C", or "D")
-
-Structure the JSON exactly like this:
-{
-  "questions": [
-    {
-      "number": 1,
-      "question": "Question text here",
-      "choices": ["Choice A", "Choice B", "Choice C", "Choice D"],
-      "answer": "A"
-    }
-  ]
-}
-
-Constraints:
-- Questions 1-5: Focus on $focusCategory - $focusTopic
-- Keep questions short and practical for quick review.
-- Ensure one choice is correct and the answer logically follows from the question.
-- Make all answer choices balanced in length and tone.
-- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above".
-- Do not make the correct choice the longest option by wording length.
-- Do not make the correct choice the shortest option either.
-- Keep all 4 choices within a similar length range (target 8-14 words each when feasible).
-- Randomize correct-answer letters across A/B/C/D; avoid obvious patterns or repeated streaks.
-- Do not reveal the correct answer by wording patterns.
-- No asterisks, bold, or special formatting.
-- All text must be plain and readable.
-
-Output rules:
-- Return only a raw JSON object.
-- Do not use triple backticks.
-- Do not add explanations outside JSON.''';
-  }
-
-  String _buildFastQuickPracticePrompt(String focusCategory) {
-    final focusTopic = keyAreas[focusCategory]?.isNotEmpty ?? false
-        ? keyAreas[focusCategory]![
-            Random().nextInt(keyAreas[focusCategory]!.length)]
-        : 'General topics';
-
-    return '''Generate 5 UPCAT reasoning multiple-choice questions as raw JSON only.
-Format:
-{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
-Scope:
-- Q1-5 focus on $focusCategory ($focusTopic)
-Rules:
-- Exactly 4 choices per question
-- Correct answer must be one of A/B/C/D
-- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-  - Keep items short, practical, and reasoning-focused
   - Keep choices similar in length and tone (target 8-14 words when feasible)
 - Make distractors plausible based on common student misconceptions
 - Avoid giveaway wording like "always", "never", or obvious textbook clues
