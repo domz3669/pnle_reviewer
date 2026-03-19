@@ -2749,7 +2749,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           );
         }
       } else {
-        if (_isPrimingRandomQuizCache) {
+        final hasCachedRandomReady =
+            (_cachedRandomQuizQuestions?.length ?? 0) >= 15;
+        if (_isPrimingRandomQuizCache && !hasCachedRandomReady) {
           await _randomQuizPrimeCompleter?.future;
         }
 
