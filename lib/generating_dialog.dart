@@ -12,7 +12,7 @@ class GeneratingTestDialog extends StatefulWidget {
   final VoidCallback onStart;
   final VoidCallback? onSkip;
   final VoidCallback? onSuccess;
-  final bool isPremium;
+  final bool hasAdFreeAccess;
   final bool isFocusMode;
   final String? focusCategory;
   final String modeLabel;
@@ -24,7 +24,7 @@ class GeneratingTestDialog extends StatefulWidget {
     required this.onStart,
     this.onSkip,
     this.onSuccess,
-    this.isPremium = false,
+    this.hasAdFreeAccess = false,
     this.isFocusMode = false,
     this.focusCategory,
     this.modeLabel = 'RANDOM QUIZ',
@@ -190,7 +190,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                     onPressed: canClose
                         ? () {
                             // Show warning for free users if test is ready
-                            if (!widget.isPremium &&
+                            if (!widget.hasAdFreeAccess &&
                                 !hasError &&
                                 !isGenerating) {
                               _showCloseWarning(context);

@@ -9,7 +9,7 @@ class ExplanationDialog extends StatefulWidget {
   final String userAnswer;
   final String correctAnswer;
   final bool isCorrect;
-  final bool isPremium;
+  final bool hasAdFreeAccess;
   final VoidCallback onReportContent;
   final VoidCallback? onUseBetterAI;
 
@@ -19,7 +19,7 @@ class ExplanationDialog extends StatefulWidget {
     required this.userAnswer,
     required this.correctAnswer,
     required this.isCorrect,
-    this.isPremium = false,
+    this.hasAdFreeAccess = false,
     required this.onReportContent,
     this.onUseBetterAI,
   });

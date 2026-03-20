@@ -22,7 +22,7 @@ import 'services/gpt_service.dart';
 
 class QuestionScreen extends StatefulWidget {
   final List<Question> questions;
-  final bool isPremium;
+  final bool hasAdFreeAccess;
   final bool recordResults;
   final String testMode; // 'randomQuiz' or 'focusMode' or 'previous'
   final int zeroAdSessionsRemaining;
@@ -33,7 +33,7 @@ class QuestionScreen extends StatefulWidget {
   const QuestionScreen({
     super.key,
     required this.questions,
-    this.isPremium = false,
+    this.hasAdFreeAccess = false,
     this.recordResults = true,
     this.testMode = 'randomQuiz',
     this.zeroAdSessionsRemaining = 0,
@@ -199,14 +199,14 @@ class _QuestionScreenState extends State<QuestionScreen>
     );
 
     _startTimer();
-    if (!widget.isPremium) {
+    if (!widget.hasAdFreeAccess) {
       _loadBannerAd();
     }
     // Don't load interstitial ads for Quick Practice mode
-    if (!widget.isPremium && widget.testMode != 'quickPractice') {
+    if (!widget.hasAdFreeAccess && widget.testMode != 'quickPractice') {
       _loadInterstitialAd();
     }
-    if (!widget.isPremium) {
+    if (!widget.hasAdFreeAccess) {
       _loadExplainInterstitialAd();
     }
   }
@@ -241,11 +241,11 @@ class _QuestionScreenState extends State<QuestionScreen>
           _isBannerAdLoaded = false;
           debugPrint(
               'Banner ad failed to load (${error.code}: ${error.message})');
-          if (!mounted || widget.isPremium) return;
+          if (!mounted || widget.hasAdFreeAccess) return;
           if (_bannerLoadRetryCount >= _maxBannerLoadRetries) return;
           _bannerLoadRetryCount++;
           Future.delayed(const Duration(seconds: 2), () {
-            if (!mounted || widget.isPremium) return;
+            if (!mounted || widget.hasAdFreeAccess) return;
             _loadBannerAd();
           });
         },
@@ -567,13 +567,13 @@ class _QuestionScreenState extends State<QuestionScreen>
   // HELPER METHODS
   // =========================
   bool _canUseExplainWhy() {
-    if (widget.isPremium) return true;
+    if (widget.hasAdFreeAccess) return true;
     if (_explainAdUnlockedForCurrentQuestion) return true;
     return explanationCount < _freeExplainLimitForCurrentMode;
   }
 
   bool _canOfferExplainAdUnlock() {
-    if (widget.isPremium) return false;
+    if (widget.hasAdFreeAccess) return false;
     if (_canUseExplainWhy()) return false;
     return _explainAdUnlockCount < _maxExplainAdUnlocksForCurrentMode;
   }
@@ -996,7 +996,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                   const SizedBox(height: 12),
 
                   // BANNER AD (placed above bottom actions)
-                  if (!widget.isPremium)
+                  if (!widget.hasAdFreeAccess)
                     SizedBox(
                       height: 50,
                       child: (_isBannerAdLoaded && _bannerAd != null)
@@ -1018,7 +1018,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                             ),
                     ),
 
-                  if (!widget.isPremium) const SizedBox(height: 12),
+                  if (!widget.hasAdFreeAccess) const SizedBox(height: 12),
 
                   // BOTTOM ACTIONS: EXPLAIN + NEXT
                   Row(
@@ -1205,7 +1205,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   Future<void> _showEndQuizInterstitialIfNeeded() async {
-    if (widget.isPremium || widget.testMode == 'quickPractice') {
+    if (widget.hasAdFreeAccess || widget.testMode == 'quickPractice') {
       return;
     }
     if (!_isInterstitialAdLoaded || _interstitialAd == null) {
@@ -1299,7 +1299,7 @@ class _QuestionScreenState extends State<QuestionScreen>
           isPerfect: isPerfect,
           correctCount: _correctCount,
           totalCount: _totalCount,
-          isPremium: widget.isPremium,
+          hasAdFreeAccess: widget.hasAdFreeAccess,
           testMode: widget.testMode,
           elapsedSeconds: elapsedSeconds,
           zeroAdSessionsRemaining: widget.zeroAdSessionsRemaining,
@@ -1311,12 +1311,12 @@ class _QuestionScreenState extends State<QuestionScreen>
     );
 
     // Check if we should show review prompt
-    if (mounted && !widget.isPremium) {
+    if (mounted && !widget.hasAdFreeAccess) {
       final reviewService = ReviewService();
       final shouldShow = await reviewService.shouldShowReview(
         quizScore: percentageValue,
-        isPremiumUser: false,
-        isTrialActive: false,
+        hasAdFreeAccess: false,
+        hasGraceAccess: false,
       );
 
       if (shouldShow && mounted) {
@@ -1561,7 +1561,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   void _openExplanationDialog({required bool countAsFreeUsage}) {
     setState(() {
       _explanationRequested = true;
-      if (countAsFreeUsage && !widget.isPremium) {
+      if (countAsFreeUsage && !widget.hasAdFreeAccess) {
         explanationCount++;
       }
     });
@@ -1594,7 +1594,7 @@ class _QuestionScreenState extends State<QuestionScreen>
         userAnswer: userAnswerText,
         correctAnswer: correctAnswerText,
         isCorrect: isCorrect,
-        isPremium: widget.isPremium,
+        hasAdFreeAccess: widget.hasAdFreeAccess,
         onReportContent: _reportContent,
         onUseBetterAI: () async {
           Navigator.pop(context);
@@ -1638,7 +1638,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   void _showExplanation() {
-    if (!widget.isPremium && !_canUseExplainWhy()) {
+    if (!widget.hasAdFreeAccess && !_canUseExplainWhy()) {
       if (!_canOfferExplainAdUnlock()) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1657,7 +1657,7 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     _openExplanationDialog(
       countAsFreeUsage:
-          !widget.isPremium && !_explainAdUnlockedForCurrentQuestion,
+          !widget.hasAdFreeAccess && !_explainAdUnlockedForCurrentQuestion,
     );
   }
 }

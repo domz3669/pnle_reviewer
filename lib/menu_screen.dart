@@ -271,9 +271,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // =========================
   int currentScreen = 0; // 0=Home, 1=Daily, 2=Quiz, 3=History, 4=Settings
   String eligibility = 'UPCAT Reviewer';
-  bool isPremiumUser = false;
-  bool isTrialActive = false;
-  DateTime? trialEndDate;
+  bool hasAdFreeAccess = false;
+  bool hasGraceAccess = false;
+  DateTime? graceAccessEndDate;
   // Daily tracking
   int completedSessions = 0; // Out of 4 per day
   int remainingFreeTests = 4; // Firebase-synced daily counter
@@ -299,7 +299,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   int accumulatedQuizzesCompleted = 0;
   int accumulatedQuestionsAnswered = 0;
   int _lifetimeRandomQuizzesCompleted = 0;
-  static const int _advancedModeUnlockRequirement = 2;
+  static const int _advancedModeUnlockRequirement = 0;
 
   bool _isOnline = true;
   int _serverTimeOffsetMs = 0;
@@ -343,7 +343,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   static const int _maxQuizActivityRecords = 120;
   static const int _quizActivityRetentionDays = 45;
 
-  // Daily generation limits (premium only)
+  // Daily generation limits (access-enabled only)
   int _dailyGenerationSessionsUsed = 0;
   int _dailyGenerationQuestionsUsed = 0;
   String? _lastGenerationResetDate; // Format: yyyy-MM-dd
@@ -1460,7 +1460,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   // =========================================================================
-  // DAILY GENERATION USAGE TRACKING (Premium Rate Limiting)
+  // DAILY GENERATION USAGE TRACKING (Access Rate Limiting)
   // =========================================================================
 
   Future<void> _loadDailyGenerationUsage() async {
@@ -2998,7 +2998,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _primeFreeDeepSeekCaches() async {
-    if (isPremiumUser || isTrialActive || _isPrimingFreeDeepSeekCache) return;
+    if (hasAdFreeAccess || hasGraceAccess || _isPrimingFreeDeepSeekCache)
+      return;
     if (!_hasUnlockedAdvancedModes) return;
 
     final weakestCategory = _getWeakestCategory();
@@ -3086,8 +3087,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   bool _canUseDeepSeekPregeneration() {
-    return !isPremiumUser &&
-        !isTrialActive &&
+    return !hasAdFreeAccess &&
+        !hasGraceAccess &&
         !_showFirstTimeFlow &&
         DEEPSEEK_API_KEY.trim().isNotEmpty;
   }
@@ -3182,10 +3183,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (GEMINI_API_KEY.trim().isEmpty) {
-      if (salvagedDeepSeek.isNotEmpty) {
-        return salvagedDeepSeek;
-      }
-      throw Exception('Gemini API key missing for pre-generation fallback.');
+      return salvagedDeepSeek;
     }
 
     final geminiService = QuestionGenerationService(apiKey: GEMINI_API_KEY);
@@ -3447,8 +3445,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       {bool isFocusMode = false, String? focusCategory}) async {
     _usedCachedRandomForLastGeneration = false;
 
-    // Premium/Trial uses Gemini-first; all other users go straight to DeepSeek pre-generation flow.
-    final useGemini = isPremiumUser || isTrialActive;
+    // Primary/Fallback uses Gemini-first; all other users go straight to DeepSeek pre-generation flow.
+    final useGemini = hasAdFreeAccess || hasGraceAccess;
 
     // Use state variables if not passed as parameters
     final useFocusMode = isFocusMode || _isFocusMode;
@@ -3497,8 +3495,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     if (useGemini) {
       if (GEMINI_API_KEY.trim().isEmpty) {
-        throw Exception(
-            'Gemini API key missing. Re-run with --dart-define=GEMINI_API_KEY=...');
+        return false;
       }
       try {
         final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
@@ -3509,8 +3506,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         );
       } catch (e) {
         if (DEEPSEEK_API_KEY.trim().isEmpty) {
-          throw Exception(
-              'DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
+          return false;
         }
 
         final service = _buildDeepSeekService(fastMode: false);
@@ -3522,8 +3518,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
     } else {
       if (DEEPSEEK_API_KEY.trim().isEmpty) {
-        throw Exception(
-            'DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
+        return false;
       }
       if (useFocusMode && category != null) {
         final cached = _cachedFocusQuestions[category];
@@ -3568,8 +3563,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     // Shuffle choices to avoid patterns in correct answers
     _generatedQuestions = _generatedQuestions.map((q) => q.shuffled()).toList();
 
-    // Increment daily usage counter for premium users
-    if ((isPremiumUser || isTrialActive) && _generatedQuestions.isNotEmpty) {
+    // Increment daily usage counter for access-enabled users
+    if ((hasAdFreeAccess || hasGraceAccess) && _generatedQuestions.isNotEmpty) {
       _incrementGenerationUsage(_generatedQuestions.length);
     }
 
@@ -3913,7 +3908,7 @@ Constraints:
       MaterialPageRoute(
         builder: (_) => QuestionScreen(
           questions: pooledQuestions,
-          isPremium: isPremiumUser || isTrialActive,
+          hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
           recordResults: false,
           testMode: 'quickPractice',
           zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -3937,7 +3932,7 @@ Constraints:
       MaterialPageRoute(
         builder: (_) => QuestionScreen(
           questions: session.questions,
-          isPremium: isPremiumUser || isTrialActive,
+          hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
           recordResults: session.recordResults,
           testMode: session.testMode,
           zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -4082,7 +4077,7 @@ Constraints:
       MaterialPageRoute(
         builder: (_) => QuestionScreen(
           questions: reviewQuestions,
-          isPremium: isPremiumUser || isTrialActive,
+          hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
           recordResults: false,
           testMode: 'reviewMistakes',
           zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -4496,7 +4491,7 @@ Constraints:
         MaterialPageRoute(
           builder: (_) => QuestionScreen(
             questions: cachedQuestions,
-            isPremium: isPremiumUser || isTrialActive,
+            hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
             recordResults: false,
             testMode: 'challenge',
             zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -4574,8 +4569,8 @@ Constraints:
     );
 
     try {
-      // Premium/Trial uses Gemini-first; all other users use DeepSeek generation flow.
-      final useGemini = isPremiumUser || isTrialActive;
+      // Primary/Fallback uses Gemini-first; all other users use DeepSeek generation flow.
+      final useGemini = hasAdFreeAccess || hasGraceAccess;
       // Generate random category focus for challenge
       final categories = _categoriesForEligibility();
       final focusCategory = categories[Random().nextInt(categories.length)];
@@ -4589,7 +4584,7 @@ Constraints:
       if (useGemini) {
         if (GEMINI_API_KEY.trim().isEmpty) {
           throw Exception(
-              'Gemini API key missing. Re-run with --dart-define=GEMINI_API_KEY=...');
+              'Challenge mode is temporarily unavailable without a configured API key.');
         }
         try {
           final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
@@ -4598,7 +4593,7 @@ Constraints:
         } catch (e) {
           if (DEEPSEEK_API_KEY.trim().isEmpty) {
             throw Exception(
-                'DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
+                'Challenge mode is temporarily unavailable while offline and no fallback key is configured.');
           }
 
           final service = _buildDeepSeekService(fastMode: false);
@@ -4608,7 +4603,7 @@ Constraints:
       } else {
         if (DEEPSEEK_API_KEY.trim().isEmpty) {
           throw Exception(
-              'DeepSeek API key missing. Re-run with --dart-define=DEEPSEEK_API_KEY=...');
+              'Challenge mode is temporarily unavailable while offline and no fallback key is configured.');
         }
         final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
         questions = await service.generateQuestions(prompt, eligibility,
@@ -4641,7 +4636,7 @@ Constraints:
           MaterialPageRoute(
             builder: (_) => QuestionScreen(
               questions: questions.take(10).toList(),
-              isPremium: isPremiumUser || isTrialActive,
+              hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
               recordResults: false,
               testMode: 'challenge',
               zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -4871,7 +4866,7 @@ Constraints:
               unawaited(_primeFreeDeepSeekCaches());
             }
           },
-          isPremium: isPremiumUser,
+          hasAdFreeAccess: hasAdFreeAccess,
           isFocusMode: activeIsFocusMode,
           focusCategory: activeFocusCategory,
           modeLabel: effectiveModeLabel,
@@ -4913,7 +4908,7 @@ Constraints:
                   MaterialPageRoute(
                     builder: (_) => QuestionScreen(
                       questions: questions,
-                      isPremium: isPremiumUser || isTrialActive,
+                      hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
                       recordResults: true,
                       testMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
                       zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -5294,8 +5289,8 @@ Constraints:
                                       MaterialPageRoute(
                                         builder: (_) => QuestionScreen(
                                           questions: questions,
-                                          isPremium:
-                                              isPremiumUser || isTrialActive,
+                                          hasAdFreeAccess:
+                                              hasAdFreeAccess || hasGraceAccess,
                                           recordResults: false,
                                           testMode: 'previous',
                                           zeroAdSessionsRemaining:
@@ -6009,7 +6004,7 @@ Constraints:
             ),
           ),
           // Banner Ad (only for free users) - positioned at bottom above nav bar
-          if (!isPremiumUser && !isTrialActive && _bannerAd != null)
+          if (!hasAdFreeAccess && !hasGraceAccess && _bannerAd != null)
             Container(
               alignment: Alignment.center,
               width: _bannerAd!.size.width.toDouble(),
@@ -6598,6 +6593,10 @@ Constraints:
   Widget _startQuizScreen() {
     final totalAvg = _calculateTotalAverage();
     final weakestCategory = _getWeakestCategory();
+    final categories = _categoriesForEligibility();
+    final effectiveFocusCategory = weakestCategory.isNotEmpty
+        ? weakestCategory
+        : (categories.isNotEmpty ? categories.first : '');
     // Use accumulated stats that persist across sessions
     final totalQuizzesTaken = accumulatedQuizzesCompleted;
     final totalQuestionsAnswered = accumulatedQuestionsAnswered;
@@ -6606,10 +6605,10 @@ Constraints:
     final hasSeedRandomReady = _seedPoolReady &&
         _seedPoolService.canServe('randomQuiz', _buildRandomCategoryMap());
     final hasSeedFocusReady = _seedPoolReady &&
-        weakestCategory.isNotEmpty &&
+        effectiveFocusCategory.isNotEmpty &&
         _seedPoolService.canServe(
           'focusMode',
-          _buildFocusCategoryMap(weakestCategory),
+          _buildFocusCategoryMap(effectiveFocusCategory),
         );
     final hasSeedChallengeReady = _seedPoolReady &&
         _categoriesForEligibility().any((category) => _seedPoolService.canServe(
@@ -6619,12 +6618,13 @@ Constraints:
         ((_cachedRandomQuizQuestions?.length ?? 0) >= 15 &&
             _cachedRandomQuizCoverage != null);
     final hasFocusReady = hasSeedFocusReady ||
-        (weakestCategory.isNotEmpty &&
-            ((_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15));
+        (effectiveFocusCategory.isNotEmpty &&
+            ((_cachedFocusQuestions[effectiveFocusCategory]?.length ?? 0) >=
+                15));
     final hasChallengeReady = hasSeedChallengeReady ||
         ((_cachedChallengeQuestions?.length ?? 0) >= 10);
     final isFocusModeLocked =
-        !_hasUnlockedAdvancedModes || weakestCategory.isEmpty;
+        !_hasUnlockedAdvancedModes || effectiveFocusCategory.isEmpty;
     final isChallengeModeLocked = !_hasUnlockedAdvancedModes;
     final showPregenerationState = _canUseDeepSeekPregeneration();
     final isRandomFetching =
@@ -6982,9 +6982,9 @@ Constraints:
               _quizModeCard(
                 icon: Icons.center_focus_strong_rounded,
                 title: 'Focus Mode',
-                description: weakestCategory.isNotEmpty
-                    ? 'Target: $weakestCategory'
-                    : 'Unlock after Random Quiz progress',
+                description: effectiveFocusCategory.isNotEmpty
+                    ? 'Target: $effectiveFocusCategory'
+                    : 'Adaptive focus practice',
                 gradient: _modeFadeGradientWithColors(
                   const Color(0xFFFF6B6B),
                   const Color(0xFFFF8A80),
@@ -6992,18 +6992,18 @@ Constraints:
                 ),
                 onTap: (canTakeQuiz &&
                         _hasUnlockedAdvancedModes &&
-                        weakestCategory.isNotEmpty)
+                        effectiveFocusCategory.isNotEmpty)
                     ? () async {
                         await _startOrResumeMode(
                           mode: 'focusMode',
                           onStartNew: () async {
                             try {
-                              final coverage =
-                                  _generateFocusModeCoverage(weakestCategory);
+                              final coverage = _generateFocusModeCoverage(
+                                  effectiveFocusCategory);
                               _showTestCoverageDialog(
                                 coverage,
                                 isFocusMode: true,
-                                focusCategory: weakestCategory,
+                                focusCategory: effectiveFocusCategory,
                               );
                             } catch (e) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -7014,7 +7014,8 @@ Constraints:
                           },
                         );
                       }
-                    : (!_hasUnlockedAdvancedModes || weakestCategory.isEmpty)
+                    : (!_hasUnlockedAdvancedModes ||
+                            effectiveFocusCategory.isEmpty)
                         ? null
                         : () => _showMoreSessionsDialog(),
                 badge: !canTakeQuiz
@@ -7076,7 +7077,6 @@ Constraints:
                     !isChallengeModeLocked &&
                     isChallengeFetching,
                 isLocked: isChallengeModeLocked,
-                showPremiumBanner: false,
               ),
               const SizedBox(height: 12),
 
@@ -7095,7 +7095,6 @@ Constraints:
                   onTap: _showSavedTestsDialog,
                   badge: '${_savedSessions.length}',
                   isLocked: false,
-                  showPremiumBanner: false,
                 ),
 
               if (_savedSessions.isNotEmpty) const SizedBox(height: 24),
@@ -7216,7 +7215,6 @@ Constraints:
     bool showReadyBadge = false,
     bool showFetchingBadge = false,
     bool isLocked = false,
-    bool showPremiumBanner = false,
   }) {
     return InkWell(
       onTap: isLocked
@@ -7289,10 +7287,9 @@ Constraints:
                               ),
                             ),
                           ),
-                          if (!showPremiumBanner &&
-                              (badge != null ||
-                                  showReadyBadge ||
-                                  showFetchingBadge))
+                          if (badge != null ||
+                              showReadyBadge ||
+                              showFetchingBadge)
                             Wrap(
                               spacing: 6,
                               runSpacing: 4,
@@ -7393,54 +7390,6 @@ Constraints:
               ],
             ),
           ),
-          // Premium corner ribbon
-          if (showPremiumBanner)
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [
-                      Color(0xFFFFD700),
-                      Color(0xFFFFC700),
-                    ],
-                  ),
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(16),
-                    bottomLeft: Radius.circular(8),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.star_rounded,
-                      color: PnleTheme.bgBottom,
-                      size: 12,
-                    ),
-                    const SizedBox(width: 3),
-                    Text(
-                      'PREMIUM',
-                      style: GoogleFonts.outfit(
-                        color: PnleTheme.bgBottom,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 9,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -8095,7 +8044,7 @@ Constraints:
   }
 
   Widget _historyScreen() {
-    return _premiumHistoryScreen();
+    return _historyInsightsScreen();
   }
 
   DateTime _dateOnly(DateTime date) =>
@@ -8178,7 +8127,7 @@ Constraints:
     return 0;
   }
 
-  Widget _premiumHistoryScreen() {
+  Widget _historyInsightsScreen() {
     final tenDayActivity = _buildTenDayActivity();
     final activeDays =
         tenDayActivity.where((day) => (day['quizzes'] as int) > 0).length;
@@ -8193,7 +8142,7 @@ Constraints:
     return Stack(
       children: [
         SingleChildScrollView(
-          key: const PageStorageKey('history_screen_premium'),
+          key: const PageStorageKey('history_screen'),
           controller: _historyScrollController,
           child: Column(
             children: [
@@ -8928,7 +8877,7 @@ void _showLimitReachedDialog() {
       title: const Text('Daily Limit Reached'),
       content: const Text(
         'Free users can only create 4 sessions per day.\n'
-        'Upgrade to Premium for unlimited access.',
+        'Unlimited access available in this build configuration.',
       ),
       actions: [
         TextButton(

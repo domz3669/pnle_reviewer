@@ -10,7 +10,7 @@ class AnimatedResultsDialog extends StatefulWidget {
   final bool isPerfect;
   final Map<String, int> correctCount;
   final Map<String, int> totalCount;
-  final bool isPremium;
+  final bool hasAdFreeAccess;
   final String? testMode;
   final int elapsedSeconds;
   final Function(String) onResultAction;
@@ -23,7 +23,7 @@ class AnimatedResultsDialog extends StatefulWidget {
     required this.isPerfect,
     required this.correctCount,
     required this.totalCount,
-    required this.isPremium,
+    required this.hasAdFreeAccess,
     required this.testMode,
     this.elapsedSeconds = 0,
     required this.onResultAction,

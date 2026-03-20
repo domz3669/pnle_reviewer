@@ -16,11 +16,11 @@ class ReviewService {
   /// Returns true if should show, false otherwise
   Future<bool> shouldShowReview({
     required double quizScore,
-    required bool isPremiumUser,
-    required bool isTrialActive,
+    required bool hasAdFreeAccess,
+    required bool hasGraceAccess,
   }) async {
-    // Don't show for premium or trial users
-    if (isPremiumUser || isTrialActive) {
+    // Don't show for ad-free access cohorts
+    if (hasAdFreeAccess || hasGraceAccess) {
       return false;
     }
 
