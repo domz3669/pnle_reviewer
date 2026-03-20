@@ -8,12 +8,14 @@ class SubscriptionDialog extends StatelessWidget {
   static final Uri _termsUrl = Uri.parse(
     'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/',
   );
-  static final Uri _privacyUrl = Uri.parse('https://studentries.weebly.com/upcat-ios.html');
+  static final Uri _privacyUrl =
+      Uri.parse('https://studentries.weebly.com/upcat-ios.html');
 
   final VoidCallback onStartTrial;
   final VoidCallback onClose;
   final VoidCallback? onRestorePurchases;
-  final String? triggerSource; // 'trial_offer', 'daily_limit', or 'explain_limit'
+  final String?
+      triggerSource; // 'trial_offer', 'daily_limit', or 'explain_limit'
 
   const SubscriptionDialog({
     super.key,
@@ -112,10 +114,11 @@ class SubscriptionDialog extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    
+
                     // Limited Time Badge
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
@@ -170,7 +173,8 @@ class SubscriptionDialog extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.06),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.16)),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.16)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -349,7 +353,8 @@ class SubscriptionDialog extends StatelessWidget {
                       runSpacing: 8,
                       children: [
                         TextButton(
-                          onPressed: () => _openExternalLink(context, _privacyUrl),
+                          onPressed: () =>
+                              _openExternalLink(context, _privacyUrl),
                           child: Text(
                             'Privacy Policy',
                             style: GoogleFonts.outfit(
@@ -367,7 +372,8 @@ class SubscriptionDialog extends StatelessWidget {
                           ),
                         ),
                         TextButton(
-                          onPressed: () => _openExternalLink(context, _termsUrl),
+                          onPressed: () =>
+                              _openExternalLink(context, _termsUrl),
                           child: Text(
                             'Terms of Use (EULA)',
                             style: GoogleFonts.outfit(
@@ -406,7 +412,8 @@ class SubscriptionDialog extends StatelessWidget {
                     TextButton(
                       onPressed: onClose,
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 12, horizontal: 24),
                       ),
                       child: Text(
                         'Maybe Later',
@@ -437,7 +444,7 @@ class SubscriptionDialog extends StatelessWidget {
       {
         'icon': Icons.all_inclusive_rounded,
         'title': 'Up to 300 Questions Daily',
-        'subtitle': '9,000 AI-generated questions/month',
+        'subtitle': '9,000 curated questions/month',
       },
       {
         'icon': Icons.emoji_events_rounded,
@@ -446,7 +453,7 @@ class SubscriptionDialog extends StatelessWidget {
       },
       {
         'icon': Icons.psychology_alt_rounded,
-        'title': 'Unlimited AI Explanations',
+        'title': 'Unlimited Advanced Explanations',
         'subtitle': 'Understand every answer deeply',
       },
       {

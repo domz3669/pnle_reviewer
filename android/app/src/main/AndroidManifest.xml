@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <application
-        android:label="UPCAT AI Reviewer 2027"
+        android:label="UPCAT Reviewer 2027"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

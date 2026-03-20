@@ -42,7 +42,8 @@ class GptService {
 
       final userAnswerLetter = _resolveAnswerLetter(userAnswer);
       final correctAnswerLetter = _resolveAnswerLetter(correctAnswer);
-      final userAnswerFeedback = userAnswerLetter != correctAnswerLetter && userAnswerLetter != 'unknown'
+      final userAnswerFeedback = userAnswerLetter != correctAnswerLetter &&
+              userAnswerLetter != 'unknown'
           ? ' You selected $userAnswerLetter, which is incorrect because it misses the key point that applies to option $correctAnswerLetter.'
           : '';
 
@@ -86,33 +87,35 @@ Return only the explanation text.''';
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
-        final content = jsonResponse['choices'][0]['message']['content'] as String;
+        final content =
+            jsonResponse['choices'][0]['message']['content'] as String;
         return content.trim();
       } else if (response.statusCode == 429) {
-        return '⚠️ OpenAI is experiencing high demand (rate limit). Please wait a moment and try again.';
+        return '⚠️ Explanation service is currently busy. Please wait a moment and try again.';
       } else if (response.statusCode == 503 || response.statusCode == 502) {
-        return '⚠️ ChatGPT is currently experiencing high demand. Please try again later.';
+        return '⚠️ Explanation service is currently unavailable. Please try again later.';
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         return '⚠️ Authentication error. Please check API configuration.';
       } else if (response.statusCode >= 500) {
-        return '⚠️ ChatGPT server error. This model is currently experiencing issues. Please try again.';
+        return '⚠️ Service error. Please try again.';
       } else {
         return '⚠️ Error: ${response.statusCode}. Please try again.';
       }
     } on SocketException {
       return '⚠️ Network connection error. Please check your internet and try again.';
     } on TimeoutException {
-      return '⚠️ Request timed out. The AI service is slow. Please try again.';
+      return '⚠️ Request timed out. Please try again.';
     } catch (e) {
       final errorMsg = e.toString().toLowerCase();
-      
+
       if (errorMsg.contains('timeout') || errorMsg.contains('deadline')) {
-        return '⚠️ Request timed out. The AI service is slow. Please try again.';
-      } else if (errorMsg.contains('connection') || errorMsg.contains('network')) {
+        return '⚠️ Request timed out. Please try again.';
+      } else if (errorMsg.contains('connection') ||
+          errorMsg.contains('network')) {
         return '⚠️ Network connection error. Please check your internet and try again.';
       }
-      
-      return 'Error generating explanation: Please try again.';
+
+      return 'Unable to prepare explanation. Please try again.';
     }
   }
 }

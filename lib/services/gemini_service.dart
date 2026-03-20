@@ -45,7 +45,8 @@ class GeminiService {
 
       final userAnswerLetter = _resolveAnswerLetter(userAnswer);
       final correctAnswerLetter = _resolveAnswerLetter(correctAnswer);
-      final userAnswerFeedback = userAnswerLetter != correctAnswerLetter && userAnswerLetter != 'unknown'
+      final userAnswerFeedback = userAnswerLetter != correctAnswerLetter &&
+              userAnswerLetter != 'unknown'
           ? ' You selected $userAnswerLetter, which is incorrect because it misses the key point that applies to option $correctAnswerLetter.'
           : '';
 
@@ -73,25 +74,31 @@ Return only the explanation text.''';
       final response = await model.generateContent(content);
 
       if (response.text == null || response.text!.isEmpty) {
-        return 'Unable to generate explanation. Please try again.';
+        return 'Unable to prepare explanation. Please try again.';
       }
 
       return response.text!.trim();
     } catch (e) {
       final errorMsg = e.toString().toLowerCase();
-      
+
       // Check for rate limiting or service availability issues
-      if (errorMsg.contains('429') || errorMsg.contains('quota') || errorMsg.contains('rate limit')) {
+      if (errorMsg.contains('429') ||
+          errorMsg.contains('quota') ||
+          errorMsg.contains('rate limit')) {
         return '⚠️ Service temporarily busy (rate limit). Please wait a moment and try again.';
-      } else if (errorMsg.contains('503') || errorMsg.contains('unavailable') || errorMsg.contains('service')) {
-        return '⚠️ Gemini is currently experiencing high demand. Please try again later.';
-      } else if (errorMsg.contains('timeout') || errorMsg.contains('deadline')) {
-        return '⚠️ Request timed out. The AI service is slow. Please try again.';
-      } else if (errorMsg.contains('connection') || errorMsg.contains('network')) {
+      } else if (errorMsg.contains('503') ||
+          errorMsg.contains('unavailable') ||
+          errorMsg.contains('service')) {
+        return '⚠️ Explanation service is currently unavailable. Please try again later.';
+      } else if (errorMsg.contains('timeout') ||
+          errorMsg.contains('deadline')) {
+        return '⚠️ Request timed out. Please try again.';
+      } else if (errorMsg.contains('connection') ||
+          errorMsg.contains('network')) {
         return '⚠️ Network connection error. Please check your internet and try again.';
       }
-      
-      return 'Error generating explanation: Please try again.';
+
+      return 'Unable to prepare explanation. Please try again.';
     }
   }
 }

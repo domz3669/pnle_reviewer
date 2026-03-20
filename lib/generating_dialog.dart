@@ -34,7 +34,8 @@ class GeneratingTestDialog extends StatefulWidget {
   State<GeneratingTestDialog> createState() => _GeneratingTestDialogState();
 }
 
-class _GeneratingTestDialogState extends State<GeneratingTestDialog> with TickerProviderStateMixin {
+class _GeneratingTestDialogState extends State<GeneratingTestDialog>
+    with TickerProviderStateMixin {
   static const Duration _cancelEnableDelay = Duration(seconds: 90);
 
   bool isGenerating = true;
@@ -46,9 +47,8 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
   final SoundService _soundService = SoundService();
   late AnimationController _successAnimationController;
 
-  Color get _accentColor => widget.isFocusMode
-      ? PnleTheme.glowA
-      : PnleTheme.accent;
+  Color get _accentColor =>
+      widget.isFocusMode ? PnleTheme.glowA : PnleTheme.accent;
 
   @override
   void initState() {
@@ -60,8 +60,6 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
     );
     _startGeneration();
   }
-
-
 
   void _startGeneration() async {
     _cancelEnableTimer?.cancel();
@@ -91,21 +89,21 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
         else
           Future.value(true),
       ]);
-      
+
       final success = results[0];
       final adSuccess = results[1];
-      
+
       if (!mounted) return;
-      
+
       if (success && adSuccess) {
         // Play success notification - multiple times for audibility
         _playSuccessNotification();
-        
+
         setState(() {
           isGenerating = false;
           hasError = false;
         });
-        
+
         // Animate success icon
         _successAnimationController.forward();
 
@@ -129,7 +127,8 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
       setState(() {
         isGenerating = false;
         hasError = true;
-        _errorMessage = e.toString();
+        _errorMessage =
+            'Unable to prepare your session right now. Please check your connection and try again.';
       });
     }
   }
@@ -191,7 +190,9 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                     onPressed: canClose
                         ? () {
                             // Show warning for free users if test is ready
-                            if (!widget.isPremium && !hasError && !isGenerating) {
+                            if (!widget.isPremium &&
+                                !hasError &&
+                                !isGenerating) {
                               _showCloseWarning(context);
                             } else {
                               Navigator.pop(context);
@@ -212,7 +213,8 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 280),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -229,7 +231,9 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          widget.isFocusMode ? Icons.gps_fixed : Icons.shuffle_rounded,
+                          widget.isFocusMode
+                              ? Icons.gps_fixed
+                              : Icons.shuffle_rounded,
                           color: _accentColor,
                           size: 16,
                         ),
@@ -266,7 +270,8 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                         child: CircularProgressIndicator(
                           strokeWidth: 5,
                           backgroundColor: Colors.white.withOpacity(0.1),
-                          valueColor: AlwaysStoppedAnimation<Color>(_accentColor),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(_accentColor),
                         ),
                       ),
 
@@ -298,11 +303,16 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                         builder: (context, child) {
                           final scaleValue = hasError
                               ? 1.0
-                              : 1.0 + (Curves.elasticOut.transform(_successAnimationController.value) * 0.3);
+                              : 1.0 +
+                                  (Curves.elasticOut.transform(
+                                          _successAnimationController.value) *
+                                      0.3);
                           final pulseValue = hasError
                               ? 1.0
-                              : 1.0 + (0.1 * (1 - _successAnimationController.value));
-                          
+                              : 1.0 +
+                                  (0.1 *
+                                      (1 - _successAnimationController.value));
+
                           return Transform.scale(
                             scale: scaleValue,
                             child: Container(
@@ -317,14 +327,17 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                                   BoxShadow(
                                     color: hasError
                                         ? Colors.red.withOpacity(0.5)
-                                        : _accentColor.withOpacity(0.5 * pulseValue),
+                                        : _accentColor
+                                            .withOpacity(0.5 * pulseValue),
                                     blurRadius: 25 * pulseValue,
                                     spreadRadius: 8 * pulseValue,
                                   ),
                                 ],
                               ),
                               child: Icon(
-                                hasError ? Icons.error_outline_rounded : Icons.check_circle_rounded,
+                                hasError
+                                    ? Icons.error_outline_rounded
+                                    : Icons.check_circle_rounded,
                                 color: Colors.white,
                                 size: 48,
                               ),
@@ -366,7 +379,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              'Athena AI is generating...',
+                              'Preparing your quiz...',
                               style: GoogleFonts.outfit(
                                 color: Colors.white,
                                 fontSize: 16,
@@ -415,7 +428,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Your personalized test has been generated',
+                          'Your personalized test is ready',
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
                             color: Colors.white.withOpacity(0.8),
@@ -449,10 +462,13 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                                       height: 1.4,
                                     ),
                                     children: const [
-                                      TextSpan(text: 'If the answer seems wrong, tap '),
                                       TextSpan(
-                                        text: '"EXPLAIN WHY"',
-                                        style: TextStyle(fontWeight: FontWeight.bold),
+                                          text:
+                                              'If the answer seems wrong, tap '),
+                                      TextSpan(
+                                        text: '"COACH NOTE"',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold),
                                       ),
                                       TextSpan(text: ' after answering'),
                                     ],
@@ -471,7 +487,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Generation Failed',
+                          'Preparation Failed',
                           style: GoogleFonts.outfit(
                             color: Colors.white,
                             fontSize: 20,
@@ -488,7 +504,9 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                           ),
                         ),
                       ],
-                      if (hasError && _errorMessage != null && _errorMessage!.isNotEmpty)
+                      if (hasError &&
+                          _errorMessage != null &&
+                          _errorMessage!.isNotEmpty)
                         Text(
                           _errorMessage!,
                           maxLines: 4,
@@ -557,10 +575,10 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                       children: [
                         if (!isGenerating)
                           Icon(
-                            hasError ? Icons.refresh_rounded : Icons.play_arrow_rounded,
-                            color: hasError
-                                ? Colors.white
-                                : PnleTheme.bgBottom,
+                            hasError
+                                ? Icons.refresh_rounded
+                                : Icons.play_arrow_rounded,
+                            color: hasError ? Colors.white : PnleTheme.bgBottom,
                             size: 24,
                           ),
                         if (!isGenerating) const SizedBox(width: 8),
@@ -568,14 +586,14 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                           hasError
                               ? 'RETRY'
                               : isGenerating
-                                  ? 'GENERATING...'
+                                  ? 'PREPARING...'
                                   : 'START TEST',
                           style: GoogleFonts.outfit(
                             color: hasError
                                 ? Colors.white
                                 : isGenerating
                                     ? Colors.white.withOpacity(0.5)
-                                        : PnleTheme.bgBottom,
+                                    : PnleTheme.bgBottom,
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
                             letterSpacing: 1,
@@ -688,19 +706,24 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                               gradient: const LinearGradient(
-                                colors: [PnleTheme.accent, PnleTheme.accentDeep],
+                                colors: [
+                                  PnleTheme.accent,
+                                  PnleTheme.accentDeep
+                                ],
                               ),
                             ),
                             child: ElevatedButton(
                               onPressed: () {
                                 Navigator.pop(dialogContext); // Close warning
-                                Navigator.pop(context); // Close generation dialog
+                                Navigator.pop(
+                                    context); // Close generation dialog
                                 widget.onStart(); // Start the test immediately
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.transparent,
                                 shadowColor: Colors.transparent,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -727,5 +750,4 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog> with Ticker
       },
     );
   }
-
 }

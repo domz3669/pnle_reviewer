@@ -19,6 +19,7 @@ import 'models/question.dart';
 import 'models/pnle_key_areas.dart';
 import 'services/question_generation_service.dart';
 import 'services/deepseek_service.dart';
+import 'services/seed_question_pool_service.dart';
 import 'config/secrets.dart';
 import 'config/admob_ids.dart';
 import 'config/pnle_theme.dart';
@@ -125,6 +126,138 @@ class _QuizActivityRecord {
   }
 }
 
+class _MistakeRecord {
+  final Question question;
+  final String? selectedAnswer;
+  final bool timedOut;
+  final DateTime timestamp;
+
+  const _MistakeRecord({
+    required this.question,
+    required this.selectedAnswer,
+    required this.timedOut,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'question': {
+          'number': question.number,
+          'category': question.category,
+          'question': question.question,
+          'choices': question.choices,
+          'answer': question.answer,
+          'explanation': question.explanation,
+          'source': question.source,
+        },
+        'selectedAnswer': selectedAnswer,
+        'timedOut': timedOut,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  static _MistakeRecord? fromJson(Map<String, dynamic> json) {
+    final questionRaw = json['question'];
+    final timedOutRaw = json['timedOut'];
+    final timestampRaw = json['timestamp'];
+    if (questionRaw is! Map ||
+        timedOutRaw is! bool ||
+        timestampRaw is! String) {
+      return null;
+    }
+
+    final question = Question.fromJson(Map<String, dynamic>.from(questionRaw));
+    final timestamp = DateTime.tryParse(timestampRaw);
+    if (timestamp == null) return null;
+
+    final selectedRaw = json['selectedAnswer'];
+    return _MistakeRecord(
+      question: question,
+      selectedAnswer: selectedRaw is String ? selectedRaw : null,
+      timedOut: timedOutRaw,
+      timestamp: timestamp,
+    );
+  }
+}
+
+class _PausedQuizSession {
+  final List<Question> questions;
+  final int currentIndex;
+  final Map<String, int> correctCount;
+  final int elapsedSeconds;
+  final String testMode;
+  final bool recordResults;
+
+  const _PausedQuizSession({
+    required this.questions,
+    required this.currentIndex,
+    required this.correctCount,
+    required this.elapsedSeconds,
+    required this.testMode,
+    required this.recordResults,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'questions': questions
+            .map((q) => {
+                  'number': q.number,
+                  'category': q.category,
+                  'question': q.question,
+                  'choices': q.choices,
+                  'answer': q.answer,
+                  'explanation': q.explanation,
+                  'source': q.source,
+                })
+            .toList(),
+        'currentIndex': currentIndex,
+        'correctCount': correctCount,
+        'elapsedSeconds': elapsedSeconds,
+        'testMode': testMode,
+        'recordResults': recordResults,
+      };
+
+  static _PausedQuizSession? fromJson(Map<String, dynamic> json) {
+    final questionsRaw = json['questions'];
+    final indexRaw = json['currentIndex'];
+    final correctRaw = json['correctCount'];
+    final elapsedRaw = json['elapsedSeconds'];
+    final modeRaw = json['testMode'];
+    final recordRaw = json['recordResults'];
+
+    if (questionsRaw is! List ||
+        indexRaw is! num ||
+        correctRaw is! Map ||
+        elapsedRaw is! num ||
+        modeRaw is! String ||
+        recordRaw is! bool) {
+      return null;
+    }
+
+    final questions = questionsRaw
+        .whereType<Map>()
+        .map((item) => Question.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+    if (questions.isEmpty) return null;
+
+    final correctCount = <String, int>{};
+    for (final entry in correctRaw.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is String && value is num) {
+        correctCount[key] = value.toInt();
+      }
+    }
+
+    final idx = indexRaw.toInt().clamp(0, questions.length - 1);
+    return _PausedQuizSession(
+      questions: questions,
+      currentIndex: idx,
+      correctCount: correctCount,
+      elapsedSeconds: elapsedRaw.toInt(),
+      testMode: modeRaw,
+      recordResults: recordRaw,
+    );
+  }
+}
+
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
 
@@ -151,6 +284,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Timer? _extraSessionAdRefillTicker;
   int _zeroAdSessionsRemaining = 4; // First 4 sessions are ad-free
   String? _lastStreakRewardClaimDate;
+  int _dailyTaskSessionsCompleted = 0;
+  bool _dailyTaskHighScoreAchieved = false;
+  int _dailyTaskFocusCompleted = 0;
+  int _dailyTaskChallengeCompleted = 0;
+  int _dailyTaskQuestionsAnswered = 0;
+  String? _lastEightSessionRewardClaimDate;
+  String? _lastHighScoreRewardClaimDate;
+  String? _lastFocusRewardClaimDate;
+  String? _lastChallengeRewardClaimDate;
+  String? _lastThirtyAnswersRewardClaimDate;
 
   // Accumulated stats (never reset, shows lifetime totals)
   int accumulatedQuizzesCompleted = 0;
@@ -191,6 +334,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   final List<_SavedSession> _savedSessions = [];
   static const int _maxSavedSessions = 30;
   static const String _savedSessionsPrefsKey = 'savedSessionsPayload';
+  final List<_MistakeRecord> _mistakeQueue = [];
+  static const int _maxMistakeQueue = 50;
+  static const String _mistakeQueuePrefsKey = 'mistakeQueuePayload';
+  final Map<String, _PausedQuizSession> _pausedQuizSessions = {};
+  static const String _pausedQuizSessionPrefsKey = 'pausedQuizSessionsPayload';
   final List<_QuizActivityRecord> _quizActivityRecords = [];
   static const int _maxQuizActivityRecords = 120;
   static const int _quizActivityRetentionDays = 45;
@@ -207,8 +355,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool _isPrimingRandomQuizCache = false;
   Completer<void>? _randomQuizPrimeCompleter;
   bool _usedCachedRandomForLastGeneration = false;
+  bool _isStartingGeneratedSession = false;
+  DateTime? _lastSessionConsumeAt;
   bool _isPrimingChallengeCache = false;
   Completer<void>? _challengePrimeCompleter;
+  bool _isLaunchingChallengeMode = false;
+  final SeedQuestionPoolService _seedPoolService = SeedQuestionPoolService();
+  bool _seedPoolReady = false;
+  bool _isRefillingSeedPool = false;
   final Map<String, List<Question>> _cachedFocusQuestions = {};
   final Map<String, String> _lastPickedKeyAreaByCategory = {};
   List<Question>? _cachedRandomQuizQuestions;
@@ -351,6 +505,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     // Kick off pre-generation immediately so first-time users can warm caches
     // even while RTDB restore/network permission prompts are in progress.
     _kickoffInitialPregenerationWarmup();
+    unawaited(_initializeSeedPool());
 
     // Restore from RTDB first (survives reinstall), then local loads fill in gaps
     _restoreAllProgressFromRtdb().then((_) {
@@ -364,7 +519,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _loadDailyGenerationUsage();
       _loadDailyFreeTestsFromRealtimeDb();
       _loadDailyCompletedSessions();
+      _loadDailyTaskRewardState();
       _loadCategoryScores();
+      _loadMistakeQueue();
+      _loadPausedQuizSession();
       _loadZeroAdSessions();
       _resetDailyCategoryScoresIfNeeded();
       unawaited(_primeMissingCachesAsNeeded());
@@ -382,6 +540,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       unawaited(_primeFreeDeepSeekCaches());
     }
     unawaited(_primeChallengeCacheIfEligible());
+  }
+
+  Future<void> _initializeSeedPool() async {
+    try {
+      await _seedPoolService.ensureInitialized();
+      if (!mounted) return;
+      setState(() {
+        _seedPoolReady = true;
+      });
+      unawaited(_refillSeedPoolsIfNeeded());
+    } catch (e) {
+      debugPrint('Seed pool initialization skipped: $e');
+    }
   }
 
   void _kickoffInitialPregenerationWarmup() {
@@ -589,7 +760,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _nickname = prefs.getString('user_nickname')?.trim() ?? '';
+      _nickname = _normalizeNickname(prefs.getString('user_nickname') ?? '');
       _muteAllSounds = prefs.getBool('mute_all_sounds') ?? false;
       _notificationsEnabled = prefs.getBool('notifications_enabled') ?? false;
     });
@@ -660,8 +831,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     await NotificationService.instance.scheduleAdCapsRefilled(target);
   }
 
-  Future<void> _saveNickname(String nickname) async {
+  String _normalizeNickname(String nickname) {
     final normalized = nickname.trim();
+    if (normalized.isEmpty) return '';
+    return '${normalized[0].toUpperCase()}${normalized.substring(1)}';
+  }
+
+  Future<void> _saveNickname(String nickname) async {
+    final normalized = _normalizeNickname(nickname);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_nickname', normalized);
     if (!mounted) return;
@@ -692,8 +869,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (!onboardingComplete) return;
 
     final currentNickname = (_nickname.trim().isNotEmpty)
-        ? _nickname.trim()
-        : (prefs.getString('user_nickname')?.trim() ?? '');
+        ? _normalizeNickname(_nickname)
+        : _normalizeNickname(prefs.getString('user_nickname') ?? '');
     if (currentNickname.isNotEmpty) {
       if (_nickname != currentNickname && mounted) {
         setState(() {
@@ -1042,6 +1219,216 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _loadMistakeQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = prefs.getString(_mistakeQueuePrefsKey);
+      if (payload == null || payload.isEmpty) return;
+
+      final decoded = jsonDecode(payload);
+      if (decoded is! List) return;
+
+      final loaded = <_MistakeRecord>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final parsed = _MistakeRecord.fromJson(Map<String, dynamic>.from(item));
+        if (parsed != null) {
+          loaded.add(parsed);
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _mistakeQueue
+          ..clear()
+          ..addAll(loaded.take(_maxMistakeQueue));
+      });
+    } catch (e) {
+      debugPrint('Error loading mistake queue: $e');
+    }
+  }
+
+  Future<void> _persistMistakeQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = _mistakeQueue
+          .take(_maxMistakeQueue)
+          .map((record) => record.toJson())
+          .toList();
+      await prefs.setString(_mistakeQueuePrefsKey, jsonEncode(payload));
+    } catch (e) {
+      debugPrint('Error persisting mistake queue: $e');
+    }
+  }
+
+  void _appendMistakesFromResult(Map<String, dynamic> results) {
+    final raw = results['mistakes'];
+    if (raw is! List) return;
+
+    final incoming = <_MistakeRecord>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final parsed = _MistakeRecord.fromJson(Map<String, dynamic>.from(item));
+      if (parsed != null) incoming.add(parsed);
+    }
+    if (incoming.isEmpty) return;
+
+    setState(() {
+      _mistakeQueue.insertAll(0, incoming);
+      if (_mistakeQueue.length > _maxMistakeQueue) {
+        _mistakeQueue.removeRange(_maxMistakeQueue, _mistakeQueue.length);
+      }
+    });
+    unawaited(_persistMistakeQueue());
+  }
+
+  Future<void> _loadPausedQuizSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = prefs.getString(_pausedQuizSessionPrefsKey);
+      if (payload == null || payload.isEmpty) return;
+
+      final decoded = jsonDecode(payload);
+      final loaded = <String, _PausedQuizSession>{};
+
+      if (decoded is Map<String, dynamic>) {
+        // Backward compatibility: older payload used a single paused session map.
+        if (decoded.containsKey('questions')) {
+          final parsed = _PausedQuizSession.fromJson(decoded);
+          if (parsed != null) {
+            loaded[parsed.testMode] = parsed;
+          }
+        } else {
+          for (final entry in decoded.entries) {
+            final value = entry.value;
+            if (value is! Map) continue;
+            final parsed =
+                _PausedQuizSession.fromJson(Map<String, dynamic>.from(value));
+            if (parsed != null) {
+              loaded[parsed.testMode] = parsed;
+            }
+          }
+        }
+      } else if (decoded is List) {
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          final parsed =
+              _PausedQuizSession.fromJson(Map<String, dynamic>.from(item));
+          if (parsed != null) {
+            loaded[parsed.testMode] = parsed;
+          }
+        }
+      }
+
+      if (loaded.isEmpty) return;
+
+      if (!mounted) return;
+      setState(() {
+        _pausedQuizSessions
+          ..clear()
+          ..addAll(loaded);
+      });
+    } catch (e) {
+      debugPrint('Error loading paused session: $e');
+    }
+  }
+
+  Future<void> _persistPausedQuizSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_pausedQuizSessions.isEmpty) {
+        await prefs.remove(_pausedQuizSessionPrefsKey);
+        unawaited(_syncAllProgressToRtdb());
+        return;
+      }
+      await prefs.setString(
+        _pausedQuizSessionPrefsKey,
+        jsonEncode(_pausedQuizSessions.values.map((s) => s.toJson()).toList()),
+      );
+      unawaited(_syncAllProgressToRtdb());
+    } catch (e) {
+      debugPrint('Error persisting paused session: $e');
+    }
+  }
+
+  Future<void> _savePausedSessionFromResult(Map<String, dynamic> result) async {
+    _appendMistakesFromResult(result);
+
+    final raw = result['resumeState'];
+    if (raw is! Map) return;
+
+    final parsed = _PausedQuizSession.fromJson(Map<String, dynamic>.from(raw));
+    if (parsed == null) return;
+    final modeKey = parsed.testMode;
+
+    if (mounted) {
+      setState(() {
+        _pausedQuizSessions[modeKey] = parsed;
+        currentScreen = 0;
+      });
+    }
+
+    await _persistPausedQuizSession();
+    if (mounted) {
+      final modeLabel = _modeLabel(modeKey);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$modeLabel paused. Continue anytime from Study Hub.',
+            style: GoogleFonts.outfit(),
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _clearPausedQuizSession([String? testMode]) async {
+    if (_pausedQuizSessions.isEmpty) return;
+
+    var changed = false;
+
+    if (mounted) {
+      setState(() {
+        if (testMode == null) {
+          changed = _pausedQuizSessions.isNotEmpty;
+          _pausedQuizSessions.clear();
+        } else {
+          changed = _pausedQuizSessions.remove(testMode) != null;
+        }
+      });
+    } else {
+      if (testMode == null) {
+        changed = _pausedQuizSessions.isNotEmpty;
+        _pausedQuizSessions.clear();
+      } else {
+        changed = _pausedQuizSessions.remove(testMode) != null;
+      }
+    }
+
+    if (!changed) return;
+    await _persistPausedQuizSession();
+  }
+
+  String _modeLabel(String mode) {
+    switch (mode) {
+      case 'randomQuiz':
+        return 'Random Quiz';
+      case 'focusMode':
+        return 'Focus Mode';
+      case 'challenge':
+        return 'Challenge Mode';
+      case 'quickPractice':
+        return 'Quick Practice';
+      case 'reviewMistakes':
+        return 'Review Mistakes';
+      case 'previous':
+        return 'Saved Session';
+      default:
+        return mode;
+    }
+  }
+
   Future<void> _persistQuizActivityRecords() async {
     try {
       _pruneQuizActivityRecords();
@@ -1200,6 +1587,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         // Zero-ad sessions (lifetime counter)
         'zeroAdSessionsRemaining': _zeroAdSessionsRemaining,
         'lastStreakRewardClaimDate': _lastStreakRewardClaimDate,
+        // Daily task rewards and progress
+        'dailyTaskResetDate': _getTodayDateString(),
+        'dailyTaskSessionsCompleted': _dailyTaskSessionsCompleted,
+        'dailyTaskHighScoreAchieved': _dailyTaskHighScoreAchieved,
+        'dailyTaskFocusCompleted': _dailyTaskFocusCompleted,
+        'dailyTaskChallengeCompleted': _dailyTaskChallengeCompleted,
+        'dailyTaskQuestionsAnswered': _dailyTaskQuestionsAnswered,
+        'lastEightSessionRewardClaimDate': _lastEightSessionRewardClaimDate,
+        'lastHighScoreRewardClaimDate': _lastHighScoreRewardClaimDate,
+        'lastFocusRewardClaimDate': _lastFocusRewardClaimDate,
+        'lastChallengeRewardClaimDate': _lastChallengeRewardClaimDate,
+        'lastThirtyAnswersRewardClaimDate': _lastThirtyAnswersRewardClaimDate,
+        // Paused sessions so continue flow survives app data clear/reinstall
+        'pausedQuizSessions':
+            _pausedQuizSessions.values.map((s) => s.toJson()).toList(),
         // Compact quiz activity history for 10-day screen (capped + pruned)
         'quizActivityRecords': _quizActivityRecords
             .map((record) => {
@@ -1313,8 +1715,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _showFirstTimeFlow = false;
     }
 
-    final remoteNickname = (data['nickname'] as String?)?.trim();
-    if (remoteNickname != null && remoteNickname.isNotEmpty) {
+    final remoteNickname =
+        _normalizeNickname((data['nickname'] as String?) ?? '');
+    if (remoteNickname.isNotEmpty) {
       _nickname = remoteNickname;
     }
 
@@ -1397,6 +1800,66 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (remoteStreakRewardDate != null && remoteStreakRewardDate.isNotEmpty) {
       _lastStreakRewardClaimDate = remoteStreakRewardDate;
     }
+
+    // --- Daily task rewards/progress (same-day only) ---
+    final remoteDailyTaskResetDate = data['dailyTaskResetDate'] as String?;
+    if (remoteDailyTaskResetDate == _getTodayDateString()) {
+      _dailyTaskSessionsCompleted = max(
+        _dailyTaskSessionsCompleted,
+        (data['dailyTaskSessionsCompleted'] as num?)?.toInt() ?? 0,
+      );
+      _dailyTaskHighScoreAchieved = _dailyTaskHighScoreAchieved ||
+          (data['dailyTaskHighScoreAchieved'] as bool? ?? false);
+      _dailyTaskFocusCompleted = max(
+        _dailyTaskFocusCompleted,
+        (data['dailyTaskFocusCompleted'] as num?)?.toInt() ?? 0,
+      );
+      _dailyTaskChallengeCompleted = max(
+        _dailyTaskChallengeCompleted,
+        (data['dailyTaskChallengeCompleted'] as num?)?.toInt() ?? 0,
+      );
+      _dailyTaskQuestionsAnswered = max(
+        _dailyTaskQuestionsAnswered,
+        (data['dailyTaskQuestionsAnswered'] as num?)?.toInt() ?? 0,
+      );
+
+      final remoteEightDate =
+          data['lastEightSessionRewardClaimDate'] as String?;
+      if (remoteEightDate != null && remoteEightDate.isNotEmpty) {
+        _lastEightSessionRewardClaimDate = remoteEightDate;
+      }
+      final remoteHighScoreDate =
+          data['lastHighScoreRewardClaimDate'] as String?;
+      if (remoteHighScoreDate != null && remoteHighScoreDate.isNotEmpty) {
+        _lastHighScoreRewardClaimDate = remoteHighScoreDate;
+      }
+      final remoteFocusDate = data['lastFocusRewardClaimDate'] as String?;
+      if (remoteFocusDate != null && remoteFocusDate.isNotEmpty) {
+        _lastFocusRewardClaimDate = remoteFocusDate;
+      }
+      final remoteChallengeDate =
+          data['lastChallengeRewardClaimDate'] as String?;
+      if (remoteChallengeDate != null && remoteChallengeDate.isNotEmpty) {
+        _lastChallengeRewardClaimDate = remoteChallengeDate;
+      }
+      final remoteThirtyDate =
+          data['lastThirtyAnswersRewardClaimDate'] as String?;
+      if (remoteThirtyDate != null && remoteThirtyDate.isNotEmpty) {
+        _lastThirtyAnswersRewardClaimDate = remoteThirtyDate;
+      }
+    }
+
+    // --- Paused sessions ---
+    final remotePausedRaw = data['pausedQuizSessions'];
+    if (remotePausedRaw is List) {
+      for (final item in remotePausedRaw) {
+        if (item is! Map) continue;
+        final parsed =
+            _PausedQuizSession.fromJson(Map<String, dynamic>.from(item));
+        if (parsed == null) continue;
+        _pausedQuizSessions[parsed.testMode] = parsed;
+      }
+    }
   }
 
   /// Restore ALL app state from Realtime DB. Called on app startup
@@ -1467,6 +1930,55 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         await prefs.setString(
           'lastStreakRewardClaimDate',
           _lastStreakRewardClaimDate!,
+        );
+      }
+      await prefs.setString('dailyTaskResetDate', _getTodayDateString());
+      await prefs.setInt(
+          'dailyTaskSessionsCompleted', _dailyTaskSessionsCompleted);
+      await prefs.setBool(
+          'dailyTaskHighScoreAchieved', _dailyTaskHighScoreAchieved);
+      await prefs.setInt('dailyTaskFocusCompleted', _dailyTaskFocusCompleted);
+      await prefs.setInt(
+          'dailyTaskChallengeCompleted', _dailyTaskChallengeCompleted);
+      await prefs.setInt(
+          'dailyTaskQuestionsAnswered', _dailyTaskQuestionsAnswered);
+      if (_lastEightSessionRewardClaimDate != null) {
+        await prefs.setString('lastEightSessionRewardClaimDate',
+            _lastEightSessionRewardClaimDate!);
+      } else {
+        await prefs.remove('lastEightSessionRewardClaimDate');
+      }
+      if (_lastHighScoreRewardClaimDate != null) {
+        await prefs.setString(
+            'lastHighScoreRewardClaimDate', _lastHighScoreRewardClaimDate!);
+      } else {
+        await prefs.remove('lastHighScoreRewardClaimDate');
+      }
+      if (_lastFocusRewardClaimDate != null) {
+        await prefs.setString(
+            'lastFocusRewardClaimDate', _lastFocusRewardClaimDate!);
+      } else {
+        await prefs.remove('lastFocusRewardClaimDate');
+      }
+      if (_lastChallengeRewardClaimDate != null) {
+        await prefs.setString(
+            'lastChallengeRewardClaimDate', _lastChallengeRewardClaimDate!);
+      } else {
+        await prefs.remove('lastChallengeRewardClaimDate');
+      }
+      if (_lastThirtyAnswersRewardClaimDate != null) {
+        await prefs.setString('lastThirtyAnswersRewardClaimDate',
+            _lastThirtyAnswersRewardClaimDate!);
+      } else {
+        await prefs.remove('lastThirtyAnswersRewardClaimDate');
+      }
+      if (_pausedQuizSessions.isEmpty) {
+        await prefs.remove(_pausedQuizSessionPrefsKey);
+      } else {
+        await prefs.setString(
+          _pausedQuizSessionPrefsKey,
+          jsonEncode(
+              _pausedQuizSessions.values.map((s) => s.toJson()).toList()),
         );
       }
       await prefs.setInt('zeroAdSessionsRemaining', _zeroAdSessionsRemaining);
@@ -1808,7 +2320,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     // Sync to RTDB (survives reinstall)
     await _syncAllProgressToRtdb();
-    await _showStreakRewardClaimDialogIfEligible();
   }
 
   Future<void> _showStreakRewardClaimDialogIfEligible() async {
@@ -1930,6 +2441,236 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  bool get _canClaimEightSessionRewardToday =>
+      _dailyTaskSessionsCompleted >= 8 &&
+      _lastEightSessionRewardClaimDate != _getTodayDateString();
+
+  bool get _canClaimHighScoreRewardToday =>
+      _dailyTaskHighScoreAchieved &&
+      _lastHighScoreRewardClaimDate != _getTodayDateString();
+
+  bool get _canClaimFocusRewardToday =>
+      _dailyTaskFocusCompleted >= 1 &&
+      _lastFocusRewardClaimDate != _getTodayDateString();
+
+  bool get _canClaimChallengeRewardToday =>
+      _dailyTaskChallengeCompleted >= 1 &&
+      _lastChallengeRewardClaimDate != _getTodayDateString();
+
+  bool get _canClaimThirtyAnswersRewardToday =>
+      _dailyTaskQuestionsAnswered >= 30 &&
+      _lastThirtyAnswersRewardClaimDate != _getTodayDateString();
+
+  int get _claimableSessionsCountNow {
+    var count = 0;
+    count += _extraSessionAdChances;
+    if (_canClaimStreakRewardToday) count++;
+    if (_canClaimEightSessionRewardToday) count++;
+    if (_canClaimFocusRewardToday) count++;
+    if (_canClaimChallengeRewardToday) count++;
+    if (_canClaimThirtyAnswersRewardToday) count++;
+    if (_canClaimHighScoreRewardToday) count++;
+    return count;
+  }
+
+  Future<void> _loadDailyTaskRewardState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = _getTodayDateString();
+    final savedDate = prefs.getString('dailyTaskResetDate') ?? today;
+
+    if (savedDate != today) {
+      await prefs.setString('dailyTaskResetDate', today);
+      await prefs.setInt('dailyTaskSessionsCompleted', 0);
+      await prefs.setBool('dailyTaskHighScoreAchieved', false);
+      await prefs.setInt('dailyTaskFocusCompleted', 0);
+      await prefs.setInt('dailyTaskChallengeCompleted', 0);
+      await prefs.setInt('dailyTaskQuestionsAnswered', 0);
+      await prefs.remove('lastEightSessionRewardClaimDate');
+      await prefs.remove('lastHighScoreRewardClaimDate');
+      await prefs.remove('lastFocusRewardClaimDate');
+      await prefs.remove('lastChallengeRewardClaimDate');
+      await prefs.remove('lastThirtyAnswersRewardClaimDate');
+      if (!mounted) return;
+      setState(() {
+        _dailyTaskSessionsCompleted = 0;
+        _dailyTaskHighScoreAchieved = false;
+        _dailyTaskFocusCompleted = 0;
+        _dailyTaskChallengeCompleted = 0;
+        _dailyTaskQuestionsAnswered = 0;
+        _lastEightSessionRewardClaimDate = null;
+        _lastHighScoreRewardClaimDate = null;
+        _lastFocusRewardClaimDate = null;
+        _lastChallengeRewardClaimDate = null;
+        _lastThirtyAnswersRewardClaimDate = null;
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _dailyTaskSessionsCompleted =
+          prefs.getInt('dailyTaskSessionsCompleted') ?? 0;
+      _dailyTaskHighScoreAchieved =
+          prefs.getBool('dailyTaskHighScoreAchieved') ?? false;
+      _dailyTaskFocusCompleted = prefs.getInt('dailyTaskFocusCompleted') ?? 0;
+      _dailyTaskChallengeCompleted =
+          prefs.getInt('dailyTaskChallengeCompleted') ?? 0;
+      _dailyTaskQuestionsAnswered =
+          prefs.getInt('dailyTaskQuestionsAnswered') ?? 0;
+      _lastEightSessionRewardClaimDate =
+          prefs.getString('lastEightSessionRewardClaimDate');
+      _lastHighScoreRewardClaimDate =
+          prefs.getString('lastHighScoreRewardClaimDate');
+      _lastFocusRewardClaimDate = prefs.getString('lastFocusRewardClaimDate');
+      _lastChallengeRewardClaimDate =
+          prefs.getString('lastChallengeRewardClaimDate');
+      _lastThirtyAnswersRewardClaimDate =
+          prefs.getString('lastThirtyAnswersRewardClaimDate');
+    });
+  }
+
+  Future<void> _persistDailyTaskRewardState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('dailyTaskResetDate', _getTodayDateString());
+    await prefs.setInt(
+        'dailyTaskSessionsCompleted', _dailyTaskSessionsCompleted);
+    await prefs.setBool(
+        'dailyTaskHighScoreAchieved', _dailyTaskHighScoreAchieved);
+    await prefs.setInt('dailyTaskFocusCompleted', _dailyTaskFocusCompleted);
+    await prefs.setInt(
+        'dailyTaskChallengeCompleted', _dailyTaskChallengeCompleted);
+    await prefs.setInt(
+        'dailyTaskQuestionsAnswered', _dailyTaskQuestionsAnswered);
+    if (_lastEightSessionRewardClaimDate == null) {
+      await prefs.remove('lastEightSessionRewardClaimDate');
+    } else {
+      await prefs.setString(
+          'lastEightSessionRewardClaimDate', _lastEightSessionRewardClaimDate!);
+    }
+    if (_lastHighScoreRewardClaimDate == null) {
+      await prefs.remove('lastHighScoreRewardClaimDate');
+    } else {
+      await prefs.setString(
+          'lastHighScoreRewardClaimDate', _lastHighScoreRewardClaimDate!);
+    }
+    if (_lastFocusRewardClaimDate == null) {
+      await prefs.remove('lastFocusRewardClaimDate');
+    } else {
+      await prefs.setString(
+          'lastFocusRewardClaimDate', _lastFocusRewardClaimDate!);
+    }
+    if (_lastChallengeRewardClaimDate == null) {
+      await prefs.remove('lastChallengeRewardClaimDate');
+    } else {
+      await prefs.setString(
+          'lastChallengeRewardClaimDate', _lastChallengeRewardClaimDate!);
+    }
+    if (_lastThirtyAnswersRewardClaimDate == null) {
+      await prefs.remove('lastThirtyAnswersRewardClaimDate');
+    } else {
+      await prefs.setString('lastThirtyAnswersRewardClaimDate',
+          _lastThirtyAnswersRewardClaimDate!);
+    }
+    unawaited(_syncAllProgressToRtdb());
+  }
+
+  Future<void> _claimFourSessionTaskReward() async {
+    if (!_canClaimStreakRewardToday) return;
+    if (!_requireOnlineForProgressAction('claim your 4-session reward')) return;
+
+    final todayKey = _getTodayDateString();
+    setState(() {
+      remainingFreeTests++;
+      _lastStreakRewardClaimDate = todayKey;
+    });
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('lastStreakRewardClaimDate', todayKey);
+    await _persistDailyFreeTests();
+    await _syncAllProgressToRtdb();
+  }
+
+  Future<void> _claimEightSessionTaskReward() async {
+    if (!_canClaimEightSessionRewardToday) return;
+    if (!_requireOnlineForProgressAction('claim your 8-session reward')) return;
+
+    final todayKey = _getTodayDateString();
+    setState(() {
+      remainingFreeTests++;
+      _lastEightSessionRewardClaimDate = todayKey;
+    });
+
+    await _persistDailyFreeTests();
+    await _persistDailyTaskRewardState();
+    await _syncAllProgressToRtdb();
+  }
+
+  Future<void> _claimHighScoreTaskReward() async {
+    if (!_canClaimHighScoreRewardToday) return;
+    if (!_requireOnlineForProgressAction('claim your high-score reward'))
+      return;
+
+    final todayKey = _getTodayDateString();
+    setState(() {
+      remainingFreeTests++;
+      _lastHighScoreRewardClaimDate = todayKey;
+    });
+
+    await _persistDailyFreeTests();
+    await _persistDailyTaskRewardState();
+    await _syncAllProgressToRtdb();
+  }
+
+  Future<void> _claimFocusTaskReward() async {
+    if (!_canClaimFocusRewardToday) return;
+    if (!_requireOnlineForProgressAction('claim your focus-mode reward'))
+      return;
+
+    final todayKey = _getTodayDateString();
+    setState(() {
+      remainingFreeTests++;
+      _lastFocusRewardClaimDate = todayKey;
+    });
+
+    await _persistDailyFreeTests();
+    await _persistDailyTaskRewardState();
+    await _syncAllProgressToRtdb();
+  }
+
+  Future<void> _claimChallengeTaskReward() async {
+    if (!_canClaimChallengeRewardToday) return;
+    if (!_requireOnlineForProgressAction('claim your challenge-mode reward')) {
+      return;
+    }
+
+    final todayKey = _getTodayDateString();
+    setState(() {
+      remainingFreeTests++;
+      _lastChallengeRewardClaimDate = todayKey;
+    });
+
+    await _persistDailyFreeTests();
+    await _persistDailyTaskRewardState();
+    await _syncAllProgressToRtdb();
+  }
+
+  Future<void> _claimThirtyAnswersTaskReward() async {
+    if (!_canClaimThirtyAnswersRewardToday) return;
+    if (!_requireOnlineForProgressAction('claim your answer-count reward')) {
+      return;
+    }
+
+    final todayKey = _getTodayDateString();
+    setState(() {
+      remainingFreeTests++;
+      _lastThirtyAnswersRewardClaimDate = todayKey;
+    });
+
+    await _persistDailyFreeTests();
+    await _persistDailyTaskRewardState();
+    await _syncAllProgressToRtdb();
   }
 
   Future<void> _saveEligibilityPreference(String value) async {
@@ -2141,11 +2882,34 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             'weight': categoryScores[key]!['weight'],
           };
         }
+        _dailyTaskSessionsCompleted = 0;
+        _dailyTaskHighScoreAchieved = false;
+        _dailyTaskFocusCompleted = 0;
+        _dailyTaskChallengeCompleted = 0;
+        _dailyTaskQuestionsAnswered = 0;
+        _lastEightSessionRewardClaimDate = null;
+        _lastHighScoreRewardClaimDate = null;
+        _lastFocusRewardClaimDate = null;
+        _lastChallengeRewardClaimDate = null;
+        _lastThirtyAnswersRewardClaimDate = null;
+        _pausedQuizSessions.clear();
       });
     }
     await prefs.setString(
         'lastCategoryScoreResetDate', todayOnly.toIso8601String());
     await prefs.setString('categoryScores', jsonEncode(categoryScores));
+    await prefs.setString('dailyTaskResetDate', _getTodayDateString());
+    await prefs.setInt('dailyTaskSessionsCompleted', 0);
+    await prefs.setBool('dailyTaskHighScoreAchieved', false);
+    await prefs.setInt('dailyTaskFocusCompleted', 0);
+    await prefs.setInt('dailyTaskChallengeCompleted', 0);
+    await prefs.setInt('dailyTaskQuestionsAnswered', 0);
+    await prefs.remove('lastEightSessionRewardClaimDate');
+    await prefs.remove('lastHighScoreRewardClaimDate');
+    await prefs.remove('lastFocusRewardClaimDate');
+    await prefs.remove('lastChallengeRewardClaimDate');
+    await prefs.remove('lastThirtyAnswersRewardClaimDate');
+    await prefs.remove(_pausedQuizSessionPrefsKey);
   }
 
   Future<void> _watchRewardedAdForExtraQuiz() async {
@@ -2703,6 +3467,34 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       categoryMap = _buildFocusCategoryMap(category);
     }
 
+    if (useFocusMode && category != null) {
+      final seededQuestions = await _takeSeedQuestions(
+        'focusMode',
+        categoryMap!,
+      );
+      if (seededQuestions.length >= 15) {
+        _generatedQuestions = seededQuestions.take(15).toList();
+        _generatedQuestions =
+            _generatedQuestions.map((q) => q.shuffled()).toList();
+        _isFocusMode = false;
+        _focusCategory = null;
+        return true;
+      }
+    } else {
+      final seededQuestions = await _takeSeedQuestions(
+        'randomQuiz',
+        _buildRandomCategoryMap(),
+      );
+      if (seededQuestions.length >= 15) {
+        _generatedQuestions = seededQuestions.take(15).toList();
+        _generatedQuestions =
+            _generatedQuestions.map((q) => q.shuffled()).toList();
+        _isFocusMode = false;
+        _focusCategory = null;
+        return true;
+      }
+    }
+
     if (useGemini) {
       if (GEMINI_API_KEY.trim().isEmpty) {
         throw Exception(
@@ -2844,6 +3636,181 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return categoryMap;
   }
 
+  Map<int, String> _buildRandomCategoryMap() {
+    final categories = _categoriesForEligibility();
+    if (categories.isEmpty) return {};
+
+    final categoryMap = <int, String>{};
+    final base = 15 ~/ categories.length;
+    final remainder = 15 % categories.length;
+    int questionNumber = 1;
+
+    for (int i = 0; i < categories.length; i++) {
+      final count = base + (i < remainder ? 1 : 0);
+      for (int j = 0; j < count && questionNumber <= 15; j++) {
+        categoryMap[questionNumber] = categories[i];
+        questionNumber++;
+      }
+    }
+
+    return categoryMap;
+  }
+
+  Future<List<Question>> _takeSeedQuestions(
+    String mode,
+    Map<int, String> categoryMap,
+  ) async {
+    if (!_seedPoolReady || categoryMap.isEmpty) {
+      return const [];
+    }
+
+    final questions = await _seedPoolService.takeQuestions(
+      mode: mode,
+      categoryMap: categoryMap,
+    );
+    if (questions.isNotEmpty) {
+      unawaited(_refillSeedPoolsIfNeeded());
+    }
+    return questions;
+  }
+
+  Future<void> _refillSeedPoolsIfNeeded() async {
+    if (!_seedPoolReady || _isRefillingSeedPool) return;
+    if (GEMINI_API_KEY.trim().isEmpty && DEEPSEEK_API_KEY.trim().isEmpty) {
+      return;
+    }
+
+    _isRefillingSeedPool = true;
+    try {
+      final deficits =
+          await _seedPoolService.getDeficits(threshold: 20, targetSize: 30);
+
+      for (final entry in deficits.entries) {
+        if (entry.value <= 0) continue;
+
+        final parts = entry.key.split('::');
+        if (parts.length != 2) continue;
+
+        final mode = parts[0];
+        final category = parts[1];
+        int remaining = entry.value;
+        final generated = <Question>[];
+
+        while (remaining > 0) {
+          final batchSize = remaining > 8 ? 8 : remaining;
+          final batch = await _generateSeedRefillBatch(
+            mode: mode,
+            category: category,
+            count: batchSize,
+          );
+          if (batch.isEmpty) break;
+          generated.addAll(batch);
+          remaining -= batch.length;
+        }
+
+        if (generated.isNotEmpty) {
+          await _seedPoolService.addQuestions(
+            mode,
+            category,
+            generated,
+            targetSize: 30,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Seed pool refill skipped: $e');
+    } finally {
+      _isRefillingSeedPool = false;
+    }
+  }
+
+  Future<List<Question>> _generateSeedRefillBatch({
+    required String mode,
+    required String category,
+    required int count,
+  }) async {
+    if (count <= 0) return const [];
+
+    final categoryMap = <int, String>{
+      for (int i = 1; i <= count; i++) i: category,
+    };
+    final prompt = _buildSeedRefillPrompt(mode, category, count);
+
+    List<Question> generated = const [];
+    if (DEEPSEEK_API_KEY.trim().isNotEmpty) {
+      final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
+      generated = await service.generateQuestions(
+        prompt,
+        eligibility,
+        categoryMap: categoryMap,
+      );
+    } else if (GEMINI_API_KEY.trim().isNotEmpty) {
+      final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+      generated = await service.generateQuestions(
+        prompt,
+        eligibility,
+        categoryMap: categoryMap,
+      );
+    }
+
+    if (generated.isEmpty) return const [];
+
+    final normalized = <Question>[];
+    for (int i = 0; i < generated.length; i++) {
+      final q = generated[i];
+      if (q.choices.length < 4 || q.answer.isEmpty) continue;
+      normalized.add(
+        Question(
+          number: i + 1,
+          category: category,
+          question: q.question,
+          choices: q.choices.take(4).toList(),
+          answer: q.answer.toUpperCase(),
+          explanation: q.explanation,
+          source: q.source ?? 'seed_refill',
+        ),
+      );
+    }
+
+    return normalized;
+  }
+
+  String _buildSeedRefillPrompt(String mode, String category, int count) {
+    final modeInstruction = switch (mode) {
+      'focusMode' =>
+        'Focus mode style: precise and targeted in one category, medium-to-hard difficulty.',
+      'challenge' =>
+        'Challenge style: hard but fair, analytical reasoning required, no trick wording.',
+      _ =>
+        'Random quiz style: mixed difficulty with clear wording and strong fundamentals.',
+    };
+
+    return '''
+Generate exactly $count multiple-choice questions for UPCAT practice.
+
+Category: $category
+$modeInstruction
+
+Constraints:
+- Return strict JSON array only (no markdown):
+[
+  {
+    "number": 1,
+    "category": "$category",
+    "question": "...",
+    "choices": ["A", "B", "C", "D"],
+    "answer": "A",
+    "explanation": "2-3 sentence concise rationale",
+    "source": "seed_refill"
+  }
+]
+- Exactly 4 choices per question.
+- One correct answer only, answer must be A/B/C/D.
+- Keep questions age-appropriate for Filipino SHS and college admission prep.
+- Avoid duplicates and avoid requiring images or tables.
+''';
+  }
+
   Future<void> _primeChallengeCacheIfEligible({bool force = false}) async {
     if (!_hasUnlockedAdvancedModes) return;
     if (DEEPSEEK_API_KEY.trim().isEmpty) return;
@@ -2955,12 +3922,345 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     );
 
     if (results != null && mounted) {
+      if (results is Map<String, dynamic> && results['nextAction'] == 'pause') {
+        await _savePausedSessionFromResult(results);
+        return;
+      }
       _updateTestResults(results);
     }
   }
 
+  Future<void> _resumePausedSession(_PausedQuizSession session) async {
+    final creditsBeforeResume = remainingFreeTests;
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => QuestionScreen(
+          questions: session.questions,
+          isPremium: isPremiumUser || isTrialActive,
+          recordResults: session.recordResults,
+          testMode: session.testMode,
+          zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+          initialIndex: session.currentIndex,
+          initialCorrectCount: session.correctCount,
+          initialElapsedSeconds: session.elapsedSeconds,
+        ),
+      ),
+    );
+
+    if (mounted && remainingFreeTests < creditsBeforeResume) {
+      setState(() {
+        remainingFreeTests = creditsBeforeResume;
+      });
+      unawaited(_persistDailyFreeTests());
+      unawaited(_syncAllProgressToRtdb());
+    }
+
+    if (!mounted || result == null) return;
+    if (result is Map<String, dynamic> && result['nextAction'] == 'pause') {
+      await _savePausedSessionFromResult(result);
+      return;
+    }
+
+    await _clearPausedQuizSession(session.testMode);
+
+    if (result is Map<String, dynamic>) {
+      _updateTestResults(result);
+      if (result['nextAction'] == 'menu') {
+        setState(() {
+          currentScreen = 2;
+        });
+      }
+    }
+  }
+
+  Future<void> _showContinueSessionsDialog() async {
+    if (_pausedQuizSessions.isEmpty) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(20),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Continue Session',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Choose an unfinished mode to resume.',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 14),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: _pausedQuizSessions.entries.map((entry) {
+                    final mode = entry.key;
+                    final session = entry.value;
+                    final progress =
+                        '${session.currentIndex + 1}/${session.questions.length}';
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.play_circle_fill_rounded,
+                        color: PnleTheme.accent,
+                      ),
+                      title: Text(
+                        _modeLabel(mode),
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Progress: $progress',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 12,
+                        ),
+                      ),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        await _resumePausedSession(session);
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    'Close',
+                    style: GoogleFonts.outfit(color: Colors.white70),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startReviewMistakesSession() async {
+    if (_mistakeQueue.isEmpty) return;
+
+    final selected = _mistakeQueue.take(15).toList()..shuffle();
+    final reviewQuestions =
+        selected.map((record) => record.question.shuffled()).toList();
+    if (reviewQuestions.isEmpty) return;
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => QuestionScreen(
+          questions: reviewQuestions,
+          isPremium: isPremiumUser || isTrialActive,
+          recordResults: false,
+          testMode: 'reviewMistakes',
+          zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+        ),
+      ),
+    );
+
+    if (!mounted || result == null) return;
+    if (result is Map<String, dynamic> && result['nextAction'] == 'pause') {
+      await _savePausedSessionFromResult(result);
+      return;
+    }
+
+    if (result is Map<String, dynamic>) {
+      final nextAction = result['nextAction'];
+      if (nextAction == 'playAgain') {
+        await _startReviewMistakesSession();
+        return;
+      }
+    }
+
+    final consumed = min(15, _mistakeQueue.length);
+    if (consumed > 0) {
+      setState(() {
+        _mistakeQueue.removeRange(0, consumed);
+      });
+      unawaited(_persistMistakeQueue());
+    }
+  }
+
+  void _showReviewMistakesDialog() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(20),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Review Mistakes',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 22,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${_mistakeQueue.length} missed questions saved',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (_mistakeQueue.isEmpty)
+                Text(
+                  'No mistakes saved yet. Finish quizzes to build your review queue.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 13,
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _mistakeQueue.length.clamp(0, 6),
+                    itemBuilder: (context, index) {
+                      final item = _mistakeQueue[index];
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          item.timedOut
+                              ? Icons.timer_off_rounded
+                              : Icons.cancel_outlined,
+                          color: const Color(0xFFFF8A80),
+                          size: 18,
+                        ),
+                        title: Text(
+                          item.question.category,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                        subtitle: Text(
+                          item.question.question,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 11,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'Close',
+                        style: GoogleFonts.outfit(color: Colors.white70),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: TextButton(
+                      onPressed: _mistakeQueue.isEmpty
+                          ? null
+                          : () async {
+                              setState(() {
+                                _mistakeQueue.clear();
+                              });
+                              await _persistMistakeQueue();
+                              if (mounted) Navigator.pop(context);
+                            },
+                      child: Text(
+                        'Clear',
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFFFB3B3),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _mistakeQueue.isEmpty
+                          ? null
+                          : () async {
+                              Navigator.pop(context);
+                              await _startReviewMistakesSession();
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: PnleTheme.accent,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: Text(
+                        'Start',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // Challenge Mode (10 advanced questions)
   Future<void> _startChallengeMode() async {
+    if (_isLaunchingChallengeMode) return;
+
     if (!_hasUnlockedAdvancedModes) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -2987,13 +4287,165 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if ((_cachedChallengeQuestions?.length ?? 0) < 10 &&
-        _isPrimingChallengeCache) {
-      await _waitForChallengeCachePrime();
-      if (!mounted) return;
+    _isLaunchingChallengeMode = true;
+    var showedPreparingDialog = false;
+    try {
+      if ((_cachedChallengeQuestions?.length ?? 0) < 10 &&
+          _isPrimingChallengeCache) {
+        showedPreparingDialog = true;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          barrierColor: Colors.black54,
+          builder: (_) => Dialog(
+            backgroundColor: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: PnleTheme.bgBottom.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Preparing Challenge Mode...',
+                    style: GoogleFonts.outfit(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        await _waitForChallengeCachePrime();
+        if (showedPreparingDialog &&
+            mounted &&
+            Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+          showedPreparingDialog = false;
+        }
+        if (!mounted) return;
+      }
+
+      await _launchChallengeMode();
+    } finally {
+      if (showedPreparingDialog &&
+          mounted &&
+          Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      _isLaunchingChallengeMode = false;
+    }
+  }
+
+  Future<void> _startOrResumeMode({
+    required String mode,
+    required Future<void> Function() onStartNew,
+  }) async {
+    final existing = _pausedQuizSessions[mode];
+    if (existing == null) {
+      await onStartNew();
+      return;
     }
 
-    _launchChallengeMode();
+    final choice = await showDialog<String>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(20),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _modeLabel(mode),
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You already have an unfinished session (${existing.currentIndex + 1}/${existing.questions.length}).',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.8),
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Paused sessions reset at midnight with daily tasks.',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.65),
+                  fontSize: 11,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, 'continue'),
+                      child: Text(
+                        'Continue',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, 'new'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: PnleTheme.accent,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: Text(
+                        'Start New',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted || choice == null) return;
+
+    if (choice == 'continue') {
+      await _resumePausedSession(existing);
+      return;
+    }
+
+    await _clearPausedQuizSession(mode);
+    await onStartNew();
   }
 
   Future<void> _waitForChallengeCachePrime({
@@ -3009,6 +4461,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _launchChallengeMode() async {
+    if ((_cachedChallengeQuestions?.length ?? 0) < 10) {
+      final categories = _categoriesForEligibility();
+      if (categories.isNotEmpty) {
+        final focusCategory = categories[Random().nextInt(categories.length)];
+        final seededQuestions = await _takeSeedQuestions(
+          'challenge',
+          _buildChallengeCategoryMap(focusCategory),
+        );
+        if (seededQuestions.length >= 10 && mounted) {
+          setState(() {
+            _cachedChallengeQuestions = seededQuestions.take(10).toList();
+          });
+          unawaited(_persistFocusAndChallengeCaches());
+        }
+      }
+    }
+
     if ((_cachedChallengeQuestions?.length ?? 0) >= 10) {
       final cachedQuestions = _cachedChallengeQuestions!.take(10).toList();
       _cachedChallengeQuestions = null;
@@ -3036,6 +4505,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       );
 
       if (results != null && mounted) {
+        if (results is Map<String, dynamic> &&
+            results['nextAction'] == 'pause') {
+          await _savePausedSessionFromResult(results);
+          return;
+        }
         _updateTestResults(results);
       }
       return;
@@ -3087,7 +4561,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 14),
               Text(
-                'Generating advanced questions...',
+                'Preparing advanced questions...',
                 style: GoogleFonts.outfit(
                   color: Colors.white.withValues(alpha: 0.9),
                   fontSize: 14,
@@ -3176,6 +4650,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         );
 
         if (results != null && mounted) {
+          if (results is Map<String, dynamic> &&
+              results['nextAction'] == 'pause') {
+            await _savePausedSessionFromResult(results);
+            return;
+          }
           _updateTestResults(results);
         }
 
@@ -3186,7 +4665,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Error generating challenge: ${e.toString()}')),
+              content:
+                  Text('Unable to prepare challenge mode: ${e.toString()}')),
         );
       }
     }
@@ -3351,6 +4831,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             ? 'FOCUS MODE${activeFocusCategory != null ? ' • $activeFocusCategory' : ''}'
             : 'RANDOM QUIZ');
 
+    _isStartingGeneratedSession = false;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -3394,49 +4876,79 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           focusCategory: activeFocusCategory,
           modeLabel: effectiveModeLabel,
           onStart: () async {
-            if (!_consumeFreeSessionAllowance()) {
+            if (_isStartingGeneratedSession) {
               return;
             }
+            _isStartingGeneratedSession = true;
+            try {
+              if (!_consumeFreeSessionAllowance()) {
+                return;
+              }
 
-            if (_usedCachedRandomForLastGeneration) {
-              await _clearRandomQuizCache();
-            }
-            if (!mounted || !dialogContext.mounted) return;
+              if (_usedCachedRandomForLastGeneration) {
+                await _clearRandomQuizCache();
+              }
+              if (!mounted || !dialogContext.mounted) return;
 
-            Navigator.of(dialogContext, rootNavigator: true)
-                .pop(); // Close generation dialog
-            _addSavedSession(
-              _generatedQuestions,
-              activeCoverage,
-              sourceMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
-            );
-            if (activeIsFocusMode && activeFocusCategory != null) {
-              unawaited(_primeFocusCacheForCategory(activeFocusCategory,
-                  force: true));
-            } else {
-              unawaited(_primeRandomQuizCacheIfEligible(
-                force: true,
-              ));
-              unawaited(_primeFreeDeepSeekCaches());
-            }
-            // Function to start the test
-            Future<void> startTest(List<Question> questions) async {
-              final results = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => QuestionScreen(
-                    questions: questions,
-                    isPremium: isPremiumUser || isTrialActive,
-                    recordResults: true,
-                    testMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
-                    zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
-                  ),
-                ),
+              Navigator.of(dialogContext, rootNavigator: true)
+                  .pop(); // Close generation dialog
+              _addSavedSession(
+                _generatedQuestions,
+                activeCoverage,
+                sourceMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
               );
-              if (results is Map<String, dynamic> && mounted) {
-                _updateTestResults(results);
-                final nextAction = results['nextAction'];
-                if (nextAction == 'playAgain') {
+              if (activeIsFocusMode && activeFocusCategory != null) {
+                unawaited(_primeFocusCacheForCategory(activeFocusCategory,
+                    force: true));
+              } else {
+                unawaited(_primeRandomQuizCacheIfEligible(
+                  force: true,
+                ));
+                unawaited(_primeFreeDeepSeekCaches());
+              }
+              // Function to start the test
+              Future<void> startTest(List<Question> questions) async {
+                final results = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => QuestionScreen(
+                      questions: questions,
+                      isPremium: isPremiumUser || isTrialActive,
+                      recordResults: true,
+                      testMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
+                      zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+                    ),
+                  ),
+                );
+                if (results is Map<String, dynamic> && mounted) {
+                  if (results['nextAction'] == 'pause') {
+                    await _savePausedSessionFromResult(results);
+                    return;
+                  }
+
+                  _updateTestResults(results);
+                  final nextAction = results['nextAction'];
+                  if (nextAction == 'playAgain') {
+                    final replayCoverage = !activeIsFocusMode &&
+                            _cachedRandomQuizCoverage != null
+                        ? Map<String, String>.from(_cachedRandomQuizCoverage!)
+                        : activeCoverage;
+                    if (replayCoverage != null) {
+                      _showTestCoverageDialog(
+                        replayCoverage,
+                        isFocusMode: activeIsFocusMode,
+                        focusCategory: activeFocusCategory,
+                      );
+                    }
+                  } else if (nextAction == 'menu') {
+                    setState(() {
+                      currentScreen = 2;
+                    });
+                  }
+                }
+                // Handle different return values
+                else if (results == 'playAgain' && mounted) {
+                  // User clicked Play Again - show Test Coverage dialog again for new test
                   final replayCoverage =
                       !activeIsFocusMode && _cachedRandomQuizCoverage != null
                           ? Map<String, String>.from(_cachedRandomQuizCoverage!)
@@ -3448,38 +4960,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       focusCategory: activeFocusCategory,
                     );
                   }
-                } else if (nextAction == 'menu') {
+                } else if (results == 'menu' && mounted) {
+                  // User clicked Quiz Menu - return to Quiz section
                   setState(() {
-                    currentScreen = 2;
+                    currentScreen = 2; // 2 = Quiz
                   });
+                } else if (results != null && mounted) {
+                  // Normal completion - update results
+                  _updateTestResults(results);
                 }
               }
-              // Handle different return values
-              else if (results == 'playAgain' && mounted) {
-                // User clicked Play Again - show Test Coverage dialog again for new test
-                final replayCoverage =
-                    !activeIsFocusMode && _cachedRandomQuizCoverage != null
-                        ? Map<String, String>.from(_cachedRandomQuizCoverage!)
-                        : activeCoverage;
-                if (replayCoverage != null) {
-                  _showTestCoverageDialog(
-                    replayCoverage,
-                    isFocusMode: activeIsFocusMode,
-                    focusCategory: activeFocusCategory,
-                  );
-                }
-              } else if (results == 'menu' && mounted) {
-                // User clicked Quiz Menu - return to Quiz section
-                setState(() {
-                  currentScreen = 2; // 2 = Quiz
-                });
-              } else if (results != null && mounted) {
-                // Normal completion - update results
-                _updateTestResults(results);
-              }
-            }
 
-            await startTest(_generatedQuestions);
+              await startTest(_generatedQuestions);
+            } finally {
+              _isStartingGeneratedSession = false;
+            }
           },
         );
       },
@@ -3488,6 +4983,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   bool _consumeFreeSessionAllowance() {
     if (!_requireOnlineForProgressAction('start this session')) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    if (_lastSessionConsumeAt != null &&
+        now.difference(_lastSessionConsumeAt!) <
+            const Duration(milliseconds: 700)) {
       return false;
     }
 
@@ -3507,6 +5009,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     setState(() {
       remainingFreeTests--;
     });
+    _lastSessionConsumeAt = now;
     unawaited(_persistDailyFreeTests());
     unawaited(_syncAllProgressToRtdb());
 
@@ -3801,8 +5304,31 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                       ),
                                     );
 
-                                    // Handle Play Again - reshuffle the same questions
-                                    if (result == 'playAgain' && mounted) {
+                                    if (result is Map<String, dynamic> &&
+                                        mounted) {
+                                      if (result['nextAction'] == 'pause') {
+                                        await _savePausedSessionFromResult(
+                                            result);
+                                        return;
+                                      }
+
+                                      _updateTestResults(result);
+
+                                      if (result['nextAction'] == 'playAgain') {
+                                        final reshuffledQuestions = session
+                                            .questions
+                                            .map((q) => q.shuffled())
+                                            .toList();
+                                        await startTest(reshuffledQuestions);
+                                      } else if (result['nextAction'] ==
+                                          'menu') {
+                                        setState(() {
+                                          currentScreen = 2; // 2 = Quiz
+                                        });
+                                      }
+                                    }
+                                    // Backward compatibility with older result strings
+                                    else if (result == 'playAgain' && mounted) {
                                       final reshuffledQuestions = session
                                           .questions
                                           .map((q) => q.shuffled())
@@ -3988,9 +5514,46 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   void _updateTestResults(dynamic results) {
     if (results is! Map<String, dynamic>) return;
 
+    _appendMistakesFromResult(results);
+
+    final resultMode = results['testMode'] as String?;
+    final dynamicCorrectCount = results['correctCount'];
+    final dynamicTotalCount = results['totalCount'];
+
+    if (resultMode != null &&
+        {'randomQuiz', 'focusMode', 'challenge'}.contains(resultMode) &&
+        dynamicCorrectCount is Map &&
+        dynamicTotalCount is Map) {
+      final sessionTotal = dynamicTotalCount.values
+          .whereType<num>()
+          .fold<int>(0, (sum, value) => sum + value.toInt());
+      final sessionCorrect = dynamicCorrectCount.values
+          .whereType<num>()
+          .fold<int>(0, (sum, value) => sum + value.toInt());
+      final sessionPercent =
+          sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0;
+
+      setState(() {
+        _dailyTaskSessionsCompleted++;
+        if (resultMode == 'focusMode') {
+          _dailyTaskFocusCompleted++;
+        }
+        if (resultMode == 'challenge') {
+          _dailyTaskChallengeCompleted++;
+        }
+        _dailyTaskQuestionsAnswered += sessionTotal;
+        if (sessionPercent >= 95) {
+          _dailyTaskHighScoreAchieved = true;
+        }
+      });
+      unawaited(_persistDailyTaskRewardState());
+    }
+
+    final shouldRecord = results['recordResults'];
+    if (shouldRecord is bool && !shouldRecord) return;
+
     final correctCount = results['correctCount'] as Map<String, int>?;
     final totalCount = results['totalCount'] as Map<String, int>?;
-    final resultMode = results['testMode'] as String?;
 
     if (correctCount == null || totalCount == null) return;
 
@@ -4065,10 +5628,296 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (!hadChallengeUnlock && _hasUnlockedAdvancedModes) {
       unawaited(_primeChallengeCacheIfEligible(force: true));
     }
+
+    if (resultMode != null && resultMode.isNotEmpty) {
+      unawaited(_clearPausedQuizSession(resultMode));
+    } else {
+      unawaited(_clearPausedQuizSession());
+    }
   }
 
   String _remainingSessionsTodayText() {
     return '$remainingFreeTests ${remainingFreeTests == 1 ? 'session' : 'sessions'} left today';
+  }
+
+  Future<void> _showMoreSessionsDialog() async {
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> refreshDialog() async {
+            await _processExtraSessionAdRefill();
+            if (context.mounted) {
+              setDialogState(() {});
+            }
+          }
+
+          final canWatchAd = _isOnline && _extraSessionAdChances > 0;
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(20),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF473410), Color(0xFF1C1408)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: const Color(0xFFFFD76B), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFFD76B).withValues(alpha: 0.28),
+                    blurRadius: 16,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Get More Sessions TODAY',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Daily tasks reset every day.',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _sessionTaskTile(
+                    icon: Icons.play_circle_fill_rounded,
+                    title: 'Watch ads for +1 session',
+                    subtitle:
+                        'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances • Next refill: ${_extraSessionCountdownText()}',
+                    actionLabel: 'Watch',
+                    enabled: canWatchAd,
+                    onAction: () async {
+                      await _watchRewardedAdForExtraQuiz();
+                      await refreshDialog();
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _sessionTaskTile(
+                    icon: Icons.local_fire_department_rounded,
+                    title: 'Complete 4 sessions today',
+                    subtitle: '$completedSessions/4 completed',
+                    actionLabel:
+                        _canClaimStreakRewardToday ? 'Claim' : 'Claimed',
+                    enabled: _canClaimStreakRewardToday,
+                    claimed: !_canClaimStreakRewardToday &&
+                        _lastStreakRewardClaimDate == _getTodayDateString(),
+                    onAction: () async {
+                      await _claimFourSessionTaskReward();
+                      await refreshDialog();
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _sessionTaskTile(
+                    icon: Icons.military_tech_rounded,
+                    title: 'Complete 8 sessions today',
+                    subtitle: '$_dailyTaskSessionsCompleted/8 completed',
+                    actionLabel: _canClaimEightSessionRewardToday
+                        ? 'Claim'
+                        : (_lastEightSessionRewardClaimDate ==
+                                _getTodayDateString()
+                            ? 'Claimed'
+                            : 'Locked'),
+                    enabled: _canClaimEightSessionRewardToday,
+                    claimed: !_canClaimEightSessionRewardToday &&
+                        _lastEightSessionRewardClaimDate ==
+                            _getTodayDateString(),
+                    onAction: () async {
+                      await _claimEightSessionTaskReward();
+                      await refreshDialog();
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _sessionTaskTile(
+                    icon: Icons.gps_fixed_rounded,
+                    title: 'Finish 1 Focus Mode session',
+                    subtitle: '$_dailyTaskFocusCompleted/1 completed',
+                    actionLabel: _canClaimFocusRewardToday
+                        ? 'Claim'
+                        : (_lastFocusRewardClaimDate == _getTodayDateString()
+                            ? 'Claimed'
+                            : 'Locked'),
+                    enabled: _canClaimFocusRewardToday,
+                    claimed: !_canClaimFocusRewardToday &&
+                        _lastFocusRewardClaimDate == _getTodayDateString(),
+                    onAction: () async {
+                      await _claimFocusTaskReward();
+                      await refreshDialog();
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _sessionTaskTile(
+                    icon: Icons.emoji_events_rounded,
+                    title: 'Finish 1 Challenge Mode session',
+                    subtitle: '$_dailyTaskChallengeCompleted/1 completed',
+                    actionLabel: _canClaimChallengeRewardToday
+                        ? 'Claim'
+                        : (_lastChallengeRewardClaimDate ==
+                                _getTodayDateString()
+                            ? 'Claimed'
+                            : 'Locked'),
+                    enabled: _canClaimChallengeRewardToday,
+                    claimed: !_canClaimChallengeRewardToday &&
+                        _lastChallengeRewardClaimDate == _getTodayDateString(),
+                    onAction: () async {
+                      await _claimChallengeTaskReward();
+                      await refreshDialog();
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _sessionTaskTile(
+                    icon: Icons.format_list_numbered_rounded,
+                    title: 'Answer 30 questions today',
+                    subtitle: '$_dailyTaskQuestionsAnswered/30 answered',
+                    actionLabel: _canClaimThirtyAnswersRewardToday
+                        ? 'Claim'
+                        : (_lastThirtyAnswersRewardClaimDate ==
+                                _getTodayDateString()
+                            ? 'Claimed'
+                            : 'Locked'),
+                    enabled: _canClaimThirtyAnswersRewardToday,
+                    claimed: !_canClaimThirtyAnswersRewardToday &&
+                        _lastThirtyAnswersRewardClaimDate ==
+                            _getTodayDateString(),
+                    onAction: () async {
+                      await _claimThirtyAnswersTaskReward();
+                      await refreshDialog();
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  _sessionTaskTile(
+                    icon: Icons.workspace_premium_rounded,
+                    title: 'Score 95%+ in Random/Focus/Challenge',
+                    subtitle: _dailyTaskHighScoreAchieved
+                        ? 'Qualified today'
+                        : 'Not yet qualified today',
+                    actionLabel: _canClaimHighScoreRewardToday
+                        ? 'Claim'
+                        : (_lastHighScoreRewardClaimDate ==
+                                _getTodayDateString()
+                            ? 'Claimed'
+                            : 'Locked'),
+                    enabled: _canClaimHighScoreRewardToday,
+                    claimed: !_canClaimHighScoreRewardToday &&
+                        _lastHighScoreRewardClaimDate == _getTodayDateString(),
+                    onAction: () async {
+                      await _claimHighScoreTaskReward();
+                      await refreshDialog();
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'Close',
+                        style: GoogleFonts.outfit(color: Colors.white70),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _sessionTaskTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String actionLabel,
+    required bool enabled,
+    bool claimed = false,
+    required Future<void> Function() onAction,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          claimed
+              ? Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    color: Color(0xFF8CFFB0),
+                    size: 20,
+                  ),
+                )
+              : ElevatedButton(
+                  onPressed: enabled ? () => onAction() : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        enabled ? PnleTheme.accent : Colors.white24,
+                    foregroundColor: enabled ? Colors.black : Colors.white70,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  child: Text(
+                    actionLabel,
+                    style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                  ),
+                ),
+        ],
+      ),
+    );
   }
 
   // =========================
@@ -4416,11 +6265,239 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildNormalHomeFlow() {
-    final totalAvg = _calculateTotalAverage();
-    // final percentToPass = (80 - totalAvg).clamp(0.0, 100.0); // Removed - not using recommendation system yet
-    final weakestCategory = _getWeakestCategory();
+  Widget _buildStudyHubAction({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: enabled
+                  ? [
+                      Colors.white.withValues(alpha: 0.16),
+                      Colors.white.withValues(alpha: 0.08),
+                    ]
+                  : [
+                      Colors.white.withValues(alpha: 0.07),
+                      Colors.white.withValues(alpha: 0.04),
+                    ],
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: enabled
+                  ? Colors.white.withValues(alpha: 0.28)
+                  : Colors.white.withValues(alpha: 0.14),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: enabled
+                      ? PnleTheme.accent.withValues(alpha: 0.24)
+                      : Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: enabled
+                      ? PnleTheme.accent
+                      : Colors.white.withValues(alpha: 0.35),
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: GoogleFonts.outfit(
+                        color: enabled
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.45),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white
+                            .withValues(alpha: enabled ? 0.72 : 0.4),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
+  Widget _buildStudyHubMetric({
+    required String value,
+    required String label,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: GoogleFonts.outfit(
+                color: Colors.white.withValues(alpha: 0.72),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStudyHubCard() {
+    final hasPaused = _pausedQuizSessions.isNotEmpty;
+    String pausedProgress = 'No paused session';
+    if (hasPaused && _pausedQuizSessions.length == 1) {
+      final single = _pausedQuizSessions.values.first;
+      pausedProgress =
+          '${_modeLabel(single.testMode)} • ${single.currentIndex + 1}/${single.questions.length}';
+    } else if (hasPaused) {
+      final count = _pausedQuizSessions.length;
+      pausedProgress = '$count unfinished modes available';
+    }
+    final mistakeCount = _mistakeQueue.length;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF2C3E68).withValues(alpha: 0.9),
+            const Color(0xFF1A2546).withValues(alpha: 0.9),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 12,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.hub_rounded, color: PnleTheme.accent, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'Study Hub',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Jump right back into active study tasks.',
+            style: GoogleFonts.outfit(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildStudyHubMetric(
+                value: '$completedSessions/4',
+                label: 'Today',
+              ),
+              const SizedBox(width: 8),
+              _buildStudyHubMetric(
+                value: '$currentStreak',
+                label: 'Streak',
+              ),
+              const SizedBox(width: 8),
+              _buildStudyHubMetric(
+                value: '$accumulatedQuizzesCompleted',
+                label: 'Total Quizzes',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildStudyHubAction(
+            icon: Icons.play_circle_fill_rounded,
+            label: 'Continue Session',
+            subtitle: pausedProgress,
+            onTap: hasPaused ? _showContinueSessionsDialog : null,
+          ),
+          const SizedBox(height: 10),
+          _buildStudyHubAction(
+            icon: Icons.fact_check_rounded,
+            label: 'Review Mistakes',
+            subtitle: '$mistakeCount saved for review',
+            onTap: mistakeCount > 0 ? _showReviewMistakesDialog : null,
+          ),
+          const SizedBox(height: 10),
+          _buildStudyHubAction(
+            icon: Icons.bolt_rounded,
+            label: 'Start Quiz',
+            subtitle: _remainingSessionsTodayText(),
+            onTap: () {
+              setState(() {
+                currentScreen = 2;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNormalHomeFlow() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -4483,112 +6560,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           ),
         ),
         const SizedBox(height: 12),
-
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFFD76B), Color(0xFFF7A531)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFFF7A531).withValues(alpha: 0.35),
-                blurRadius: 16,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _canClaimStreakRewardToday
-                    ? '4/4 completed today. Claim +1 free session.'
-                    : completedSessions >= 4
-                        ? '4/4 completed today. +1 reward already claimed.'
-                        : 'Complete 4 sessions today to earn +1 free session.',
-                style: GoogleFonts.outfit(
-                  color: Colors.black,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                  letterSpacing: 0.1,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _canClaimStreakRewardToday
-                    ? 'Claim your reward now. Complete 4 again tomorrow for another bonus session.'
-                    : completedSessions >= 4
-                        ? 'Excellent consistency today. Come back tomorrow to unlock another bonus session.'
-                        : 'Progress today: $completedSessions of 4 sessions completed.',
-                style: GoogleFonts.outfit(
-                  color: Colors.black.withValues(alpha: 0.78),
-                  fontWeight: FontWeight.w500,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
         const SizedBox(height: 24),
 
-        // Circular Progress
-        _buildCircularProgressCard(totalAvg),
+        _buildStudyHubCard(),
         const SizedBox(height: 24),
 
-        // Smart Recommendation
-        if (accumulatedQuizzesCompleted > 0) ...[
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                  color: const Color(0xFFFF6B6B).withValues(alpha: 0.5)),
-              gradient: LinearGradient(
-                colors: [
-                  const Color(0xFFFF6B6B).withValues(alpha: 0.15),
-                  const Color(0xFFFF6B6B).withValues(alpha: 0.05),
-                ],
-              ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.lightbulb_outline,
-                    color: Color(0xFFFF6B6B), size: 20),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Focus Area',
-                        style: GoogleFonts.outfit(
-                          color: const Color(0xFFFF6B6B),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        weakestCategory.isNotEmpty
-                            ? 'Improve $weakestCategory to boost your score'
-                            : 'Keep answering quizzes to detect your weakest area',
-                        style: GoogleFonts.outfit(
-                          color: Colors.white.withValues(alpha: 0.8),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-        ],
+        if (accumulatedQuizzesCompleted > 0) const SizedBox(height: 14),
       ],
     );
   }
@@ -4601,14 +6578,29 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final totalQuestionsAnswered = accumulatedQuestionsAnswered;
     final bestScore = totalAvg;
     final canTakeQuiz = remainingFreeTests > 0;
-    final hasRandomReady = (_cachedRandomQuizQuestions?.length ?? 0) >= 15 &&
-        _cachedRandomQuizCoverage != null;
-    final hasFocusReady = weakestCategory.isNotEmpty &&
-        ((_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15);
-    final hasChallengeReady = (_cachedChallengeQuestions?.length ?? 0) >= 10;
+    final hasSeedRandomReady = _seedPoolReady &&
+        _seedPoolService.canServe('randomQuiz', _buildRandomCategoryMap());
+    final hasSeedFocusReady = _seedPoolReady &&
+        weakestCategory.isNotEmpty &&
+        _seedPoolService.canServe(
+          'focusMode',
+          _buildFocusCategoryMap(weakestCategory),
+        );
+    final hasSeedChallengeReady = _seedPoolReady &&
+        _categoriesForEligibility().any((category) => _seedPoolService.canServe(
+            'challenge', _buildChallengeCategoryMap(category)));
+
+    final hasRandomReady = hasSeedRandomReady ||
+        ((_cachedRandomQuizQuestions?.length ?? 0) >= 15 &&
+            _cachedRandomQuizCoverage != null);
+    final hasFocusReady = hasSeedFocusReady ||
+        (weakestCategory.isNotEmpty &&
+            ((_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15));
+    final hasChallengeReady = hasSeedChallengeReady ||
+        ((_cachedChallengeQuestions?.length ?? 0) >= 10);
     final isFocusModeLocked =
-        !canTakeQuiz || !_hasUnlockedAdvancedModes || weakestCategory.isEmpty;
-    final isChallengeModeLocked = !canTakeQuiz || !_hasUnlockedAdvancedModes;
+        !_hasUnlockedAdvancedModes || weakestCategory.isEmpty;
+    final isChallengeModeLocked = !_hasUnlockedAdvancedModes;
     final showPregenerationState = _canUseDeepSeekPregeneration();
     final isRandomFetching =
         showPregenerationState && _isPrimingRandomQuizCache && !hasRandomReady;
@@ -4796,203 +6788,111 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
-                    if (_canClaimStreakRewardToday) ...[
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: _isOnline
-                                  ? const [
-                                      Color(0xFFFFF4B0),
-                                      Color(0xFFFFD76B),
-                                      Color(0xFFF7A531),
-                                    ]
-                                  : [
-                                      Colors.grey.shade500,
-                                      Colors.grey.shade600,
-                                    ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: _isOnline
-                                ? [
-                                    BoxShadow(
-                                      color: const Color(0xFFF7A531)
-                                          .withValues(alpha: 0.35),
-                                      blurRadius: 16,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: _isOnline
-                                  ? _showStreakRewardClaimDialogIfEligible
-                                  : null,
-                              borderRadius: BorderRadius.circular(12),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 9),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.card_giftcard_rounded,
-                                      size: 16,
-                                      color: _isOnline
-                                          ? Colors.black
-                                          : Colors.white70,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Claim Streak Reward (+1 Session)',
-                                      style: GoogleFonts.outfit(
-                                        color: _isOnline
-                                            ? Colors.black
-                                            : Colors.white70,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
               const SizedBox(height: 24),
 
-              // Smart Recommendations
-              if (weakestCategory.isNotEmpty &&
-                  totalAvg < 65 &&
-                  accumulatedQuizzesCompleted > 0)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFF34D399).withValues(alpha: 0.2),
-                        const Color(0xFF34D399).withValues(alpha: 0.05),
-                      ],
+              Container(
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFE39A), Color(0xFFE9A83E)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border:
+                      Border.all(color: const Color(0xFFFFF1C2), width: 1.2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFE9A83E).withValues(alpha: 0.45),
+                      blurRadius: 18,
+                      spreadRadius: 2,
                     ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: const Color(0xFF34D399).withValues(alpha: 0.4)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.tips_and_updates_rounded,
-                          color: Color(0xFF34D399), size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Smart Tip',
-                              style: GoogleFonts.outfit(
-                                color: const Color(0xFF34D399),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              totalAvg < 50
-                                  ? 'Focus on $weakestCategory to improve your score quickly!'
-                                  : 'You\'re ${(65 - totalAvg).toStringAsFixed(1)}% away from your goal. Keep going!',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.85),
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
-              if (weakestCategory.isNotEmpty &&
-                  totalAvg < 65 &&
-                  accumulatedQuizzesCompleted > 0)
-                const SizedBox(height: 24),
-
-              // Extra sessions via rewarded ads (timed refill, max stack = 2)
-              if (remainingFreeTests < 4)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    gradient: _modeFadeGradientWithColors(
-                      const Color(0xFF4338CA),
-                      const Color(0xFF1D4ED8),
-                      strength: 0.78,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
+                child: Material(
+                  color: Colors.transparent,
+                  child: Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      const Icon(Icons.play_circle_fill_rounded,
-                          color: Colors.white, size: 22),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Watch Ad for +1 Session',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances • Next refill: ${_extraSessionCountdownText()}',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.88),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: (_extraSessionAdChances > 0 && _isOnline)
-                            ? _watchRewardedAdForExtraQuiz
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: PnleTheme.bgBottom,
+                      InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: _showMoreSessionsDialog,
+                        child: Padding(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                        ),
-                        child: Text(
-                          'Watch',
-                          style: GoogleFonts.outfit(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                              horizontal: 14, vertical: 12),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.workspace_premium_rounded,
+                                color: Color(0xFF533700),
+                                size: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Get More Sessions TODAY',
+                                      style: GoogleFonts.outfit(
+                                        color: const Color(0xFF533700),
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Daily tasks and claimable rewards',
+                                      style: GoogleFonts.outfit(
+                                        color: const Color(0xFF6D4B11),
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (_claimableSessionsCountNow > 0) ...[
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF2E7D32)
+                                        .withValues(alpha: 0.95),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '+$_claimableSessionsCountNow',
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 9,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: Color(0xFF6D4B11),
+                              ),
+                            ],
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
+              ),
 
               // Quiz Mode Selection Header (moved up to avoid scrolling)
               Text(
@@ -5020,29 +6920,36 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       ),
                 onTap: canTakeQuiz
                     ? () async {
-                        try {
-                          if (!mounted) return;
-                          final hasPregeneratedRandom =
-                              (_cachedRandomQuizQuestions?.length ?? 0) >= 15 &&
-                                  _cachedRandomQuizCoverage != null;
-                          final coverage = hasPregeneratedRandom
-                              ? Map<String, String>.from(
-                                  _cachedRandomQuizCoverage!)
-                              : _generateTestCoverage();
-                          FocusScope.of(context).unfocus();
-                          _showTestCoverageDialog(coverage);
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error: ${e.toString()}')),
-                          );
-                        }
+                        await _startOrResumeMode(
+                          mode: 'randomQuiz',
+                          onStartNew: () async {
+                            try {
+                              if (!mounted) return;
+                              final hasPregeneratedRandom =
+                                  (_cachedRandomQuizQuestions?.length ?? 0) >=
+                                          15 &&
+                                      _cachedRandomQuizCoverage != null;
+                              final coverage = hasPregeneratedRandom
+                                  ? Map<String, String>.from(
+                                      _cachedRandomQuizCoverage!)
+                                  : _generateTestCoverage();
+                              FocusScope.of(context).unfocus();
+                              _showTestCoverageDialog(coverage);
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                    content: Text('Error: ${e.toString()}')),
+                              );
+                            }
+                          },
+                        );
                       }
-                    : null,
+                    : () => _showMoreSessionsDialog(),
                 isPrimary: true,
                 badge: canTakeQuiz ? null : 'NO CREDITS',
                 showReadyBadge: showRandomPregenBadge && hasRandomReady,
                 showFetchingBadge: showRandomPregenBadge && isRandomFetching,
-                isLocked: !canTakeQuiz,
+                isLocked: false,
               ),
               const SizedBox(height: 12),
 
@@ -5062,28 +6969,38 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         _hasUnlockedAdvancedModes &&
                         weakestCategory.isNotEmpty)
                     ? () async {
-                        try {
-                          final coverage =
-                              _generateFocusModeCoverage(weakestCategory);
-                          _showTestCoverageDialog(
-                            coverage,
-                            isFocusMode: true,
-                            focusCategory: weakestCategory,
-                          );
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error: ${e.toString()}')),
-                          );
-                        }
+                        await _startOrResumeMode(
+                          mode: 'focusMode',
+                          onStartNew: () async {
+                            try {
+                              final coverage =
+                                  _generateFocusModeCoverage(weakestCategory);
+                              _showTestCoverageDialog(
+                                coverage,
+                                isFocusMode: true,
+                                focusCategory: weakestCategory,
+                              );
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                    content: Text('Error: ${e.toString()}')),
+                              );
+                            }
+                          },
+                        );
                       }
-                    : null,
+                    : (!_hasUnlockedAdvancedModes || weakestCategory.isEmpty)
+                        ? null
+                        : () => _showMoreSessionsDialog(),
                 badge: !canTakeQuiz
                     ? 'NO CREDITS'
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
-                showReadyBadge: !isFocusModeLocked && hasFocusReady,
-                showFetchingBadge: !isFocusModeLocked && isFocusFetching,
+                showReadyBadge:
+                    canTakeQuiz && !isFocusModeLocked && hasFocusReady,
+                showFetchingBadge:
+                    canTakeQuiz && !isFocusModeLocked && isFocusFetching,
                 isLocked: isFocusModeLocked,
               ),
               const SizedBox(height: 12),
@@ -5116,16 +7033,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   strength: 0.86,
                 ),
                 onTap: (canTakeQuiz && _hasUnlockedAdvancedModes)
-                    ? () => _startChallengeMode()
-                    : null,
+                    ? () => _startOrResumeMode(
+                          mode: 'challenge',
+                          onStartNew: _startChallengeMode,
+                        )
+                    : (_hasUnlockedAdvancedModes
+                        ? () => _showMoreSessionsDialog()
+                        : null),
                 badge: !canTakeQuiz
                     ? 'NO CREDITS'
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
-                showReadyBadge: !isChallengeModeLocked && hasChallengeReady,
-                showFetchingBadge:
-                    !isChallengeModeLocked && isChallengeFetching,
+                showReadyBadge:
+                    canTakeQuiz && !isChallengeModeLocked && hasChallengeReady,
+                showFetchingBadge: canTakeQuiz &&
+                    !isChallengeModeLocked &&
+                    isChallengeFetching,
                 isLocked: isChallengeModeLocked,
                 showPremiumBanner: false,
               ),
@@ -5684,6 +7608,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 trailingColor: _getTotalAverageColor(),
               ),
               const SizedBox(height: 28),
+
+              _buildCircularProgressCard(totalAvg),
+              const SizedBox(height: 24),
 
               // Sessions completed today
               Container(

@@ -180,7 +180,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Generating Explanation...',
+                      'Preparing your coaching notes...',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(16),
@@ -190,7 +190,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Please wait while AI generates the explanation',
+                      'Please wait while your review coach prepares insights',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(13),
@@ -363,7 +363,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    'AI-generated explanations may not always be accurate. Please verify with trusted sources.',
+                                    'Coaching notes are for review guidance. Please verify with trusted references.',
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(12),
                                       color: Colors.white.withOpacity(0.6),
@@ -397,7 +397,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
 
                       // Not satisfied section
                       Text(
-                        'Not satisfied with the answer?',
+                        'Need a deeper breakdown?',
                         style: GoogleFonts.outfit(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: r.fontSize(14),
@@ -407,7 +407,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
 
                       const SizedBox(height: 12),
 
-                      // USE BETTER AI button
+                      // Enhanced explanation button
                       ElevatedButton(
                         onPressed: widget.onUseBetterAI,
                         style: ElevatedButton.styleFrom(
@@ -431,7 +431,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              'USE BETTER AI',
+                              'DEEPER COACHING',
                               style: GoogleFonts.outfit(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,

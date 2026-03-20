@@ -42,8 +42,10 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-    _correctAnswerScaleAnimation = Tween<double>(begin: 0.8, end: 1.0)
-        .animate(CurvedAnimation(parent: _correctAnswerAnimationController, curve: Curves.elasticOut));
+    _correctAnswerScaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+        CurvedAnimation(
+            parent: _correctAnswerAnimationController,
+            curve: Curves.elasticOut));
     _correctAnswerAnimationController.forward();
     _startGeneration();
   }
@@ -138,7 +140,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Better Explanation',
+                          'Deep Coaching',
                           style: GoogleFonts.outfit(
                             fontSize: r.fontSize(22),
                             fontWeight: FontWeight.bold,
@@ -195,7 +197,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Generating Better Explanation...',
+                      'Preparing deeper coaching notes...',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(16),
@@ -205,7 +207,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Please wait while AI generates a better explanation',
+                      'Please wait while your review coach prepares insights',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(13),
@@ -278,10 +280,10 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                           padding: const EdgeInsets.all(16),
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
-                              color: PnleTheme.success.withOpacity(0.08),
+                            color: PnleTheme.success.withOpacity(0.08),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                                color: PnleTheme.success.withOpacity(0.3),
+                              color: PnleTheme.success.withOpacity(0.3),
                               width: 1.5,
                             ),
                           ),
@@ -382,7 +384,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    'AI-generated explanations may not always be accurate. Please verify with trusted sources.',
+                                    'Coaching notes are for review guidance. Please verify with trusted references.',
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(12),
                                       color: Colors.white.withOpacity(0.6),
@@ -421,7 +423,8 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
             // Button (counter or CLOSE)
             if (isGenerating)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -449,7 +452,8 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 48, vertical: 14),
                     decoration: BoxDecoration(
                       color: PnleTheme.bgTop.withOpacity(0.35),
                       borderRadius: BorderRadius.circular(12),

@@ -72,9 +72,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   children: [
                     _buildOnboardingPage(
                       icon: Icons.quiz_rounded,
-                      title: 'Welcome to UPCAT AI Reviewer 2027',
+                      title: 'Welcome to UPCAT Reviewer 2027',
                       description:
-                          'Master your UPCAT preparation with AI-powered questions and expert explanations.',
+                          'Master your UPCAT preparation with high-quality questions and expert explanations.',
                       color: PnleTheme.accent,
                     ),
                     _buildOnboardingPage(
@@ -93,9 +93,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     _buildOnboardingPage(
                       icon: Icons.lightbulb_outline,
-                      title: 'Smart Explanations',
+                      title: 'Coach Explanations',
                       description:
-                          'Get instant AI-powered explanations for every question. Premium plans offer advanced insights.',
+                          'Get clear coaching notes for every question with practical step-by-step guidance.',
                       color: const Color(0xFFFF6B6B),
                     ),
                     _buildGetStartedPage(),
@@ -340,9 +340,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 const SizedBox(height: 14),
                                 _buildBenefitRow(
                                   icon: Icons.auto_awesome_rounded,
-                                  title: 'AI-Powered Questions',
+                                  title: 'High-Quality Questions',
                                   description:
-                                      'Fresh questions generated every session',
+                                      'Fresh questions prepared every session',
                                 ),
                               ],
                             ),

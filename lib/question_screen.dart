@@ -26,6 +26,9 @@ class QuestionScreen extends StatefulWidget {
   final bool recordResults;
   final String testMode; // 'randomQuiz' or 'focusMode' or 'previous'
   final int zeroAdSessionsRemaining;
+  final int initialIndex;
+  final Map<String, int>? initialCorrectCount;
+  final int initialElapsedSeconds;
 
   const QuestionScreen({
     super.key,
@@ -34,6 +37,9 @@ class QuestionScreen extends StatefulWidget {
     this.recordResults = true,
     this.testMode = 'randomQuiz',
     this.zeroAdSessionsRemaining = 0,
+    this.initialIndex = 0,
+    this.initialCorrectCount,
+    this.initialElapsedSeconds = 0,
   });
 
   @override
@@ -87,6 +93,9 @@ class _QuestionScreenState extends State<QuestionScreen>
   final Map<String, int> _correctCount = {};
 
   final Map<String, int> _totalCount = {};
+  final List<Map<String, dynamic>> _mistakes = [];
+  final Set<int> _recordedMistakeQuestionIndexes = <int>{};
+  int _elapsedOffsetSeconds = 0;
 
   // =========================
   // TIMER (Dynamic based on category)
@@ -130,6 +139,10 @@ class _QuestionScreenState extends State<QuestionScreen>
   void initState() {
     super.initState();
 
+    currentIndex = widget.initialIndex.clamp(0, widget.questions.length - 1);
+    _elapsedOffsetSeconds =
+        widget.initialElapsedSeconds < 0 ? 0 : widget.initialElapsedSeconds;
+
     // Play quiz start sound effect (pre-loaded, instant)
     _soundService.playStartQuiz();
 
@@ -144,6 +157,15 @@ class _QuestionScreenState extends State<QuestionScreen>
     // Initialize correct count for all categories (including zeros)
     for (final category in _totalCount.keys) {
       _correctCount.putIfAbsent(category, () => 0);
+    }
+
+    final initialCorrect = widget.initialCorrectCount;
+    if (initialCorrect != null) {
+      for (final entry in initialCorrect.entries) {
+        if (_correctCount.containsKey(entry.key)) {
+          _correctCount[entry.key] = entry.value < 0 ? 0 : entry.value;
+        }
+      }
     }
 
     _timeController = AnimationController(
@@ -295,8 +317,87 @@ class _QuestionScreenState extends State<QuestionScreen>
     });
     // Play wrong answer sound if user didn't answer
     if (selectedChoiceIndex == null) {
+      _recordMistake(
+        questionIndex: currentIndex,
+        selectedAnswer: null,
+        timedOut: true,
+      );
       _soundService.playWrongAnswer();
     }
+  }
+
+  String _answerLetterForIndex(int index) {
+    if (index < 0 || index >= 26) return '';
+    return String.fromCharCode(65 + index);
+  }
+
+  void _recordMistake({
+    required int questionIndex,
+    required String? selectedAnswer,
+    required bool timedOut,
+  }) {
+    if (questionIndex < 0 || questionIndex >= widget.questions.length) return;
+    if (_recordedMistakeQuestionIndexes.contains(questionIndex)) return;
+
+    final question = widget.questions[questionIndex];
+    _recordedMistakeQuestionIndexes.add(questionIndex);
+    _mistakes.add({
+      'question': {
+        'number': question.number,
+        'category': question.category,
+        'question': question.question,
+        'choices': question.choices,
+        'answer': question.answer,
+        'explanation': question.explanation,
+        'source': question.source,
+      },
+      'selectedAnswer': selectedAnswer,
+      'timedOut': timedOut,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Map<String, dynamic> _buildResumeStatePayload({required int elapsedSeconds}) {
+    final resumeIndex =
+        (_answerSelected && currentIndex < widget.questions.length - 1)
+            ? currentIndex + 1
+            : currentIndex;
+
+    return {
+      'questions': widget.questions
+          .map(
+            (q) => {
+              'number': q.number,
+              'category': q.category,
+              'question': q.question,
+              'choices': q.choices,
+              'answer': q.answer,
+              'explanation': q.explanation,
+              'source': q.source,
+            },
+          )
+          .toList(),
+      'currentIndex': resumeIndex,
+      'correctCount': Map<String, int>.from(_correctCount),
+      'elapsedSeconds': elapsedSeconds,
+      'testMode': widget.testMode,
+      'recordResults': widget.recordResults,
+    };
+  }
+
+  Map<String, dynamic> _buildResultPayload({
+    required String nextAction,
+    required int elapsedSeconds,
+  }) {
+    return {
+      'correctCount': Map<String, int>.from(_correctCount),
+      'totalCount': Map<String, int>.from(_totalCount),
+      'nextAction': nextAction,
+      'testMode': widget.testMode,
+      'recordResults': widget.recordResults,
+      'mistakes': List<Map<String, dynamic>>.from(_mistakes),
+      'elapsedSeconds': elapsedSeconds,
+    };
   }
 
   Color _timeColorFromRatio(double ratio) {
@@ -783,6 +884,12 @@ class _QuestionScreenState extends State<QuestionScreen>
                                       if (isCorrect) {
                                         _soundService.playCorrectAnswer();
                                       } else {
+                                        _recordMistake(
+                                          questionIndex: currentIndex,
+                                          selectedAnswer:
+                                              _answerLetterForIndex(index),
+                                          timedOut: false,
+                                        );
                                         _soundService.playWrongAnswer();
                                       }
 
@@ -1009,7 +1116,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                             ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        'Explain',
+                                        'Coach Note',
                                         style: GoogleFonts.outfit(
                                           color: canTapExplain
                                               ? PnleTheme.bgBottom
@@ -1084,9 +1191,17 @@ class _QuestionScreenState extends State<QuestionScreen>
   // =========================
   // NAVIGATION & RESULTS
   // =========================
-  void _menuPressed() {
-    // Test cancelled, no recording - return to menu
-    Navigator.pop(context);
+  Future<void> _menuPressed() async {
+    _timeController.stop();
+    _quizStopwatch.stop();
+    final elapsedSeconds =
+        _elapsedOffsetSeconds + _quizStopwatch.elapsed.inSeconds;
+
+    Navigator.pop(context, {
+      'nextAction': 'pause',
+      'resumeState': _buildResumeStatePayload(elapsedSeconds: elapsedSeconds),
+      'mistakes': List<Map<String, dynamic>>.from(_mistakes),
+    });
   }
 
   Future<void> _showEndQuizInterstitialIfNeeded() async {
@@ -1166,7 +1281,8 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     // Stop the stopwatch and capture elapsed time
     _quizStopwatch.stop();
-    final elapsedSeconds = _quizStopwatch.elapsed.inSeconds;
+    final elapsedSeconds =
+        _elapsedOffsetSeconds + _quizStopwatch.elapsed.inSeconds;
 
     // Update leaderboard with today's score (removed — no more auth/leaderboard)
 
@@ -1217,26 +1333,19 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     if (action == 'playAgain') {
       if (!mounted) return;
-      if (widget.recordResults) {
-        final results = {
-          'correctCount': Map<String, int>.from(_correctCount),
-          'totalCount': Map<String, int>.from(_totalCount),
-          'nextAction': 'playAgain',
-          'testMode': widget.testMode,
-        };
-        Navigator.pop(context, results);
-      } else {
-        Navigator.pop(context, 'playAgain');
-      }
+      Navigator.pop(
+        context,
+        _buildResultPayload(
+          nextAction: 'playAgain',
+          elapsedSeconds: elapsedSeconds,
+        ),
+      );
     } else if (action == 'menu') {
       if (!mounted) return;
-      final results = {
-        'correctCount': Map<String, int>.from(_correctCount),
-        'totalCount': Map<String, int>.from(_totalCount),
-        'nextAction': 'menu',
-        'testMode': widget.testMode,
-      };
-      Navigator.pop(context, widget.recordResults ? results : 'menu');
+      Navigator.pop(
+        context,
+        _buildResultPayload(nextAction: 'menu', elapsedSeconds: elapsedSeconds),
+      );
     }
   }
 
@@ -1314,7 +1423,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Free Explain Limit Reached',
+                      'Coach Note Limit Reached',
                       style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -1326,7 +1435,7 @@ class _QuestionScreenState extends State<QuestionScreen>
               ),
               const SizedBox(height: 12),
               Text(
-                'Watch an ad to unlock Explain Why for this question.',
+                'Watch an ad to unlock Coach Note for this question.',
                 style: GoogleFonts.outfit(
                   color: Colors.white.withValues(alpha: 0.9),
                   height: 1.4,
@@ -1334,7 +1443,7 @@ class _QuestionScreenState extends State<QuestionScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                'Ad unlocks left this quiz: $remainingAdUnlocks/$_maxExplainAdUnlocksForCurrentMode',
+                'Coach Note ad unlocks left this quiz: $remainingAdUnlocks/$_maxExplainAdUnlocksForCurrentMode',
                 style: GoogleFonts.outfit(
                   color: Colors.white.withValues(alpha: 0.72),
                   fontSize: 13,
@@ -1378,7 +1487,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Explain Why',
+                            'Coach Note',
                             style: GoogleFonts.outfit(
                               fontWeight: FontWeight.bold,
                             ),

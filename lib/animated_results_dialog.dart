@@ -270,7 +270,9 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                         ),
                       ),
                       child: Text(
-                        'QUIZ MENU',
+                        widget.testMode == 'reviewMistakes'
+                            ? 'HOME'
+                            : 'QUIZ MENU',
                         style: GoogleFonts.outfit(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,

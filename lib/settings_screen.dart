@@ -447,7 +447,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: 'Privacy Policy',
         content: SingleChildScrollView(
           child: Text(
-            'UPCAT AI Reviewer 2027 stores quiz progress, scores, and usage data to provide learning analytics and personalized recommendations.\n\n'
+            'UPCAT Reviewer 2027 stores quiz progress, scores, and usage data to provide learning analytics and personalized recommendations.\n\n'
             'Your progress data is backed up through Firebase to keep your data safe across sessions.\n\n'
             'We do not sell your personal data. Third-party services used by the app may include Firebase and Google Mobile Ads.\n\n'
             'For Google Play release: replace this in-app summary with your final published Privacy Policy link and approved legal text.',
@@ -465,7 +465,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       barrierColor: Colors.black87,
       builder: (context) => _buildGradientDialog(
         context: context,
-        title: 'About UPCAT AI Reviewer 2027',
+        title: 'About UPCAT Reviewer 2027',
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -480,7 +480,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'A comprehensive exam preparation app powered by AI-generated questions and explanations.',
+                'A comprehensive exam preparation app with rich question sets and detailed explanations.',
                 style: GoogleFonts.outfit(
                     color: Colors.white.withValues(alpha: 0.8)),
               ),
