@@ -5676,164 +5676,189 @@ Constraints:
                   ),
                 ],
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Get More Sessions TODAY',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 20,
-                    ),
+              child: SafeArea(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.82,
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Daily tasks reset every day.',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white.withValues(alpha: 0.75),
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _sessionTaskTile(
-                    icon: Icons.play_circle_fill_rounded,
-                    title: 'Watch ads for +1 session',
-                    subtitle:
-                        'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances • Next refill: ${_extraSessionCountdownText()}',
-                    actionLabel: 'Watch',
-                    enabled: canWatchAd,
-                    onAction: () async {
-                      await _watchRewardedAdForExtraQuiz();
-                      await refreshDialog();
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _sessionTaskTile(
-                    icon: Icons.local_fire_department_rounded,
-                    title: 'Complete 4 sessions today',
-                    subtitle: '$completedSessions/4 completed',
-                    actionLabel:
-                        _canClaimStreakRewardToday ? 'Claim' : 'Claimed',
-                    enabled: _canClaimStreakRewardToday,
-                    claimed: !_canClaimStreakRewardToday &&
-                        _lastStreakRewardClaimDate == _getTodayDateString(),
-                    onAction: () async {
-                      await _claimFourSessionTaskReward();
-                      await refreshDialog();
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _sessionTaskTile(
-                    icon: Icons.military_tech_rounded,
-                    title: 'Complete 8 sessions today',
-                    subtitle: '$_dailyTaskSessionsCompleted/8 completed',
-                    actionLabel: _canClaimEightSessionRewardToday
-                        ? 'Claim'
-                        : (_lastEightSessionRewardClaimDate ==
-                                _getTodayDateString()
-                            ? 'Claimed'
-                            : 'Locked'),
-                    enabled: _canClaimEightSessionRewardToday,
-                    claimed: !_canClaimEightSessionRewardToday &&
-                        _lastEightSessionRewardClaimDate ==
-                            _getTodayDateString(),
-                    onAction: () async {
-                      await _claimEightSessionTaskReward();
-                      await refreshDialog();
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _sessionTaskTile(
-                    icon: Icons.gps_fixed_rounded,
-                    title: 'Finish 1 Focus Mode session',
-                    subtitle: '$_dailyTaskFocusCompleted/1 completed',
-                    actionLabel: _canClaimFocusRewardToday
-                        ? 'Claim'
-                        : (_lastFocusRewardClaimDate == _getTodayDateString()
-                            ? 'Claimed'
-                            : 'Locked'),
-                    enabled: _canClaimFocusRewardToday,
-                    claimed: !_canClaimFocusRewardToday &&
-                        _lastFocusRewardClaimDate == _getTodayDateString(),
-                    onAction: () async {
-                      await _claimFocusTaskReward();
-                      await refreshDialog();
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _sessionTaskTile(
-                    icon: Icons.emoji_events_rounded,
-                    title: 'Finish 1 Challenge Mode session',
-                    subtitle: '$_dailyTaskChallengeCompleted/1 completed',
-                    actionLabel: _canClaimChallengeRewardToday
-                        ? 'Claim'
-                        : (_lastChallengeRewardClaimDate ==
-                                _getTodayDateString()
-                            ? 'Claimed'
-                            : 'Locked'),
-                    enabled: _canClaimChallengeRewardToday,
-                    claimed: !_canClaimChallengeRewardToday &&
-                        _lastChallengeRewardClaimDate == _getTodayDateString(),
-                    onAction: () async {
-                      await _claimChallengeTaskReward();
-                      await refreshDialog();
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _sessionTaskTile(
-                    icon: Icons.format_list_numbered_rounded,
-                    title: 'Answer 30 questions today',
-                    subtitle: '$_dailyTaskQuestionsAnswered/30 answered',
-                    actionLabel: _canClaimThirtyAnswersRewardToday
-                        ? 'Claim'
-                        : (_lastThirtyAnswersRewardClaimDate ==
-                                _getTodayDateString()
-                            ? 'Claimed'
-                            : 'Locked'),
-                    enabled: _canClaimThirtyAnswersRewardToday,
-                    claimed: !_canClaimThirtyAnswersRewardToday &&
-                        _lastThirtyAnswersRewardClaimDate ==
-                            _getTodayDateString(),
-                    onAction: () async {
-                      await _claimThirtyAnswersTaskReward();
-                      await refreshDialog();
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _sessionTaskTile(
-                    icon: Icons.workspace_premium_rounded,
-                    title: 'Score 95%+ in Random/Focus/Challenge',
-                    subtitle: _dailyTaskHighScoreAchieved
-                        ? 'Qualified today'
-                        : 'Not yet qualified today',
-                    actionLabel: _canClaimHighScoreRewardToday
-                        ? 'Claim'
-                        : (_lastHighScoreRewardClaimDate ==
-                                _getTodayDateString()
-                            ? 'Claimed'
-                            : 'Locked'),
-                    enabled: _canClaimHighScoreRewardToday,
-                    claimed: !_canClaimHighScoreRewardToday &&
-                        _lastHighScoreRewardClaimDate == _getTodayDateString(),
-                    onAction: () async {
-                      await _claimHighScoreTaskReward();
-                      await refreshDialog();
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(
-                        'Close',
-                        style: GoogleFonts.outfit(color: Colors.white70),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Get More Sessions TODAY',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 20,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Daily tasks reset every day.',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white.withValues(alpha: 0.75),
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              _sessionTaskTile(
+                                icon: Icons.play_circle_fill_rounded,
+                                title: 'Watch ads for +1 session',
+                                subtitle:
+                                    'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances • Next refill: ${_extraSessionCountdownText()}',
+                                actionLabel: 'Watch',
+                                enabled: canWatchAd,
+                                onAction: () async {
+                                  await _watchRewardedAdForExtraQuiz();
+                                  await refreshDialog();
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                              _sessionTaskTile(
+                                icon: Icons.local_fire_department_rounded,
+                                title: 'Complete 4 sessions today',
+                                subtitle: '$completedSessions/4 completed',
+                                actionLabel: _canClaimStreakRewardToday
+                                    ? 'Claim'
+                                    : 'Claimed',
+                                enabled: _canClaimStreakRewardToday,
+                                claimed: !_canClaimStreakRewardToday &&
+                                    _lastStreakRewardClaimDate ==
+                                        _getTodayDateString(),
+                                onAction: () async {
+                                  await _claimFourSessionTaskReward();
+                                  await refreshDialog();
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                              _sessionTaskTile(
+                                icon: Icons.military_tech_rounded,
+                                title: 'Complete 8 sessions today',
+                                subtitle:
+                                    '$_dailyTaskSessionsCompleted/8 completed',
+                                actionLabel: _canClaimEightSessionRewardToday
+                                    ? 'Claim'
+                                    : (_lastEightSessionRewardClaimDate ==
+                                            _getTodayDateString()
+                                        ? 'Claimed'
+                                        : 'Locked'),
+                                enabled: _canClaimEightSessionRewardToday,
+                                claimed: !_canClaimEightSessionRewardToday &&
+                                    _lastEightSessionRewardClaimDate ==
+                                        _getTodayDateString(),
+                                onAction: () async {
+                                  await _claimEightSessionTaskReward();
+                                  await refreshDialog();
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                              _sessionTaskTile(
+                                icon: Icons.gps_fixed_rounded,
+                                title: 'Finish 1 Focus Mode session',
+                                subtitle:
+                                    '$_dailyTaskFocusCompleted/1 completed',
+                                actionLabel: _canClaimFocusRewardToday
+                                    ? 'Claim'
+                                    : (_lastFocusRewardClaimDate ==
+                                            _getTodayDateString()
+                                        ? 'Claimed'
+                                        : 'Locked'),
+                                enabled: _canClaimFocusRewardToday,
+                                claimed: !_canClaimFocusRewardToday &&
+                                    _lastFocusRewardClaimDate ==
+                                        _getTodayDateString(),
+                                onAction: () async {
+                                  await _claimFocusTaskReward();
+                                  await refreshDialog();
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                              _sessionTaskTile(
+                                icon: Icons.emoji_events_rounded,
+                                title: 'Finish 1 Challenge Mode session',
+                                subtitle:
+                                    '$_dailyTaskChallengeCompleted/1 completed',
+                                actionLabel: _canClaimChallengeRewardToday
+                                    ? 'Claim'
+                                    : (_lastChallengeRewardClaimDate ==
+                                            _getTodayDateString()
+                                        ? 'Claimed'
+                                        : 'Locked'),
+                                enabled: _canClaimChallengeRewardToday,
+                                claimed: !_canClaimChallengeRewardToday &&
+                                    _lastChallengeRewardClaimDate ==
+                                        _getTodayDateString(),
+                                onAction: () async {
+                                  await _claimChallengeTaskReward();
+                                  await refreshDialog();
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                              _sessionTaskTile(
+                                icon: Icons.format_list_numbered_rounded,
+                                title: 'Answer 30 questions today',
+                                subtitle:
+                                    '$_dailyTaskQuestionsAnswered/30 answered',
+                                actionLabel: _canClaimThirtyAnswersRewardToday
+                                    ? 'Claim'
+                                    : (_lastThirtyAnswersRewardClaimDate ==
+                                            _getTodayDateString()
+                                        ? 'Claimed'
+                                        : 'Locked'),
+                                enabled: _canClaimThirtyAnswersRewardToday,
+                                claimed: !_canClaimThirtyAnswersRewardToday &&
+                                    _lastThirtyAnswersRewardClaimDate ==
+                                        _getTodayDateString(),
+                                onAction: () async {
+                                  await _claimThirtyAnswersTaskReward();
+                                  await refreshDialog();
+                                },
+                              ),
+                              const SizedBox(height: 10),
+                              _sessionTaskTile(
+                                icon: Icons.workspace_premium_rounded,
+                                title: 'Score 95%+ in Random/Focus/Challenge',
+                                subtitle: _dailyTaskHighScoreAchieved
+                                    ? 'Qualified today'
+                                    : 'Not yet qualified today',
+                                actionLabel: _canClaimHighScoreRewardToday
+                                    ? 'Claim'
+                                    : (_lastHighScoreRewardClaimDate ==
+                                            _getTodayDateString()
+                                        ? 'Claimed'
+                                        : 'Locked'),
+                                enabled: _canClaimHighScoreRewardToday,
+                                claimed: !_canClaimHighScoreRewardToday &&
+                                    _lastHighScoreRewardClaimDate ==
+                                        _getTodayDateString(),
+                                onAction: () async {
+                                  await _claimHighScoreTaskReward();
+                                  await refreshDialog();
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: Text(
+                            'Close',
+                            style: GoogleFonts.outfit(color: Colors.white70),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           );

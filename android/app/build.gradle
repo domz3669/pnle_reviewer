@@ -52,8 +52,8 @@ android {
         applicationId "com.niotron.domingotambasacan.UPCAT_Reviewer"
         minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
-        versionCode 7
-        versionName "1.06"
+        versionCode 8
+        versionName "1.07"
     }
 
     signingConfigs {
