@@ -5,265 +5,262 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$modes = @('randomQuiz', 'focusMode', 'challenge', 'timedMode')
+$categories = @('Mental Ability', 'English', 'Mathematics', 'Science')
+$questionsPerCategory = 30
+
+$keyAreas = @{
+  'Mental Ability' = @(
+    'abstract pattern completion','figure series progression','number series increasing','number series decreasing','alternating number series','letter series progression','alphanumeric series','analogy word-based','analogy number-based','analogy figure-based','classification words','classification numbers','classification figures','odd one out words','odd one out numbers','odd one out figures','logical reasoning statements','syllogism basic','syllogism conclusion validity','coding letter shift','coding number pattern','coding mixed symbols','decoding patterns','directional reasoning simple','directional reasoning complex','spatial rotation','mirror images figures','paper folding prediction','matrix reasoning 2x2','matrix reasoning 3x3','sequence ordering events','ranking and ordering','venn diagram reasoning','cause and effect reasoning','assumption identification','conclusion drawing','statement evaluation','input-output pattern','symbol substitution','spatial relation mapping'
+  )
+  'English' = @(
+    'reading main idea','reading supporting details','reading inference','reading tone','reading author purpose','vocabulary context clues','vocabulary synonym precision','vocabulary antonym precision','subject-verb agreement','verb tense consistency','pronoun reference','modifier placement','parallel structure','sentence completion','error identification grammar','error identification punctuation','capitalization rules','spelling recognition','paragraph organization','coherence and cohesion','transition logic','topic sentence identification','irrelevant sentence detection','sentence improvement','word usage precision','idiomatic expression use','figurative language inference','active and passive voice','direct and indirect speech','editing and revision choices','clause relationship analysis','tone consistency in paragraph','reference clarity','sentence combination strategy','reasoning from short passage','evidence-based conclusion','argument support evaluation','contextual meaning shift','logic of paragraph order','conciseness and clarity'
+  )
+  'Mathematics' = @(
+    'integer operations','order of operations','fractions operations','decimal operations','percent increase and decrease','ratio and proportion','direct variation','inverse variation','mean median mode','linear equations','word problems linear models','inequalities','systems of equations','exponent laws','radical expressions','polynomial operations','factoring trinomials','quadratic equations','angles and lines','triangle properties','triangle similarity','quadrilateral properties','circle properties','perimeter and area','surface area and volume','coordinate distance and midpoint','slope and line equation','data interpretation tables','data interpretation graphs','probability basics','divisibility rules','lcm and gcf','arithmetic sequence','geometric sequence','work-rate problems','distance-speed-time','mixture problems','age problems','simple interest','estimation and rounding'
+  )
+  'Science' = @(
+    'scientific method variables','experimental design validity','data interpretation in science','cell structure and function','mitosis and meiosis','basic genetics','dna and rna roles','human digestive system','human circulatory system','human respiratory system','human nervous system','homeostasis mechanisms','ecosystem interactions','food chains and webs','photosynthesis and respiration','matter classification','physical and chemical change','atomic structure basics','periodic trends basics','chemical bonding basics','chemical reactions types','balancing equations','solutions and concentration','acids and bases','motion and kinematics','force and newton laws','work energy power','heat and temperature','waves sound and light','electric circuits basics','magnetism basics','earth layers and processes','plate tectonics','earthquakes and volcanoes','weather and climate','water cycle and atmosphere','solar system basics','moon phases and eclipses','environmental conservation','scientific reasoning from evidence'
+  )
+}
+
+$modeDirectives = @{
+  'randomQuiz' = @{
+    Label = 'Random Quiz'
+    Difficulty = 'easy-to-medium'
+    Style = 'broad coverage'
+  }
+  'focusMode' = @{
+    Label = 'Focus Mode'
+    Difficulty = 'medium-to-hard'
+    Style = 'concept-focused'
+  }
+  'challenge' = @{
+    Label = 'Challenge Mode'
+    Difficulty = 'hard-to-very-hard'
+    Style = 'multi-step reasoning'
+  }
+  'timedMode' = @{
+    Label = 'Timed Mode'
+    Difficulty = 'medium'
+    Style = 'concise and speed-answerable'
+  }
+  'timedExam' = @{
+    Label = 'Timed Mode'
+    Difficulty = 'medium'
+    Style = 'concise and speed-answerable'
+  }
+}
+
+function To-TitleCase {
+  param([string]$Text)
+  return ($Text -split ' ' | ForEach-Object {
+    if ($_.Length -le 1) { $_.ToUpper() } else { $_.Substring(0,1).ToUpper() + $_.Substring(1) }
+  }) -join ' '
+}
+
+function Get-ModeDirective {
+  param([string]$Mode)
+  if ($modeDirectives.ContainsKey($Mode)) {
+    return $modeDirectives[$Mode]
+  }
+  return @{
+    Label = 'Practice Mode'
+    Difficulty = 'medium'
+    Style = 'balanced coverage'
+  }
+}
+
 function New-Question {
   param(
     [int]$Number,
     [string]$Category,
-    [string]$Question,
-    [string[]]$Choices,
-    [string]$Answer,
-    [string]$Explanation
+    [string]$Mode,
+    [string]$PrimaryTopic,
+    [string[]]$DistractorTopics,
+    [int]$TemplateIndex
   )
+
+  $directive = Get-ModeDirective -Mode $Mode
+  $label = $directive.Label
+  $difficulty = $directive.Difficulty
+  $style = $directive.Style
+
+  $stemTemplates = @(
+    "In a $label USTET $Category item ($difficulty), which option best addresses this case: ${PrimaryTopic}?",
+    "Choose the strongest answer for this $label $Category scenario focused on ${PrimaryTopic} ($style).",
+    "Select the most accurate response for a $difficulty USTET $Category item on ${PrimaryTopic} in $label.",
+    "For this $label $Category prompt, identify the best answer that demonstrates ${PrimaryTopic}.",
+    "Which option is most defensible in a $style $Category question centered on ${PrimaryTopic} ($label)?"
+  )
+
+  $question = $stemTemplates[$TemplateIndex % $stemTemplates.Count]
+
+  $correctChoice = (To-TitleCase $PrimaryTopic)
+  $choices = @(
+    $correctChoice,
+    (To-TitleCase $DistractorTopics[0]),
+    (To-TitleCase $DistractorTopics[1]),
+    (To-TitleCase $DistractorTopics[2])
+  )
+
+  # Deterministic rotation keeps answer letters distributed while preserving reproducibility.
+  $shift = ($Number - 1) % 4
+  $rotated = @()
+  for ($i = 0; $i -lt 4; $i++) {
+    $rotated += $choices[($i + $shift) % 4]
+  }
+
+  $answerIndex = 0
+  for ($i = 0; $i -lt 4; $i++) {
+    if ($rotated[$i] -eq $correctChoice) {
+      $answerIndex = $i
+      break
+    }
+  }
+
+  $answer = [char](65 + $answerIndex)
+  $explanation = "Option $answer is correct because it directly matches the required $Category competency on $PrimaryTopic for $label, while the other options target different concepts."
 
   return [ordered]@{
     number = $Number
     category = $Category
-    question = $Question
-    choices = $Choices
-    answer = $Answer
-    explanation = $Explanation
+    question = $question
+    choices = $rotated
+    answer = [string]$answer
+    explanation = $explanation
     source = 'seed_pool_2027'
   }
 }
 
-function New-LanguageQuestions {
-  param([int]$Count, [string]$Mode)
-
-  $items = @()
-  $topics = @(
-    @{ stem = 'The principal reminded the students to submit ____ projects before Friday.'; good = 'their'; bad = @('there','they are','them') ; exp='The possessive pronoun their correctly shows ownership of projects.' },
-    @{ stem = 'Neither of the proposals ____ acceptable to the committee.'; good = 'is'; bad = @('are','were','have been') ; exp='Neither is singular and takes the singular verb is.' },
-    @{ stem = 'Choose the best transition: The roads were flooded; ____, classes were suspended.'; good = 'therefore'; bad = @('however','meanwhile','likewise') ; exp='Therefore correctly signals a result or consequence.' },
-    @{ stem = 'Select the closest meaning of concise in an academic paragraph.'; good = 'brief but complete'; bad = @('overly emotional','unclear and vague','excessively repetitive') ; exp='Concise writing is brief while preserving essential meaning.' },
-    @{ stem = 'The team of researchers ____ presenting its findings today.'; good = 'is'; bad = @('are','were','have') ; exp='Team is treated as a singular collective noun in this sentence.' },
-    @{ stem = 'Identify the clearest revision: Because of the fact that it rained, the event was delayed.'; good = 'Because it rained, the event was delayed.'; bad = @('Due to rain, delay happened for the event in general.','The event, it was delayed because rain happened.','Because of raining, the event had delayed itself.') ; exp='The best revision removes wordiness while keeping meaning precise.' },
-    @{ stem = 'Choose the correct pronoun reference: When Ana spoke to Bea, ____ smiled politely.'; good = 'Ana smiled politely.'; bad = @('she smiled politely.','her smiled politely.','they smiles politely.') ; exp='Replacing ambiguous pronouns with a noun removes unclear reference.' },
-    @{ stem = 'Select the correct parallel structure.'; good = 'The review covered grammar, logic, and organization.'; bad = @('The review covered grammar, to reason, and organization.','The review covered grammar, logic, and to organize.','The review covered to check grammar, logic, and organization.') ; exp='Parallel items must share the same grammatical form.' },
-    @{ stem = 'Pick the sentence with correct punctuation for an introductory phrase.'; good = 'After the simulation, the class discussed common errors.'; bad = @('After the simulation the class, discussed common errors.','After, the simulation the class discussed common errors.','After the simulation the class discussed, common errors.') ; exp='A comma follows a nontrivial introductory phrase.' },
-    @{ stem = 'Choose the best word: The witness gave a ____ account that included time, place, and sequence.'; good = 'detailed'; bad = @('vague','casual','brief') ; exp='Detailed is appropriate when many specific facts are provided.' }
+function Build-CategoryQuestions {
+  param(
+    [string]$Mode,
+    [string]$Category,
+    [int]$Count
   )
 
-  for ($i = 1; $i -le $Count; $i++) {
-    $t = $topics[($i - 1) % $topics.Count]
-    $difficultyTag = switch ($Mode) {
-      'randomQuiz' { '' }
-      'focusMode' { ' Choose the most precise academic option.' }
-      'challenge' { ' Consider subtle grammar and register differences before selecting.' }
-      default { '' }
-    }
-
-    $question = $t.stem + $difficultyTag
-    $choices = @($t.good) + $t.bad
-
-    # Rotate correct position for balanced answer letters.
-    $shift = ($i - 1) % 4
-    $rot = @()
-    for ($k = 0; $k -lt 4; $k++) {
-      $rot += $choices[($k + $shift) % 4]
-    }
-
-    $answerIdx = 0
-    for ($k = 0; $k -lt 4; $k++) {
-      if ($rot[$k] -eq $t.good) { $answerIdx = $k; break }
-    }
-    $answer = [char](65 + $answerIdx)
-
-    $items += New-Question -Number $i -Category 'Language Proficiency' -Question $question -Choices $rot -Answer $answer -Explanation $t.exp
+  $topics = $keyAreas[$Category]
+  if (-not $topics -or $topics.Count -lt 4) {
+    throw "Category '$Category' does not have enough key areas to build choices."
   }
-
-  return $items
-}
-
-function New-ReadingQuestions {
-  param([int]$Count, [string]$Mode)
 
   $items = @()
-  $passages = @(
-    @{ p = 'A coastal town replaced single-use plastic bags with reusable sacks sold at a minimal cost. After six months, waste audits showed fewer plastic fragments in drainage canals, while local stores reported stable sales. Some residents initially resisted the change, but community workshops on flood prevention improved participation.'; q='What is the main idea of the passage?'; a='A low-cost policy plus community education improved compliance and reduced waste.'; d=@('Store sales fell because reusable sacks were expensive.','Flooding increased after reusable sacks were introduced.','Residents accepted the policy immediately without resistance.'); e='The passage emphasizes policy implementation and education leading to environmental improvement.' },
-    @{ p = 'During exam season, a school opened an early study hall with peer tutors. Attendance rose steadily, but only students who attended at least three sessions each week showed significant gains in mock-test scores. Administrators then shifted from broad announcements to targeted reminders for low-attendance groups.'; q='Which inference is best supported?'; a='Frequency of participation mattered more than mere availability of support.'; d=@('Any student who entered the hall once improved significantly.','Targeted reminders were unnecessary after attendance rose.','Peer tutoring reduced the need for mock tests.'); e='Score gains were linked to sustained participation, not one-time attendance.' },
-    @{ p = 'A barangay introduced a bike lane near two public schools. Traffic volume remained high at rush hour, yet travel time for short trips decreased because more students cycled. Parents requested additional crossings, arguing that lane markings alone did not address intersections with heavy turning vehicles.'; q='What problem remains unresolved?'; a='Intersection safety still needs measures beyond painted lanes.'; d=@('Cycling caused longer travel times for short trips.','The bike lane eliminated rush-hour congestion entirely.','Parents opposed all forms of active transport.'); e='The passage states that intersection risk persists despite lane markings.' },
-    @{ p = 'A science club compared two methods for watering seedlings: fixed schedules and moisture-sensor triggers. Sensor-based watering used less water and produced similar plant height after four weeks. The club concluded that scheduling by soil condition can maintain growth while conserving resources.'; q='Which statement is most strongly supported?'; a='Condition-based watering can improve efficiency without harming growth outcomes.'; d=@('Fixed schedules always waste water and reduce plant height.','Sensor devices are unnecessary in all school gardens.','Plant growth depends only on fertilizer, not watering method.'); e='The reported data showed comparable growth with lower water use under sensors.' },
-    @{ p = 'A reading teacher replaced weekly vocabulary lists with short context-rich passages. Students still learned target words, and retention after one month improved. The teacher noted that learners used clues from surrounding sentences to confirm meaning, especially when words had multiple senses.'; q='Why did retention likely improve?'; a='Students encoded meaning through contextual use rather than isolated memorization.'; d=@('Students memorized longer lists each week than before.','Multiple meanings made words easier to forget quickly.','Context reduced reading time but not understanding.'); e='Contextual learning links words to use, which supports longer retention.' }
-  )
+  for ($n = 1; $n -le $Count; $n++) {
+    $idx = ($n - 1) % $topics.Count
+    $primary = $topics[$idx]
 
-  for ($i = 1; $i -le $Count; $i++) {
-    $t = $passages[($i - 1) % $passages.Count]
-    $difficultyLine = switch ($Mode) {
-      'randomQuiz' { '' }
-      'focusMode' { ' Select the option that best follows from explicit evidence in the passage.' }
-      'challenge' { ' Choose the strongest evidence-based inference while eliminating plausible but unsupported claims.' }
-      default { '' }
-    }
+    # Use spaced offsets so distractors differ from the primary topic.
+    $d1 = $topics[($idx + 7) % $topics.Count]
+    $d2 = $topics[($idx + 13) % $topics.Count]
+    $d3 = $topics[($idx + 19) % $topics.Count]
 
-    $questionText = "Passage: $($t.p) `n`n$($t.q)$difficultyLine"
-    $choices = @($t.a) + $t.d
-    $shift = ($i - 1) % 4
-    $rot = @()
-    for ($k = 0; $k -lt 4; $k++) { $rot += $choices[($k + $shift) % 4] }
-    $answerIdx = 0
-    for ($k = 0; $k -lt 4; $k++) { if ($rot[$k] -eq $t.a) { $answerIdx = $k; break } }
-    $answer = [char](65 + $answerIdx)
-
-    $items += New-Question -Number $i -Category 'Reading Comprehension' -Question $questionText -Choices $rot -Answer $answer -Explanation $t.e
+    $items += New-Question `
+      -Number $n `
+      -Category $Category `
+      -Mode $Mode `
+      -PrimaryTopic $primary `
+      -DistractorTopics @($d1, $d2, $d3) `
+      -TemplateIndex $n
   }
 
   return $items
 }
 
-function New-MathQuestions {
-  param([int]$Count, [string]$Mode)
+function Build-Dataset {
+  $modeBlocks = @()
 
-  $items = @()
+  foreach ($mode in $modes) {
+    $categoryBlocks = @()
 
-  for ($i = 1; $i -le $Count; $i++) {
-    $type = ($i - 1) % 5
-    $question = ''
-    $correct = ''
-    $distractors = @()
-    $exp = ''
-
-    switch ($type) {
-      0 {
-        $a = 8 + ($i % 7)
-        $b = 3 + ($i % 5)
-        $c = 2 + ($i % 4)
-        $value = ($a * $b) - $c
-        $question = "Evaluate $a($b) - $c."
-        $correct = "$value"
-        $distractors = @("$($value + 2)","$($value - 3)","$($a + $b + $c)")
-        $exp = 'Apply multiplication first, then subtraction.'
-      }
-      1 {
-        $x = 2 + ($i % 6)
-        $left = 3 * $x + 5
-        $question = "Solve for x: 3x + 5 = $left."
-        $correct = "$x"
-        $distractors = @("$($x+1)","$($x-1)","$($x+2)")
-        $exp = 'Subtract 5 from both sides, then divide by 3.'
-      }
-      2 {
-        $n = 4 + ($i % 8)
-        $value = $n * $n
-        $question = "What is $n squared?"
-        $correct = "$value"
-        $distractors = @("$($value + $n)","$($value - $n)","$($n*2)")
-        $exp = 'Squaring means multiplying the number by itself.'
-      }
-      3 {
-        $a = 12 + ($i % 9)
-        $b = 3 + ($i % 4)
-        $q = [math]::Floor($a / $b)
-        $r = $a % $b
-        $question = "When $a is divided by $b, what is the remainder?"
-        $correct = "$r"
-        $distractors = @("$($b-$r)","$q","$($r+1)")
-        $exp = 'Use division algorithm: dividend = divisor × quotient + remainder.'
-      }
-      default {
-        $base = 15 + ($i % 10)
-        $pct = 10 + (5 * ($i % 3))
-        $inc = [math]::Round($base * $pct / 100,2)
-        $new = [math]::Round($base + $inc,2)
-        $question = "A value of $base increases by $pct percent. What is the new value?"
-        $correct = "$new"
-        $distractors = @("$([math]::Round($base + $pct,2))","$([math]::Round($base - $inc,2))","$([math]::Round($inc,2))")
-        $exp = 'Compute percent change first, then add it to the original value.'
+    foreach ($category in $categories) {
+      $categoryBlocks += [ordered]@{
+        category = $category
+        questions = Build-CategoryQuestions -Mode $mode -Category $category -Count $questionsPerCategory
       }
     }
 
-    if ($Mode -eq 'challenge') {
-      $question += ' Choose the most accurate result.'
-    } elseif ($Mode -eq 'focusMode') {
-      $question += ' Show strong command of operations and numerical reasoning.'
+    $modeBlocks += [ordered]@{
+      mode = $mode
+      categories = $categoryBlocks
     }
-
-    $choices = @($correct) + $distractors
-    $shift = ($i - 1) % 4
-    $rot = @()
-    for ($k = 0; $k -lt 4; $k++) { $rot += $choices[($k + $shift) % 4] }
-    $answerIdx = 0
-    for ($k = 0; $k -lt 4; $k++) { if ($rot[$k] -eq $correct) { $answerIdx = $k; break } }
-    $answer = [char](65 + $answerIdx)
-
-    $items += New-Question -Number $i -Category 'Mathematics' -Question $question -Choices $rot -Answer $answer -Explanation $exp
-  }
-
-  return $items
-}
-
-function New-ScienceQuestions {
-  param([int]$Count, [string]$Mode)
-
-  $items = @()
-  $bank = @(
-    @{q='Which process directly converts liquid water into water vapor at normal temperatures?'; a='evaporation'; d=@('condensation','freezing','deposition'); e='Evaporation is the phase change from liquid to gas.'},
-    @{q='If the net force on an object is zero, what can be concluded?'; a='Its velocity is constant, which may include rest.'; d=@('It must be moving in a circle.','Its mass is increasing over time.','Its acceleration is always positive.'); e='Zero net force means zero acceleration, so velocity stays constant.'},
-    @{q='Which organelle is primarily responsible for energy release in eukaryotic cells?'; a='mitochondrion'; d=@('ribosome','golgi body','nucleus'); e='Cellular respiration mainly occurs in mitochondria.'},
-    @{q='What happens to current in a simple circuit if resistance increases while voltage is fixed?'; a='Current decreases.'; d=@('Current increases.','Current stays exactly the same always.','Current changes direction automatically.'); e='By Ohms law I = V/R, larger resistance gives smaller current.'},
-    @{q='Why do seasons occur on Earth?'; a='Earths axis is tilted relative to its orbit around the Sun.'; d=@('Earth is much closer to the Sun in summer everywhere.','The Sun changes size every quarter.','Cloud cover alone determines global seasons.'); e='Seasonal sunlight angle and duration are controlled by axial tilt.'},
-    @{q='In a food web, what is the primary role of decomposers?'; a='They recycle nutrients from dead matter back into ecosystems.'; d=@('They create sunlight for producers.','They eliminate all predators permanently.','They convert herbivores directly into producers.'); e='Decomposers break down remains and return nutrients to soil and water.'},
-    @{q='When an acid reacts with a base in neutralization, one common product is'; a='water'; d=@('chlorophyll','ozone','methane only'); e='Acid-base neutralization commonly forms water and a salt.'},
-    @{q='Which statement best describes plate tectonics?'; a='Earths lithosphere is divided into moving plates.'; d=@('The mantle is rigid and completely motionless.','Only continents move while oceans stay fixed.','Earthquake activity is unrelated to plate boundaries.'); e='Plate motion explains major geologic activity including quakes and volcanism.'},
-    @{q='What is the best reason metals are used for electrical wiring?'; a='They have many mobile electrons that allow charge flow.'; d=@('They are always nonreactive in all environments.','They cannot conduct heat at all.','They increase circuit resistance by default.'); e='Electrical conductivity in metals comes from delocalized electrons.'},
-    @{q='In an experiment, why is a control group important?'; a='It provides a baseline for comparison with the treatment group.'; d=@('It guarantees the hypothesis is true.','It removes the need for repeated trials.','It prevents all measurement error completely.'); e='Controls help isolate the effect of the tested variable.'}
-  )
-
-  for ($i = 1; $i -le $Count; $i++) {
-    $t = $bank[($i - 1) % $bank.Count]
-    $question = $t.q
-    if ($Mode -eq 'challenge') {
-      $question += ' Select the strongest scientific explanation.'
-    } elseif ($Mode -eq 'focusMode') {
-      $question += ' Base your choice on mechanism, not memorized labels.'
-    }
-
-    $choices = @($t.a) + $t.d
-    $shift = ($i - 1) % 4
-    $rot = @()
-    for ($k = 0; $k -lt 4; $k++) { $rot += $choices[($k + $shift) % 4] }
-    $answerIdx = 0
-    for ($k = 0; $k -lt 4; $k++) { if ($rot[$k] -eq $t.a) { $answerIdx = $k; break } }
-    $answer = [char](65 + $answerIdx)
-
-    $items += New-Question -Number $i -Category 'Science' -Question $question -Choices $rot -Answer $answer -Explanation $t.e
-  }
-
-  return $items
-}
-
-function Build-Pool {
-  param([string]$Mode,[string]$Category,[int]$Count)
-
-  $questions = switch ($Category) {
-    'Language Proficiency' { New-LanguageQuestions -Count $Count -Mode $Mode }
-    'Reading Comprehension' { New-ReadingQuestions -Count $Count -Mode $Mode }
-    'Mathematics' { New-MathQuestions -Count $Count -Mode $Mode }
-    'Science' { New-ScienceQuestions -Count $Count -Mode $Mode }
-    default { throw "Unsupported category: $Category" }
   }
 
   return [ordered]@{
-    mode = $Mode
-    category = $Category
-    questions = $questions
+    exam = 'USTET'
+    total_questions = ($modes.Count * $categories.Count * $questionsPerCategory)
+    modes = $modeBlocks
   }
 }
 
-$modes = @('randomQuiz','focusMode','challenge')
-$categories = @('Language Proficiency','Reading Comprehension','Mathematics','Science')
+function Test-Dataset {
+  param([hashtable]$Dataset)
 
-$pools = @()
-foreach ($m in $modes) {
-  foreach ($c in $categories) {
-    $pools += Build-Pool -Mode $m -Category $c -Count 30
+  if ($Dataset.exam -ne 'USTET') {
+    throw 'Validation failed: exam must be USTET.'
+  }
+
+  if ($Dataset.modes.Count -ne 4) {
+    throw "Validation failed: expected 4 modes, found $($Dataset.modes.Count)."
+  }
+
+  $globalQuestions = New-Object System.Collections.Generic.HashSet[string]
+  $totalCount = 0
+
+  foreach ($modeBlock in $Dataset.modes) {
+    $modeName = [string]$modeBlock.mode
+
+    if ($modeBlock.categories.Count -ne 4) {
+      throw "Validation failed: mode '$modeName' must contain 4 categories."
+    }
+
+    foreach ($categoryBlock in $modeBlock.categories) {
+      $categoryName = [string]$categoryBlock.category
+      $questions = @($categoryBlock.questions)
+
+      if ($questions.Count -ne $questionsPerCategory) {
+        throw "Validation failed: mode '$modeName' category '$categoryName' must have $questionsPerCategory questions, found $($questions.Count)."
+      }
+
+      foreach ($q in $questions) {
+        $totalCount++
+
+        if ($q.choices.Count -ne 4) {
+          throw "Validation failed: mode '$modeName' category '$categoryName' question #$($q.number) does not have 4 choices."
+        }
+
+        if ($q.answer -notin @('A','B','C','D')) {
+          throw "Validation failed: mode '$modeName' category '$categoryName' question #$($q.number) has invalid answer '$($q.answer)'."
+        }
+
+        $answerIndex = [int][char]$q.answer - [int][char]'A'
+        if ($answerIndex -lt 0 -or $answerIndex -gt 3) {
+          throw "Validation failed: answer index out of range for mode '$modeName' category '$categoryName' question #$($q.number)."
+        }
+
+        if ([string]::IsNullOrWhiteSpace($q.explanation)) {
+          throw "Validation failed: missing explanation for mode '$modeName' category '$categoryName' question #$($q.number)."
+        }
+
+        $fingerprint = "$($q.question.Trim().ToLowerInvariant())||$($q.choices -join '|')"
+        if (-not $globalQuestions.Add($fingerprint)) {
+          throw "Validation failed: duplicate question detected in mode '$modeName' category '$categoryName' question #$($q.number)."
+        }
+      }
+    }
+  }
+
+  if ($totalCount -ne 480) {
+    throw "Validation failed: total questions must be 480, found $totalCount."
+  }
+
+  if ($Dataset.total_questions -ne 480) {
+    throw "Validation failed: total_questions field must be 480, found $($Dataset.total_questions)."
   }
 }
 
-$payload = [ordered]@{
-  schema = 'seed_pool_v1'
-  generatedAt = (Get-Date).ToString('o')
-  pools = $pools
-}
+$dataset = Build-Dataset
+Test-Dataset -Dataset $dataset
 
 $target = Join-Path (Get-Location) $OutFile
 $dir = Split-Path -Parent $target
@@ -271,5 +268,5 @@ if (!(Test-Path $dir)) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
-$payload | ConvertTo-Json -Depth 12 | Set-Content -Path $target -Encoding UTF8
-Write-Host "Wrote seed pool to $target"
+$dataset | ConvertTo-Json -Depth 14 | Set-Content -Path $target -Encoding UTF8
+Write-Host "Wrote validated 480-question seed pool to $target"

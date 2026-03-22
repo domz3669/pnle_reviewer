@@ -678,8 +678,10 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                           child: TextButton(
                             onPressed: () {
                               widget.onSkip?.call();
-                              Navigator.pop(dialogContext); // Close warning
-                              Navigator.pop(context); // Close generation dialog
+                              Navigator.of(dialogContext, rootNavigator: true)
+                                  .pop(); // Close warning
+                              Navigator.of(context, rootNavigator: true)
+                                  .pop(); // Close generation dialog
                             },
                             style: TextButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -714,9 +716,10 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                             ),
                             child: ElevatedButton(
                               onPressed: () {
-                                Navigator.pop(dialogContext); // Close warning
-                                Navigator.pop(
-                                    context); // Close generation dialog
+                                Navigator.of(dialogContext, rootNavigator: true)
+                                    .pop(); // Close warning
+                                Navigator.of(context, rootNavigator: true)
+                                    .pop(); // Close generation dialog
                                 widget.onStart(); // Start the test immediately
                               },
                               style: ElevatedButton.styleFrom(

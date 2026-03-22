@@ -72,9 +72,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   children: [
                     _buildOnboardingPage(
                       icon: Icons.quiz_rounded,
-                      title: 'Welcome to UPCAT Reviewer 2027',
+                      title: 'Welcome to USTET Reviewer 2027',
                       description:
-                          'Master your UPCAT preparation with high-quality questions and expert explanations.',
+                          'Master your USTET preparation with high-quality questions and expert explanations.',
                       color: PnleTheme.accent,
                     ),
                     _buildOnboardingPage(
@@ -88,7 +88,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       icon: Icons.trending_up_outlined,
                       title: 'Track Your Progress',
                       description:
-                          'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your UPCAT subject areas.',
+                          'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your USTET subject areas.',
                       color: const Color(0xFF0891B2),
                     ),
                     _buildOnboardingPage(

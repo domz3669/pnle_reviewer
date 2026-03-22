@@ -55,7 +55,7 @@ The choices given are: $choicesStr
 The given correct answer is $correctAnswerLetter) $correctAnswer.
 User selected: $userAnswerLetter) $userAnswer.
 
-Provide a brief, UPCAT-relevant explanation for why this is the correct choice.
+Provide a brief, USTET-relevant explanation for why this is the correct choice.
 Structure the response in 3-5 concise sentences:
 1) State why the correct choice is best.
 2) Give the key reasoning step or principle that leads to the answer.

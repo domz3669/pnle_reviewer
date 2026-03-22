@@ -5,20 +5,20 @@ import 'dart:io';
 class AdMobIds {
   static const bool useTestAds = false;
 
-  static const String androidAppId = 'ca-app-pub-9985022151393867~6614946864';
-  static const String iosAppId = 'ca-app-pub-9985022151393867~7387678886';
+  static const String androidAppId = 'ca-app-pub-9985022151393867~9669875643';
+  static const String iosAppId = 'ca-app-pub-9985022151393867~5372105232';
 
-  static const String androidBanner = 'ca-app-pub-9985022151393867/3141336796';
-  static const String iosBanner = 'ca-app-pub-9985022151393867/1021216121';
+  static const String androidBanner = 'ca-app-pub-9985022151393867/8943951486';
+  static const String iosBanner = 'ca-app-pub-9985022151393867/3691624808';
 
   static const String androidInterstitial =
-      'ca-app-pub-9985022151393867/3280113188';
+      'ca-app-pub-9985022151393867/4565722779';
   static const String iosInterstitial =
-      'ca-app-pub-9985022151393867/7600399474';
+      'ca-app-pub-9985022151393867/8680227603';
 
   static const String androidRewarded =
-      'ca-app-pub-9985022151393867/2192486123';
-  static const String iosRewarded = 'ca-app-pub-9985022151393867/7025684408';
+      'ca-app-pub-9985022151393867/8548932913';
+  static const String iosRewarded = 'ca-app-pub-9985022151393867/3105034547';
 
   static const String androidBannerTest =
       'ca-app-pub-3940256099942544/6300978111';

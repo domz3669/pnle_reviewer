@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -38,7 +38,7 @@ class DeepSeekService {
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        debugPrint('🔄 DeepSeek attempt $attempt/$maxRetries...');
+        debugPrint('DeepSeek attempt $attempt/$maxRetries...');
         return await _doGenerateQuestions(
           prompt,
           eligibility,
@@ -47,7 +47,7 @@ class DeepSeekService {
         );
       } catch (e) {
         lastError = e is Exception ? e : Exception(e.toString());
-        debugPrint('⚠ Attempt $attempt failed: $e');
+        debugPrint('Attempt $attempt failed: $e');
         if (attempt < maxRetries) {
           // Wait before retrying (1s, then 2s)
           await Future.delayed(Duration(seconds: attempt));
@@ -70,12 +70,14 @@ class DeepSeekService {
         {
           "role": "system",
           "content":
-              "You are a UPCAT item writer. "
+              "You are a USTET item writer. "
               "Return VALID JSON ONLY. No markdown. No comments. "
-              "Write reasoning-based items, not direct recall. "
+            "Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. "
+            "Never ask the student to identify the skill, category, competency, or lesson being tested. "
+            "Every item must have a solvable stem and one clearly correct answer. "
               "Keep all options similar in length. "
               "Never use combined-option wording like 'A and B', 'A and C', 'both A and B', or 'all of the above' in any choice text. "
-              "Never make the correct option the longest or shortest by wording. "
+            "Never make the correct option obviously the longest or shortest by wording. "
               "Use plausible distractors based on common student mistakes. "
               "Use Unicode math symbols only when needed; avoid LaTeX and backslashes. "
               "Distribute correct answers across A/B/C/D without obvious repeating patterns."
@@ -112,7 +114,7 @@ class DeepSeekService {
         if (candidate.statusCode == 200) {
           response = candidate;
           if (i > 0) {
-            debugPrint('✅ DeepSeek succeeded on fallback endpoint.');
+            debugPrint('DeepSeek succeeded on fallback endpoint.');
           }
           break;
         }
@@ -122,18 +124,18 @@ class DeepSeekService {
             : candidate.body;
         lastErrorMessage =
             'DeepSeek API error (${endpointLabel}): ${candidate.statusCode} - $bodyPreview';
-        debugPrint('⚠ $lastErrorMessage');
+        debugPrint('Warning: $lastErrorMessage');
       } on TimeoutException {
         lastErrorMessage =
             'DeepSeek request timed out after ${requestTimeout.inSeconds}s. Please try again.';
-        debugPrint('⚠ DeepSeek $endpointLabel endpoint timed out.');
+        debugPrint('Warning: DeepSeek $endpointLabel endpoint timed out.');
         shouldTryNextEndpoint = false;
       } on SocketException catch (e) {
         lastErrorMessage = 'DeepSeek network error: ${e.message}';
-        debugPrint('⚠ DeepSeek $endpointLabel endpoint socket error: ${e.message}');
+        debugPrint('Warning: DeepSeek $endpointLabel endpoint socket error: ${e.message}');
       } on http.ClientException catch (e) {
         lastErrorMessage = 'DeepSeek client error: ${e.message}';
-        debugPrint('⚠ DeepSeek $endpointLabel endpoint client error: ${e.message}');
+        debugPrint('Warning: DeepSeek $endpointLabel endpoint client error: ${e.message}');
       }
 
       if (!shouldTryNextEndpoint) break;
@@ -147,7 +149,7 @@ class DeepSeekService {
     final decoded = jsonDecode(response.body);
     String content = decoded['choices'][0]['message']['content'];
 
-    // 🛡️ CLEANUP (LLM safety)
+    // CLEANUP (LLM safety)
     content = content.trim();
     content = content.replaceAll('```json', '');
     content = content.replaceAll('```', '');
@@ -161,7 +163,7 @@ class DeepSeekService {
     if (questionsJson.length < expectedCount) {
       if (allowPartialResults && questionsJson.isNotEmpty) {
         debugPrint(
-          '⚠ DeepSeek returned partial questions (${questionsJson.length}/$expectedCount). Returning salvage set.',
+          'Warning: DeepSeek returned partial questions (${questionsJson.length}/$expectedCount). Returning salvage set.',
         );
       } else {
         throw Exception(
@@ -170,7 +172,7 @@ class DeepSeekService {
       }
     }
 
-    // UPCAT default random distribution (15 questions):
+    // USTET default random distribution (15 questions):
     // Q1-2 Language, Q3-7 Reading, Q8-11 Math, Q12-15 Science.
 
     final parsedQuestions = <Question>[];
@@ -185,9 +187,9 @@ class DeepSeekService {
         category = categoryMap[num]!;
       } else {
         if (num >= 1 && num <= 2) {
-          category = 'Language Proficiency';
+          category = 'Mental Ability';
         } else if (num >= 3 && num <= 7) {
-          category = 'Reading Comprehension';
+          category = 'English';
         } else if (num >= 8 && num <= 11) {
           category = 'Mathematics';
         } else {
@@ -213,7 +215,7 @@ class DeepSeekService {
     if (categoryMap != null && categoryMap.isNotEmpty) {
       return categoryMap.length;
     }
-    // Default UPCAT full test size.
+    // Default USTET full test size.
     return 15;
   }
 
@@ -221,21 +223,21 @@ class DeepSeekService {
     final strict = _parseQuestionsStrict(content);
     if (strict.isNotEmpty) return strict;
 
-    debugPrint('⚠ Strict JSON parse failed. Trying recovery parser...');
+    debugPrint('Warning: Strict JSON parse failed. Trying recovery parser...');
 
     final recoveredFromQuestionsKey = _recoverQuestionsFromQuestionsKey(content);
     if (recoveredFromQuestionsKey.isNotEmpty) {
-      debugPrint('✅ Recovered ${recoveredFromQuestionsKey.length} questions from questions[] slice.');
+      debugPrint('Recovered ${recoveredFromQuestionsKey.length} questions from questions[] slice.');
       return recoveredFromQuestionsKey;
     }
 
     final recoveredFromObjects = _recoverQuestionsFromObjectScan(content);
     if (recoveredFromObjects.isNotEmpty) {
-      debugPrint('✅ Recovered ${recoveredFromObjects.length} questions from object scan.');
+      debugPrint('Recovered ${recoveredFromObjects.length} questions from object scan.');
       return recoveredFromObjects;
     }
 
-    debugPrint('❌ JSON decode failed and recovery found no valid questions.');
+    debugPrint('Error: JSON decode failed and recovery found no valid questions.');
     debugPrint(content);
     return const [];
   }
@@ -250,7 +252,7 @@ class DeepSeekService {
         return _sanitizeQuestionItems(decodedContent['questions'] as List);
       }
 
-      debugPrint('❌ Unexpected JSON structure');
+      debugPrint('Error: Unexpected JSON structure');
       debugPrint(decodedContent.toString());
       return const [];
     } catch (_) {

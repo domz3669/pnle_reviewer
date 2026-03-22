@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,6 +18,35 @@ class SeedQuestionPoolService {
   // mode -> category -> question list
   final Map<String, Map<String, List<Question>>> _pool = {};
 
+  static const Set<String> _supportedModes = {
+    'randomQuiz',
+    'focusMode',
+    'challenge',
+    'timedExam',
+  };
+
+  String _normalizeMode(String mode) {
+    switch (mode) {
+      case 'timedMode':
+        return 'timedExam';
+      default:
+        return mode;
+    }
+  }
+
+  bool _isTemplateQuestionText(String text) {
+    final normalized = text.trim().toLowerCase();
+    return normalized.startsWith('identify the key area being tested') ||
+        normalized.startsWith('focus mode: pick the most precise key') ||
+        normalized.contains('scenario emphasis:');
+  }
+
+  bool _isUsableQuestion(Question question) {
+    if (question.question.trim().isEmpty) return false;
+    if (_isTemplateQuestionText(question.question)) return false;
+    return true;
+  }
+
   Future<void> ensureInitialized() async {
     if (_initialized) return;
 
@@ -29,6 +59,7 @@ class SeedQuestionPoolService {
         if (raw is Map<String, dynamic>) {
           _hydrateFromMap(raw);
           _initialized = true;
+          _logPoolSummary(source: 'prefs');
           return;
         }
       } catch (_) {
@@ -45,6 +76,31 @@ class SeedQuestionPoolService {
     _hydrateFromMap(decoded);
     _initialized = true;
     await _persist();
+    _logPoolSummary(source: 'asset');
+  }
+
+  void _logPoolSummary({required String source}) {
+    try {
+      final parts = <String>[];
+      int grandTotal = 0;
+
+      for (final mode in _supportedModes) {
+        final buckets = _pool[mode] ?? const <String, List<Question>>{};
+        final counts = <String>[];
+        int modeTotal = 0;
+        for (final category in pnleCategories) {
+          final count = buckets[category]?.length ?? 0;
+          counts.add('$category=$count');
+          modeTotal += count;
+        }
+        grandTotal += modeTotal;
+        parts.add('$mode[$modeTotal]{${counts.join(', ')}}');
+      }
+
+      debugPrint('[SeedPool] Loaded from $source. Total=$grandTotal :: ${parts.join(' | ')}');
+    } catch (e) {
+      debugPrint('[SeedPool] Unable to print summary: $e');
+    }
   }
 
   Future<List<Question>> takeQuestions({
@@ -53,7 +109,9 @@ class SeedQuestionPoolService {
   }) async {
     await ensureInitialized();
 
-    if (!_pool.containsKey(mode) || categoryMap.isEmpty) {
+    final normalizedMode = _normalizeMode(mode);
+
+    if (!_pool.containsKey(normalizedMode) || categoryMap.isEmpty) {
       return const [];
     }
 
@@ -62,7 +120,21 @@ class SeedQuestionPoolService {
       neededPerCategory[category] = (neededPerCategory[category] ?? 0) + 1;
     }
 
-    final modeBuckets = _pool[mode] ?? {};
+    final modeBuckets = _pool[normalizedMode] ?? {};
+
+    // Purge template-like placeholders that may exist in older persisted pools.
+    var poolChanged = false;
+    modeBuckets.forEach((_, bucket) {
+      final before = bucket.length;
+      bucket.removeWhere((q) => !_isUsableQuestion(q));
+      if (bucket.length != before) {
+        poolChanged = true;
+      }
+    });
+    if (poolChanged) {
+      await _persist();
+    }
+
     for (final entry in neededPerCategory.entries) {
       final available = modeBuckets[entry.key]?.length ?? 0;
       if (available < entry.value) {
@@ -83,6 +155,9 @@ class SeedQuestionPoolService {
 
       final idx = _random.nextInt(bucket.length);
       final picked = bucket.removeAt(idx);
+      if (!_isUsableQuestion(picked)) {
+        continue;
+      }
       result.add(
         Question(
           number: qNo,
@@ -103,7 +178,7 @@ class SeedQuestionPoolService {
   bool canServe(String mode, Map<int, String> categoryMap) {
     if (!_initialized || categoryMap.isEmpty) return false;
 
-    final modeBuckets = _pool[mode];
+    final modeBuckets = _pool[_normalizeMode(mode)];
     if (modeBuckets == null) return false;
 
     final neededPerCategory = <String, int>{};
@@ -126,9 +201,7 @@ class SeedQuestionPoolService {
     await ensureInitialized();
 
     final deficits = <String, int>{};
-    const supportedModes = <String>{'randomQuiz', 'focusMode', 'challenge'};
-
-    for (final mode in supportedModes) {
+    for (final mode in _supportedModes) {
       final modeBuckets = _pool[mode] ?? {};
       for (final category in pnleCategories) {
         final current = modeBuckets[category]?.length ?? 0;
@@ -149,9 +222,11 @@ class SeedQuestionPoolService {
   }) async {
     await ensureInitialized();
 
+    final normalizedMode = _normalizeMode(mode);
+
     if (questions.isEmpty) return;
 
-    final modeBuckets = _pool.putIfAbsent(mode, () => {});
+    final modeBuckets = _pool.putIfAbsent(normalizedMode, () => {});
     final bucket = modeBuckets.putIfAbsent(category, () => []);
 
     for (final question in questions) {
@@ -169,7 +244,9 @@ class SeedQuestionPoolService {
       );
 
       if (_isValidAnswer(normalized.answer, normalized.choices.length)) {
-        bucket.add(normalized);
+        if (_isUsableQuestion(normalized)) {
+          bucket.add(normalized);
+        }
       }
     }
 
@@ -184,33 +261,123 @@ class SeedQuestionPoolService {
     _pool.clear();
 
     final poolsRaw = payload['pools'];
-    if (poolsRaw is! List) {
-      throw Exception('Seed payload missing pools list.');
+    if (poolsRaw is List) {
+      for (final item in poolsRaw.whereType<Map>()) {
+        final modeRaw = item['mode'];
+        final categoryRaw = item['category'];
+        final questionsRaw = item['questions'];
+
+        if (modeRaw is! String ||
+            categoryRaw is! String ||
+            questionsRaw is! List) {
+          continue;
+        }
+
+        _ingestQuestionList(
+          mode: modeRaw,
+          category: categoryRaw,
+          questionsRaw: questionsRaw,
+        );
+      }
     }
 
-    for (final item in poolsRaw.whereType<Map>()) {
-      final modeRaw = item['mode'];
-      final categoryRaw = item['category'];
-      final questionsRaw = item['questions'];
+    // Also support nested schema:
+    // { exam, total_questions, modes:[{mode,categories:[{category,questions:[]}] }] }
+    final modesRaw = payload['modes'];
+    if (modesRaw is List) {
+      for (final modeItem in modesRaw.whereType<Map>()) {
+        final modeRaw = modeItem['mode'];
+        final categoriesRaw = modeItem['categories'];
+        if (modeRaw is! String || categoriesRaw is! List) {
+          continue;
+        }
 
-      if (modeRaw is! String ||
-          categoryRaw is! String ||
-          questionsRaw is! List) {
-        continue;
-      }
-
-      final modeBuckets = _pool.putIfAbsent(modeRaw, () => {});
-      final bucket = modeBuckets.putIfAbsent(categoryRaw, () => []);
-
-      for (final q in questionsRaw.whereType<Map>()) {
-        try {
-          final parsed = Question.fromJson(Map<String, dynamic>.from(q));
-          if (parsed.choices.length >= 4 &&
-              _isValidAnswer(parsed.answer, parsed.choices.length)) {
-            bucket.add(parsed);
+        for (final categoryItem in categoriesRaw.whereType<Map>()) {
+          final categoryRaw = categoryItem['category'];
+          final questionsRaw = categoryItem['questions'];
+          if (categoryRaw is! String || questionsRaw is! List) {
+            continue;
           }
-        } catch (_) {
-          // Skip malformed question.
+
+          _ingestQuestionList(
+            mode: modeRaw,
+            category: categoryRaw,
+            questionsRaw: questionsRaw,
+          );
+        }
+      }
+    }
+
+    _ensureBaselinePoolCoverage(targetSize: 30);
+  }
+
+  void _ingestQuestionList({
+    required String mode,
+    required String category,
+    required List questionsRaw,
+  }) {
+    final normalizedMode = _normalizeMode(mode);
+    if (!_supportedModes.contains(normalizedMode)) {
+      return;
+    }
+
+    final modeBuckets = _pool.putIfAbsent(normalizedMode, () => {});
+    final bucket = modeBuckets.putIfAbsent(category, () => []);
+
+    for (final q in questionsRaw.whereType<Map>()) {
+      try {
+        final parsed = Question.fromJson(Map<String, dynamic>.from(q));
+        if (parsed.choices.length >= 4 &&
+            _isValidAnswer(parsed.answer, parsed.choices.length) &&
+            _isUsableQuestion(parsed)) {
+          bucket.add(parsed);
+        }
+      } catch (_) {
+        // Skip malformed question.
+      }
+    }
+  }
+
+  void _ensureBaselinePoolCoverage({int targetSize = 30}) {
+    for (final mode in _supportedModes) {
+      final modeBuckets = _pool.putIfAbsent(mode, () => {});
+
+      for (final category in pnleCategories) {
+        final bucket = modeBuckets.putIfAbsent(category, () => []);
+        if (bucket.length >= targetSize) {
+          continue;
+        }
+
+        final fallbackCandidates = <Question>[];
+
+        final randomBucket = _pool['randomQuiz']?[category] ?? const <Question>[];
+        fallbackCandidates.addAll(randomBucket);
+
+        for (final fallbackMode in _supportedModes) {
+          if (fallbackMode == mode) continue;
+          final other = _pool[fallbackMode]?[category] ?? const <Question>[];
+          fallbackCandidates.addAll(other);
+        }
+
+        int cursor = 0;
+        while (bucket.length < targetSize && fallbackCandidates.isNotEmpty) {
+          final source = fallbackCandidates[cursor % fallbackCandidates.length];
+          cursor++;
+
+          final cloned = Question(
+            number: bucket.length + 1,
+            category: category,
+            question: source.question,
+            choices: List<String>.from(source.choices),
+            answer: source.answer,
+            explanation: source.explanation,
+            source: source.source ?? 'seed_pool_2027',
+          );
+
+          if (_isUsableQuestion(cloned) &&
+              _isValidAnswer(cloned.answer, cloned.choices.length)) {
+            bucket.add(cloned);
+          }
         }
       }
     }

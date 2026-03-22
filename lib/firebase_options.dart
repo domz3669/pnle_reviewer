@@ -25,7 +25,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '214718638699',
     projectId: 'upcat-ios',
     storageBucket: 'upcat-ios.firebasestorage.app',
-    databaseURL: 'https://upcat-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    databaseURL: 'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
@@ -34,7 +34,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '214718638699',
     projectId: 'upcat-ios',
     storageBucket: 'upcat-ios.firebasestorage.app',
-    databaseURL: 'https://upcat-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    databaseURL: 'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/',
   );
 
   static const FirebaseOptions web = FirebaseOptions(
@@ -43,6 +43,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '14765051159',
     projectId: 'upcat-ios',
     storageBucket: 'upcat-ios.firebasestorage.app',
-    databaseURL: 'https://upcat-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    databaseURL: 'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/',
   );
 }

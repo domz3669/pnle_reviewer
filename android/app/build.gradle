@@ -26,11 +26,11 @@ if (flutterVersionCode == null) {
 
 def flutterVersionName = localProperties.getProperty('flutter.versionName')
 if (flutterVersionName == null) {
-    flutterVersionName = '1.0'
+    flutterVersionName = '1.0.0'
 }
 
 android {
-    namespace "com.niotron.domingotambasacan.UPCAT_Reviewer"
+    namespace "com.domz.ustetreviewer2027"
     compileSdk flutter.compileSdkVersion
     ndkVersion "28.2.13676358"
 
@@ -49,11 +49,11 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.niotron.domingotambasacan.UPCAT_Reviewer"
+        applicationId "com.domz.ustetreviewer2027"
         minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
-        versionCode 8
-        versionName "1.07"
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
     }
 
     signingConfigs {

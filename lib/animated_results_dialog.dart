@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'config/pnle_theme.dart';
 import 'services/sound_service.dart';
@@ -15,6 +15,13 @@ class AnimatedResultsDialog extends StatefulWidget {
   final int elapsedSeconds;
   final Function(String) onResultAction;
   final int zeroAdSessionsRemaining;
+  final double insightAccuracy;
+  final double insightSecondsPerQuestion;
+  final double insightQuestionsPerMinute;
+  final int insightTimedOutCount;
+  final String insightSpeedLabel;
+  final String insightFocusLabel;
+  final String insightBehaviorMessage;
 
   const AnimatedResultsDialog({
     required this.totalCorrect,
@@ -28,6 +35,13 @@ class AnimatedResultsDialog extends StatefulWidget {
     this.elapsedSeconds = 0,
     required this.onResultAction,
     this.zeroAdSessionsRemaining = 0,
+    this.insightAccuracy = 0,
+    this.insightSecondsPerQuestion = 0,
+    this.insightQuestionsPerMinute = 0,
+    this.insightTimedOutCount = 0,
+    this.insightSpeedLabel = 'Balanced',
+    this.insightFocusLabel = 'Moderate focus',
+    this.insightBehaviorMessage = '',
   });
 
   @override
@@ -87,10 +101,10 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
   }
 
   String _getPerformanceMessage(double score) {
-    if (score >= 90) return "Outstanding! 🎉";
-    if (score >= 70) return "Great job! 👍";
-    if (score >= 50) return "Good effort! 📚";
-    return "Keep practicing! 💪";
+    if (score >= 90) return "Outstanding!";
+    if (score >= 70) return "Great job!";
+    if (score >= 50) return "Good effort!";
+    return "Keep practicing!";
   }
 
   String _formatTime(int totalSeconds) {
@@ -134,9 +148,12 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    Text('✨', style: GoogleFonts.outfit(fontSize: 24)),
-                    Text('🏆', style: GoogleFonts.outfit(fontSize: 24)),
-                    Text('✨', style: GoogleFonts.outfit(fontSize: 24)),
+                    const Icon(Icons.auto_awesome_rounded,
+                        color: Colors.amberAccent, size: 24),
+                    const Icon(Icons.emoji_events_rounded,
+                        color: Colors.amber, size: 24),
+                    const Icon(Icons.auto_awesome_rounded,
+                        color: Colors.amberAccent, size: 24),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -249,6 +266,61 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                   },
                 );
               }),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Session Insights',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Speed: ${widget.insightSpeedLabel} (${widget.insightSecondsPerQuestion.toStringAsFixed(1)}s/question, ${widget.insightQuestionsPerMinute.toStringAsFixed(2)} q/min)',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white.withValues(alpha: 0.86),
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Accuracy: ${widget.insightAccuracy.toStringAsFixed(1)}% • Focus: ${widget.insightFocusLabel} (${widget.insightTimedOutCount} timeouts)',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white.withValues(alpha: 0.86),
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                    if (widget.insightBehaviorMessage.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.insightBehaviorMessage,
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFFFD166),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
               const SizedBox(height: 24),
               Row(
                 children: [
@@ -350,9 +422,9 @@ class _ResultCategoryItem extends StatelessWidget {
 
   IconData _getCategoryIcon(String cat) {
     switch (cat) {
-      case 'Language Proficiency':
+      case 'Mental Ability':
         return Icons.record_voice_over_rounded;
-      case 'Reading Comprehension':
+      case 'English':
         return Icons.menu_book_rounded;
       case 'Mathematics':
         return Icons.calculate_rounded;
@@ -447,3 +519,4 @@ class _ResultCategoryItem extends StatelessWidget {
     );
   }
 }
+

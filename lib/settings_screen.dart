@@ -62,19 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (widget.embedded) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Settings',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
+          if (widget.embedded) const SizedBox(height: 8),
           _buildSectionTitle('PROFILE'),
           _buildSettingsTile(
             icon: Icons.person_outline,
@@ -342,7 +330,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildHelpItem('How does the daily system work?',
                   'Complete 4 quiz sessions daily to track your progress.'),
               _buildHelpItem('How are scores calculated?',
-                  'Scores use UPCAT weighting: Language 20%, Reading 30%, Mathematics 25%, Science 25%. Pass requires 65% overall.'),
+                  'Scores are computed per category from your quiz results, then compared against your selected USTET course targets in Daily and 10-Days screens.'),
               _buildHelpItem('When do streaks reset?',
                   'Missing a day resets your daily streak counter.'),
             ],
@@ -447,7 +435,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: 'Privacy Policy',
         content: SingleChildScrollView(
           child: Text(
-            'UPCAT Reviewer 2027 stores quiz progress, scores, and usage data to provide learning analytics and personalized recommendations.\n\n'
+            'USTET Reviewer 2027 stores quiz progress, scores, and usage data to provide learning analytics and personalized recommendations.\n\n'
             'Your progress data is backed up through Firebase to keep your data safe across sessions.\n\n'
             'We do not sell your personal data. Third-party services used by the app may include Firebase and Google Mobile Ads.\n\n'
             'For Google Play release: replace this in-app summary with your final published Privacy Policy link and approved legal text.',
@@ -465,14 +453,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       barrierColor: Colors.black87,
       builder: (context) => _buildGradientDialog(
         context: context,
-        title: 'About UPCAT Reviewer 2027',
+        title: 'About USTET Reviewer 2027',
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Version 1.0.4',
+                'Version 1.0.0',
                 style: GoogleFonts.outfit(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,

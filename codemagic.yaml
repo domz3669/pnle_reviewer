@@ -1,6 +1,6 @@
 workflows:
   ios-testflight:
-    name: iOS TestFlight (UPCAT AI Reviewer 2027)
+    name: iOS TestFlight (USTET Reviewer 2027)
     max_build_duration: 120
     instance_type: mac_mini_m1
     integrations:
@@ -13,12 +13,12 @@ workflows:
         - Secure
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.niotron.domingotambasacan.upcataireviewer2027
+        bundle_identifier: com.domz.ustetreviewer2027
       vars:
-        BUNDLE_ID: "com.niotron.domingotambasacan.upcataireviewer2027"
+        BUNDLE_ID: "com.domz.ustetreviewer2027"
         XCODE_WORKSPACE: "Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        FLUTTER_BUILD_NAME: "1.0.7"
+        FLUTTER_BUILD_NAME: "1.0.0"
         FLUTTER_BUILD_NUMBER: "$PROJECT_BUILD_NUMBER"
     triggering:
       events:

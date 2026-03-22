@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import '../models/question.dart';
@@ -29,11 +29,11 @@ class QuestionGenerationService {
 
     for (int attempt = 1; attempt <= _maxRetries; attempt++) {
       try {
-        debugPrint('🔄 Gemini Flash attempt $attempt/$_maxRetries...');
+        debugPrint('Gemini Flash attempt $attempt/$_maxRetries...');
         return await _doGenerateQuestions(prompt, eligibility, categoryMap: categoryMap);
       } catch (e) {
         lastError = e is Exception ? e : Exception(e.toString());
-        debugPrint('⚠ Attempt $attempt failed: $e');
+        debugPrint('Attempt $attempt failed: $e');
         if (attempt < _maxRetries) {
           await Future.delayed(Duration(seconds: attempt));
         }
@@ -50,12 +50,14 @@ class QuestionGenerationService {
   }) async {
     final content = [
       Content.text(
-        'You are a UPCAT item writer. '
+        'You are a USTET item writer. '
         'Return VALID JSON ONLY. No markdown. No comments. '
-        'Write reasoning-based items, not direct recall. '
+        'Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. '
+        'Never ask the student to identify the skill, category, competency, or lesson being tested. '
+        'Every item must have a solvable stem and one clearly correct answer. '
         'Keep all options similar in length. '
         'Never use combined-option wording like "A and B", "A and C", "both A and B", or "all of the above" in any choice text. '
-        'Never make the correct option the longest or shortest by wording. '
+        'Never make the correct option obviously the longest or shortest by wording. '
         'Use plausible distractors based on common student mistakes. '
         'Distribute correct answers across A/B/C/D without obvious repeating patterns. '
         'Use Unicode math symbols only when needed; avoid LaTeX and backslashes.\n\n$prompt',
@@ -70,7 +72,7 @@ class QuestionGenerationService {
 
     String rawContent = response.text!.trim();
 
-    // 🛡️ CLEANUP (LLM safety)
+    // CLEANUP (LLM safety)
     rawContent = rawContent.replaceAll('```json', '');
     rawContent = rawContent.replaceAll('```', '');
     rawContent = rawContent.trim();
@@ -80,27 +82,27 @@ class QuestionGenerationService {
     try {
       decodedContent = jsonDecode(rawContent);
     } catch (e) {
-      debugPrint('❌ JSON decode failed');
+      debugPrint('Error: JSON decode failed');
       debugPrint(rawContent);
       throw Exception('Invalid AI JSON response');
     }
 
     List questionsJson;
 
-    // ✅ Case 1: Raw array returned
+    // Case 1: Raw array returned
     if (decodedContent is List) {
       questionsJson = decodedContent;
     }
-    // ✅ Case 2: Wrapped in { "questions": [...] }
+    // Case 2: Wrapped in { "questions": [...] }
     else if (decodedContent is Map && decodedContent['questions'] is List) {
       questionsJson = decodedContent['questions'];
     } else {
-      debugPrint('❌ Unexpected JSON structure');
+      debugPrint('Error: Unexpected JSON structure');
       debugPrint(decodedContent.toString());
       throw Exception('Unexpected AI response format');
     }
 
-    // UPCAT default random distribution (15 questions):
+    // USTET default random distribution (15 questions):
     // Q1-2 Language, Q3-7 Reading, Q8-11 Math, Q12-15 Science.
 
     final parsed = questionsJson.map((q) {
@@ -112,9 +114,9 @@ class QuestionGenerationService {
         category = categoryMap[num]!;
       } else {
         if (num >= 1 && num <= 2) {
-          category = 'Language Proficiency';
+          category = 'Mental Ability';
         } else if (num >= 3 && num <= 7) {
-          category = 'Reading Comprehension';
+          category = 'English';
         } else if (num >= 8 && num <= 11) {
           category = 'Mathematics';
         } else {
@@ -149,3 +151,4 @@ class QuestionGenerationService {
     return choices.any((c) => combinedPattern.hasMatch(c));
   }
 }
+

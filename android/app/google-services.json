@@ -1,21 +1,22 @@
 {
   "project_info": {
-    "project_number": "214718638699",
-    "project_id": "upcat-ios",
-    "storage_bucket": "upcat-ios.firebasestorage.app"
+    "project_number": "1017976282533",
+    "firebase_url": "https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "ustet-reviewer-2027",
+    "storage_bucket": "ustet-reviewer-2027.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:214718638699:android:648e865e895cfae4ac5f2e",
+        "mobilesdk_app_id": "1:1017976282533:android:f1ced3c33a6c46891edc4c",
         "android_client_info": {
-          "package_name": "com.niotron.domingotambasacan.UPCAT_Reviewer"
+          "package_name": "com.domz.ustetreviewer2027"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAg65dv4DYHn7B_Ys2AHfI-sfvGayZeHBU"
+          "current_key": "AIzaSyAdzLPcC6-rI0iZZ_cB3AwRM3_Ez6GSI9o"
         }
       ],
       "services": {

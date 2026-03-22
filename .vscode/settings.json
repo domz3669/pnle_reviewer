@@ -84,6 +84,11 @@
         "git rev-parse": true,
         "Resolve-Path": true,
         "New-Object": true,
-        "git checkout": true
+        "git checkout": true,
+        "Group-Object": true,
+        "/^powershell -ExecutionPolicy Bypass -File \\.\\\\scripts\\\\generate_seed_pool\\.ps1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }

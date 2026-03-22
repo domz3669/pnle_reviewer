@@ -1,4 +1,4 @@
-import 'dart:math';
+﻿import 'dart:math';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -106,14 +106,27 @@ class _QuestionScreenState extends State<QuestionScreen>
 
   /// Get timer duration based on question category
   int _getTimerForCategory(String category) {
+    if (_isTimedExamMode) {
+      switch (category) {
+        case 'Mathematics':
+        case 'Science':
+          return 40;
+        case 'Mental Ability':
+          return 35;
+        case 'English':
+        default:
+          return 35;
+      }
+    }
+
     final isChallenge = widget.testMode == 'challenge';
     switch (category) {
-      case 'Language Proficiency':
+      case 'Mental Ability':
         return isChallenge ? 65 : 45;
       case 'Mathematics':
       case 'Science':
         return isChallenge ? 85 : 60;
-      case 'Reading Comprehension':
+      case 'English':
         return isChallenge ? 95 : 70;
       default:
         return isChallenge ? 80 : 55;
@@ -122,6 +135,9 @@ class _QuestionScreenState extends State<QuestionScreen>
 
   bool _timeUp = false;
   bool _isLocked = false;
+  bool _autoAdvanceQueued = false;
+
+  bool get _isTimedExamMode => widget.testMode == 'timedExam';
 
   Question get currentQuestion => widget.questions[currentIndex];
 
@@ -324,6 +340,17 @@ class _QuestionScreenState extends State<QuestionScreen>
       );
       _soundService.playWrongAnswer();
     }
+
+    if (_isTimedExamMode && !_autoAdvanceQueued) {
+      _autoAdvanceQueued = true;
+      Future.delayed(const Duration(milliseconds: 650), () {
+        _autoAdvanceQueued = false;
+        if (!mounted) return;
+        if (_timeUp && _isLocked && _answerSelected) {
+          _nextQuestion();
+        }
+      });
+    }
   }
 
   String _answerLetterForIndex(int index) {
@@ -407,93 +434,117 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   Widget _animatedTimeBar() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return AnimatedBuilder(
-          animation: _timeController,
-          builder: (context, _) {
-            final ratio = (1.0 - _timeController.value).clamp(0.03, 1.0);
-            final isCritical = ratio <= 0.3;
-            final barColor = _timeColorFromRatio(ratio);
-            final barWidth = constraints.maxWidth * ratio;
+    return AnimatedBuilder(
+      animation: _timeController,
+      builder: (context, _) {
+        final ratio = (1.0 - _timeController.value).clamp(0.03, 1.0);
+        final isCritical = ratio <= 0.3;
+        final barColor = _timeColorFromRatio(ratio);
+        final secondsLeft =
+            (_currentMaxTime * (1.0 - _timeController.value))
+                .clamp(0.0, _currentMaxTime.toDouble());
 
-            return Container(
-              height: 6,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Stack(
-                children: [
-                  // Main progress bar
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 120),
-                      width: barWidth,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            barColor.withValues(alpha: 0.95),
-                            barColor.withValues(alpha: 0.72),
-                            Colors.white.withValues(alpha: 0.18),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: isCritical
-                            ? [
-                                BoxShadow(
-                                  color: barColor.withValues(alpha: 0.7),
-                                  blurRadius: 10,
-                                  spreadRadius: 1.5,
-                                ),
-                              ]
-                            : [],
-                      ),
+        return Row(
+          children: [
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, barConstraints) {
+                  final barWidth = barConstraints.maxWidth * ratio;
+                  return Container(
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                  ),
-                  // Sparkle tip effect
-                  if (barWidth > 8)
-                    Positioned(
-                      left: barWidth - 6,
-                      top: 0,
-                      bottom: 0,
-                      child: TweenAnimationBuilder<double>(
-                        key: ValueKey(_timeController.value),
-                        tween: Tween(begin: 0.0, end: 1.0),
-                        duration: const Duration(milliseconds: 800),
-                        curve: Curves.easeInOut,
-                        builder: (context, value, child) {
-                          final sparkleOpacity = (1.0 - value) * 0.8;
-                          final sparkleSize = 3.0 + (value * 2);
-                          return Center(
-                            child: Container(
-                              width: sparkleSize,
-                              height: sparkleSize,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white
-                                    .withValues(alpha: sparkleOpacity),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.white.withValues(
-                                        alpha: sparkleOpacity * 0.6),
-                                    blurRadius: 4,
-                                    spreadRadius: 1,
-                                  ),
+                    child: Stack(
+                      children: [
+                        // Main progress bar
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            width: barWidth,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  barColor.withValues(alpha: 0.95),
+                                  barColor.withValues(alpha: 0.72),
+                                  Colors.white.withValues(alpha: 0.18),
                                 ],
                               ),
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: isCritical
+                                  ? [
+                                      BoxShadow(
+                                        color: barColor.withValues(alpha: 0.7),
+                                        blurRadius: 10,
+                                        spreadRadius: 1.5,
+                                      ),
+                                    ]
+                                  : [],
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        ),
+                        // Sparkle tip effect
+                        if (barWidth > 8)
+                          Positioned(
+                            left: barWidth - 6,
+                            top: 0,
+                            bottom: 0,
+                            child: TweenAnimationBuilder<double>(
+                              key: ValueKey(_timeController.value),
+                              tween: Tween(begin: 0.0, end: 1.0),
+                              duration: const Duration(milliseconds: 800),
+                              curve: Curves.easeInOut,
+                              builder: (context, value, child) {
+                                final sparkleOpacity = (1.0 - value) * 0.8;
+                                final sparkleSize = 3.0 + (value * 2);
+                                return Center(
+                                  child: Container(
+                                    width: sparkleSize,
+                                    height: sparkleSize,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.white
+                                          .withValues(alpha: sparkleOpacity),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.white.withValues(
+                                              alpha: sparkleOpacity * 0.6),
+                                          blurRadius: 4,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                      ],
                     ),
-                ],
+                  );
+                },
               ),
-            );
-          },
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 48,
+              child: Text(
+                '${secondsLeft.toStringAsFixed(1)}s',
+                textAlign: TextAlign.right,
+                style: GoogleFonts.outfit(
+                  color: barColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  height: 1.0,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -650,8 +701,8 @@ class _QuestionScreenState extends State<QuestionScreen>
           children: [
             Text(
               sentSuccessfully
-                  ? '✓ Your report has been sent via email.'
-                  : '✓ Your report has been recorded.',
+                  ? 'Your report has been sent via email.'
+                  : 'Your report has been recorded.',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -787,21 +838,32 @@ class _QuestionScreenState extends State<QuestionScreen>
                         ),
                       ),
                       const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: _menuPressed,
-                        child: Container(
-                          padding: const EdgeInsets.all(9),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.25),
+                      Tooltip(
+                        message: _isTimedExamMode
+                            ? 'Timed Exam must be submitted before exiting.'
+                            : 'Return to menu',
+                        child: GestureDetector(
+                          onTap: _menuPressed,
+                          child: Container(
+                            padding: const EdgeInsets.all(9),
+                            decoration: BoxDecoration(
+                              color: _isTimedExamMode
+                                  ? Colors.white.withValues(alpha: 0.09)
+                                  : Colors.white.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: _isTimedExamMode
+                                    ? Colors.white.withValues(alpha: 0.2)
+                                    : Colors.white.withValues(alpha: 0.25),
+                              ),
                             ),
-                          ),
-                          child: Icon(
-                            Icons.home_rounded,
-                            color: Colors.white.withValues(alpha: 0.9),
-                            size: 18,
+                            child: Icon(
+                              Icons.home_rounded,
+                              color: _isTimedExamMode
+                                  ? Colors.white.withValues(alpha: 0.7)
+                                  : Colors.white.withValues(alpha: 0.9),
+                              size: 18,
+                            ),
                           ),
                         ),
                       ),
@@ -1192,6 +1254,20 @@ class _QuestionScreenState extends State<QuestionScreen>
   // NAVIGATION & RESULTS
   // =========================
   Future<void> _menuPressed() async {
+    if (_isTimedExamMode) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Timed Exam cannot be paused. Finish the exam before exiting.',
+            style: GoogleFonts.outfit(),
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     _timeController.stop();
     _quizStopwatch.stop();
     final elapsedSeconds =
@@ -1283,8 +1359,9 @@ class _QuestionScreenState extends State<QuestionScreen>
     _quizStopwatch.stop();
     final elapsedSeconds =
         _elapsedOffsetSeconds + _quizStopwatch.elapsed.inSeconds;
+    final insightData = _buildSessionInsights(elapsedSeconds);
 
-    // Update leaderboard with today's score (removed — no more auth/leaderboard)
+    // Update leaderboard with today's score (removed â€” no more auth/leaderboard)
 
     final action = await showDialog<String>(
       context: context,
@@ -1303,6 +1380,15 @@ class _QuestionScreenState extends State<QuestionScreen>
           testMode: widget.testMode,
           elapsedSeconds: elapsedSeconds,
           zeroAdSessionsRemaining: widget.zeroAdSessionsRemaining,
+          insightAccuracy: (insightData['sessionAccuracy'] as num).toDouble(),
+          insightSecondsPerQuestion:
+              (insightData['secondsPerQuestion'] as num).toDouble(),
+          insightQuestionsPerMinute:
+              (insightData['questionsPerMinute'] as num).toDouble(),
+          insightTimedOutCount: (insightData['timedOutCount'] as int),
+          insightSpeedLabel: insightData['speedLabel'] as String,
+          insightFocusLabel: insightData['focusLabel'] as String,
+          insightBehaviorMessage: insightData['behaviorMessage'] as String,
           onResultAction: (action) {
             Navigator.of(dialogContext, rootNavigator: true).pop(action);
           },
@@ -1348,6 +1434,45 @@ class _QuestionScreenState extends State<QuestionScreen>
       );
     }
   }
+
+    Map<String, dynamic> _buildSessionInsights(int elapsedSeconds) {
+    final sessionTotal =
+      _totalCount.values.fold<int>(0, (sum, value) => sum + value);
+    final sessionCorrect =
+      _correctCount.values.fold<int>(0, (sum, value) => sum + value);
+
+    final elapsed = elapsedSeconds.clamp(1, 7200);
+    final sessionAccuracy =
+      sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
+    final secondsPerQuestion = sessionTotal > 0 ? elapsed / sessionTotal : 0.0;
+    final questionsPerMinute = elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
+
+    final timedOutCount = _mistakes.where((item) => item['timedOut'] == true).length;
+
+    final speedLabel = secondsPerQuestion > 50
+      ? 'Too slow'
+      : (secondsPerQuestion < 25 ? 'Too fast' : 'Balanced');
+
+    final focusLabel = timedOutCount >= 3
+      ? 'Low focus'
+      : (timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
+
+    final behaviorMessage = secondsPerQuestion > 50
+      ? 'You spent too long on several items. In USTET, this can cost multiple answer opportunities.'
+      : (secondsPerQuestion < 25 && sessionAccuracy < 70
+        ? 'You moved very fast but accuracy dropped. Slow down slightly on hard items.'
+        : 'Your pacing is close to exam pace. Maintain skip-and-return discipline.');
+
+    return {
+      'sessionAccuracy': sessionAccuracy,
+      'secondsPerQuestion': secondsPerQuestion,
+      'questionsPerMinute': questionsPerMinute,
+      'timedOutCount': timedOutCount,
+      'speedLabel': speedLabel,
+      'focusLabel': focusLabel,
+      'behaviorMessage': behaviorMessage,
+    };
+    }
 
   // OLD RESULTS DIALOG - Removed. Using AnimatedResultsDialog instead.
   // _showResultsDialog_REMOVED method removed - using AnimatedResultsDialog  // _resultItem removed - not used
@@ -1661,3 +1786,4 @@ class _QuestionScreenState extends State<QuestionScreen>
     );
   }
 }
+

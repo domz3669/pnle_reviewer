@@ -1,4 +1,4 @@
-import 'dart:math';
+﻿import 'dart:math';
 import 'dart:async';
 import 'dart:ui';
 import 'dart:convert';
@@ -46,43 +46,68 @@ class _SavedSession {
         'savedAt': savedAt.toIso8601String(),
         'sourceMode': sourceMode,
         'questions': questions
-            .map((q) => {
-                  'number': q.number,
-                  'category': q.category,
-                  'question': q.question,
-                  'choices': q.choices,
-                  'answer': q.answer,
-                  'explanation': q.explanation,
-                  'source': q.source,
-                })
+            .map(
+              (q) => {
+                'number': q.number,
+                'category': q.category,
+                'question': q.question,
+                'choices': q.choices,
+                'answer': q.answer,
+                'explanation': q.explanation,
+                'source': q.source,
+              },
+            )
             .toList(),
       };
 
   static _SavedSession? fromJson(Map<String, dynamic> json) {
-    final titleRaw = json['title'];
-    final savedAtRaw = json['savedAt'];
-    final sourceModeRaw = json['sourceMode'];
-    final questionsRaw = json['questions'];
+    final rawQuestions = json['questions'];
+    if (rawQuestions is! List || rawQuestions.isEmpty) return null;
 
-    if (titleRaw is! String || savedAtRaw is! String || questionsRaw is! List) {
-      return null;
+    final parsedQuestions = <Question>[];
+    for (final item in rawQuestions) {
+      if (item is! Map) continue;
+      parsedQuestions.add(Question.fromJson(Map<String, dynamic>.from(item)));
     }
-
-    final parsedSavedAt = DateTime.tryParse(savedAtRaw);
-    if (parsedSavedAt == null) return null;
-
-    final parsedQuestions = questionsRaw
-        .whereType<Map>()
-        .map((q) => Question.fromJson(Map<String, dynamic>.from(q)))
-        .toList();
-
     if (parsedQuestions.isEmpty) return null;
 
+    DateTime parsedSavedAt;
+    final rawSavedAt = json['savedAt'];
+    if (rawSavedAt is String) {
+      parsedSavedAt = DateTime.tryParse(rawSavedAt) ?? DateTime.now();
+    } else {
+      parsedSavedAt = DateTime.now();
+    }
+
+    final rawTitle = json['title'];
+    final title = rawTitle is String && rawTitle.trim().isNotEmpty
+        ? rawTitle.trim()
+        : 'Saved Session';
+
+    final rawSourceMode = json['sourceMode'];
+    final sourceMode = rawSourceMode is String && rawSourceMode.trim().isNotEmpty
+        ? rawSourceMode.trim()
+        : 'randomQuiz';
+
     return _SavedSession(
-      title: titleRaw,
+      title: title,
       questions: parsedQuestions,
       savedAt: parsedSavedAt,
-      sourceMode: sourceModeRaw is String ? sourceModeRaw : 'randomQuiz',
+      sourceMode: sourceMode,
+    );
+  }
+
+  _SavedSession copyWith({
+    String? title,
+    List<Question>? questions,
+    DateTime? savedAt,
+    String? sourceMode,
+  }) {
+    return _SavedSession(
+      title: title ?? this.title,
+      questions: questions ?? this.questions,
+      savedAt: savedAt ?? this.savedAt,
+      sourceMode: sourceMode ?? this.sourceMode,
     );
   }
 }
@@ -92,12 +117,16 @@ class _QuizActivityRecord {
   final int questionCount;
   final int correctCount;
   final double scorePercent;
+  final Map<String, int> categoryCorrect;
+  final Map<String, int> categoryTotal;
 
   const _QuizActivityRecord({
     required this.date,
     required this.questionCount,
     required this.correctCount,
     required this.scorePercent,
+    this.categoryCorrect = const <String, int>{},
+    this.categoryTotal = const <String, int>{},
   });
 
   Map<String, dynamic> toJson() => {
@@ -105,6 +134,8 @@ class _QuizActivityRecord {
         'questionCount': questionCount,
         'correctCount': correctCount,
         'scorePercent': scorePercent,
+      'categoryCorrect': categoryCorrect,
+      'categoryTotal': categoryTotal,
       };
 
   static _QuizActivityRecord? fromJson(Map<String, dynamic> json) {
@@ -112,16 +143,40 @@ class _QuizActivityRecord {
     final questionRaw = json['questionCount'] ?? json['q'];
     final correctRaw = json['correctCount'] ?? json['c'];
     final scoreRaw = json['scorePercent'] ?? json['p'];
+    final categoryCorrectRaw = json['categoryCorrect'] ?? json['cc'];
+    final categoryTotalRaw = json['categoryTotal'] ?? json['ct'];
     if (dateRaw is! String || questionRaw is! num) return null;
 
     final parsedDate = DateTime.tryParse(dateRaw);
     if (parsedDate == null) return null;
+
+    final parsedCategoryCorrect = <String, int>{};
+    if (categoryCorrectRaw is Map) {
+      for (final entry in categoryCorrectRaw.entries) {
+        if (entry.key is String && entry.value is num) {
+          parsedCategoryCorrect[entry.key as String] =
+              (entry.value as num).toInt();
+        }
+      }
+    }
+
+    final parsedCategoryTotal = <String, int>{};
+    if (categoryTotalRaw is Map) {
+      for (final entry in categoryTotalRaw.entries) {
+        if (entry.key is String && entry.value is num) {
+          parsedCategoryTotal[entry.key as String] =
+              (entry.value as num).toInt();
+        }
+      }
+    }
 
     return _QuizActivityRecord(
       date: parsedDate,
       questionCount: questionRaw.toInt(),
       correctCount: (correctRaw is num) ? correctRaw.toInt() : 0,
       scorePercent: (scoreRaw is num) ? scoreRaw.toDouble() : 0,
+      categoryCorrect: parsedCategoryCorrect,
+      categoryTotal: parsedCategoryTotal,
     );
   }
 }
@@ -270,7 +325,46 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // STATE
   // =========================
   int currentScreen = 0; // 0=Home, 1=Daily, 2=Quiz, 3=History, 4=Settings
-  String eligibility = 'UPCAT Reviewer';
+  String eligibility = 'USTET Reviewer';
+  static const List<String> _ustetCourses = [
+    'Nursing',
+    'Engineering',
+    'Business',
+    'Arts',
+    'Science',
+  ];
+  static const Map<String, Map<String, int>> _courseTargets = {
+    'Nursing': {
+      'Mental Ability': 80,
+      'English': 85,
+      'Mathematics': 80,
+      'Science': 90,
+    },
+    'Engineering': {
+      'Mental Ability': 80,
+      'English': 80,
+      'Mathematics': 90,
+      'Science': 85,
+    },
+    'Business': {
+      'Mental Ability': 80,
+      'English': 85,
+      'Mathematics': 85,
+      'Science': 75,
+    },
+    'Arts': {
+      'Mental Ability': 85,
+      'English': 90,
+      'Mathematics': 72,
+      'Science': 72,
+    },
+    'Science': {
+      'Mental Ability': 80,
+      'English': 80,
+      'Mathematics': 85,
+      'Science': 90,
+    },
+  };
   bool hasAdFreeAccess = false;
   bool hasGraceAccess = false;
   DateTime? graceAccessEndDate;
@@ -288,11 +382,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool _dailyTaskHighScoreAchieved = false;
   int _dailyTaskFocusCompleted = 0;
   int _dailyTaskChallengeCompleted = 0;
+  int _dailyTaskTimedCompleted = 0;
   int _dailyTaskQuestionsAnswered = 0;
   String? _lastEightSessionRewardClaimDate;
   String? _lastHighScoreRewardClaimDate;
   String? _lastFocusRewardClaimDate;
   String? _lastChallengeRewardClaimDate;
+  String? _lastTimedExamRewardClaimDate;
   String? _lastThirtyAnswersRewardClaimDate;
 
   // Accumulated stats (never reset, shows lifetime totals)
@@ -318,13 +414,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   FirebaseDatabase get _rtdb => FirebaseDatabase.instanceFor(
         app: Firebase.app(),
         databaseURL:
-            'https://upcat-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
+            'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/',
       );
 
-  // UPCAT category scoring targets across 4 daily sessions.
+  // Category scoring targets across 4 daily sessions.
   Map<String, Map<String, dynamic>> categoryScores = {
-    'Language Proficiency': {'correct': 0, 'total': 8, 'weight': 0.20},
-    'Reading Comprehension': {'correct': 0, 'total': 20, 'weight': 0.30},
+    'Mental Ability': {'correct': 0, 'total': 8, 'weight': 0.20},
+    'English': {'correct': 0, 'total': 20, 'weight': 0.30},
     'Mathematics': {'correct': 0, 'total': 16, 'weight': 0.25},
     'Science': {'correct': 0, 'total': 16, 'weight': 0.25},
   };
@@ -356,6 +452,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Completer<void>? _randomQuizPrimeCompleter;
   bool _usedCachedRandomForLastGeneration = false;
   bool _isStartingGeneratedSession = false;
+  String _activeGenerationMode = 'randomQuiz';
   DateTime? _lastSessionConsumeAt;
   bool _isPrimingChallengeCache = false;
   Completer<void>? _challengePrimeCompleter;
@@ -363,8 +460,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   final SeedQuestionPoolService _seedPoolService = SeedQuestionPoolService();
   bool _seedPoolReady = false;
   bool _isRefillingSeedPool = false;
+  bool _poolWarmupChecked = false;
+  bool _poolWarmupComplete = false;
+  int _poolWarmupReadyBuckets = 0;
+  bool _showPoolWarmupIndicator = true;
+  static const String _poolWarmupIndicatorDismissedPrefsKey =
+      'poolWarmupIndicatorDismissed';
   final Map<String, List<Question>> _cachedFocusQuestions = {};
   final Map<String, String> _lastPickedKeyAreaByCategory = {};
+  final Map<String, List<String>> _recentKeyAreasByCategory = {};
+  static const int _recentKeyAreaWindow = 5;
   List<Question>? _cachedRandomQuizQuestions;
   Map<String, String>? _cachedRandomQuizCoverage;
   List<Question>? _cachedChallengeQuestions;
@@ -373,6 +478,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   static const String _challengeCachePrefsKey = 'cachedChallengeQuizPayload';
   // bool _hasChosenEligibility = false; // Removed - not currently used
   bool _showFirstTimeFlow = false;
+  bool _isCoursePickerOpen = false;
   String _nickname = '';
   bool _muteAllSounds = false;
   bool _notificationsEnabled = false;
@@ -391,29 +497,50 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }) {
     final topics = keyAreas[category];
     if (topics == null || topics.isEmpty) {
-      debugPrint('⚠️ No topics found for category: $category');
+      debugPrint('Warning: No topics found for category: $category');
       return 'General topics';
     }
 
     if (!avoidImmediateRepeat || topics.length <= 1) {
       final picked = topics[Random().nextInt(topics.length)];
       _lastPickedKeyAreaByCategory[category] = picked;
+      final history = _recentKeyAreasByCategory.putIfAbsent(
+        category,
+        () => <String>[],
+      );
+      history.add(picked);
+      while (history.length > _recentKeyAreaWindow) {
+        history.removeAt(0);
+      }
       return picked;
     }
 
     final lastPicked = _lastPickedKeyAreaByCategory[category];
-    final pool = topics.where((topic) => topic != lastPicked).toList();
+    final recent = _recentKeyAreasByCategory[category] ?? const <String>[];
+    final pool = topics
+        .where((topic) => topic != lastPicked && !recent.contains(topic))
+        .toList();
     final source = pool.isNotEmpty ? pool : topics;
     final picked = source[Random().nextInt(source.length)];
+
+    final history = _recentKeyAreasByCategory.putIfAbsent(
+      category,
+      () => <String>[],
+    );
+    history.add(picked);
+    while (history.length > _recentKeyAreaWindow) {
+      history.removeAt(0);
+    }
+
     _lastPickedKeyAreaByCategory[category] = picked;
     return picked;
   }
 
   int _dailyTargetTotalForCategory(String category) {
     switch (category) {
-      case 'Language Proficiency':
+      case 'Mental Ability':
         return 8;
-      case 'Reading Comprehension':
+      case 'English':
         return 20;
       case 'Mathematics':
       case 'Science':
@@ -425,9 +552,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   double _defaultWeightForCategory(String category) {
     switch (category) {
-      case 'Language Proficiency':
+      case 'Mental Ability':
         return 0.20;
-      case 'Reading Comprehension':
+      case 'English':
         return 0.30;
       case 'Mathematics':
       case 'Science':
@@ -499,6 +626,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _loadMenuInterstitialAd();
     _loadBannerAd();
     _initRealtimeStatusListeners();
+    _loadPoolWarmupIndicatorPref();
     _loadPersonalizationPrefs();
     _checkOnboarding();
 
@@ -535,8 +663,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     if (!_hasUnlockedAdvancedModes) return;
 
-    final weakestCategory = _getWeakestCategory();
-    if (weakestCategory.isNotEmpty) {
+    final focusCategory = _recommendedFocusCategory();
+    if (focusCategory.isNotEmpty) {
+      unawaited(_primeFocusCacheForCategory(focusCategory));
       unawaited(_primeFreeDeepSeekCaches());
     }
     unawaited(_primeChallengeCacheIfEligible());
@@ -549,9 +678,76 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       setState(() {
         _seedPoolReady = true;
       });
+      unawaited(_refreshPoolWarmupStatus());
       unawaited(_refillSeedPoolsIfNeeded());
     } catch (e) {
       debugPrint('Seed pool initialization skipped: $e');
+    }
+  }
+
+  Future<void> _loadPoolWarmupIndicatorPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final dismissed =
+          prefs.getBool(_poolWarmupIndicatorDismissedPrefsKey) ?? false;
+      if (!mounted) {
+        _showPoolWarmupIndicator = !dismissed;
+        return;
+      }
+      setState(() {
+        _showPoolWarmupIndicator = !dismissed;
+      });
+    } catch (e) {
+      debugPrint('Unable to load pool warmup indicator pref: $e');
+    }
+  }
+
+  Future<void> _dismissPoolWarmupIndicator() async {
+    setState(() {
+      _showPoolWarmupIndicator = false;
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_poolWarmupIndicatorDismissedPrefsKey, true);
+    } catch (e) {
+      debugPrint('Unable to persist pool warmup indicator pref: $e');
+    }
+  }
+
+  Future<void> _refreshPoolWarmupStatus() async {
+    if (!_seedPoolReady) return;
+
+    final categories = _categoriesForEligibility();
+    final totalBuckets = categories.length * 4; // random, focus, challenge, timed
+
+    try {
+      final deficits =
+          await _seedPoolService.getDeficits(threshold: 29, targetSize: 30);
+      final missingBuckets = deficits.values.where((value) => value > 0).length;
+      final readyBuckets = (totalBuckets - missingBuckets).clamp(0, totalBuckets);
+      final complete = missingBuckets == 0;
+
+      if (!mounted) {
+        _poolWarmupChecked = true;
+        _poolWarmupReadyBuckets = readyBuckets;
+        _poolWarmupComplete = complete;
+        return;
+      }
+
+      setState(() {
+        _poolWarmupChecked = true;
+        _poolWarmupReadyBuckets = readyBuckets;
+        _poolWarmupComplete = complete;
+      });
+    } catch (e) {
+      debugPrint('Unable to refresh pool warmup status: $e');
+      if (!mounted) {
+        _poolWarmupChecked = true;
+        return;
+      }
+      setState(() {
+        _poolWarmupChecked = true;
+      });
     }
   }
 
@@ -585,7 +781,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   // =========================
-  // APP LIFECYCLE — SYNC ON BACKGROUND
+  // APP LIFECYCLE â€” SYNC ON BACKGROUND
   // =========================
   /// Fires when user presses Home button (paused) or app is being killed (detached).
   /// We flush all progress to RTDB immediately so nothing is lost
@@ -595,7 +791,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      debugPrint('📱 App going to background ($state) — flushing data...');
+      debugPrint('App going to background ($state) - flushing data...');
       _syncAllProgressToRtdb();
     }
   }
@@ -696,7 +892,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final response = await http
           .get(
             Uri.parse(
-              'https://upcat-ios-default-rtdb.asia-southeast1.firebasedatabase.app/.json',
+              'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/.json',
             ),
           )
           .timeout(const Duration(seconds: 3));
@@ -748,6 +944,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             setState(() {
               showOnboarding = false;
             });
+            _promptCourseTargetIfNeeded();
           },
         ),
       );
@@ -758,16 +955,37 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _loadPersonalizationPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    final hasChosenEligibility =
+        prefs.getBool('has_chosen_eligibility') ?? false;
+    final savedEligibility = prefs.getString('selected_eligibility');
+    final normalizedEligibility = _normalizeSpecialization(savedEligibility);
+
     if (!mounted) return;
     setState(() {
       _nickname = _normalizeNickname(prefs.getString('user_nickname') ?? '');
       _muteAllSounds = prefs.getBool('mute_all_sounds') ?? false;
       _notificationsEnabled = prefs.getBool('notifications_enabled') ?? false;
+      eligibility = normalizedEligibility;
+      _showFirstTimeFlow = !hasChosenEligibility;
     });
     await SoundService().setMuted(_muteAllSounds);
     if (_notificationsEnabled) {
       await _syncNotificationSchedules();
     }
+    _promptCourseTargetIfNeeded();
+  }
+
+  void _promptCourseTargetIfNeeded() {
+    if (!_showFirstTimeFlow || showOnboarding || _isCoursePickerOpen || !mounted) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_showFirstTimeFlow || showOnboarding || _isCoursePickerOpen || !mounted) {
+        return;
+      }
+      _showSpecializationSelectionDialog();
+    });
   }
 
   Future<bool> _setNotificationsEnabled(bool enabled) async {
@@ -1418,6 +1636,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         return 'Focus Mode';
       case 'challenge':
         return 'Challenge Mode';
+      case 'timedExam':
+        return 'Timed Exam';
       case 'quickPractice':
         return 'Quick Practice';
       case 'reviewMistakes':
@@ -1593,11 +1813,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'dailyTaskHighScoreAchieved': _dailyTaskHighScoreAchieved,
         'dailyTaskFocusCompleted': _dailyTaskFocusCompleted,
         'dailyTaskChallengeCompleted': _dailyTaskChallengeCompleted,
+        'dailyTaskTimedCompleted': _dailyTaskTimedCompleted,
         'dailyTaskQuestionsAnswered': _dailyTaskQuestionsAnswered,
         'lastEightSessionRewardClaimDate': _lastEightSessionRewardClaimDate,
         'lastHighScoreRewardClaimDate': _lastHighScoreRewardClaimDate,
         'lastFocusRewardClaimDate': _lastFocusRewardClaimDate,
         'lastChallengeRewardClaimDate': _lastChallengeRewardClaimDate,
+        'lastTimedExamRewardClaimDate': _lastTimedExamRewardClaimDate,
         'lastThirtyAnswersRewardClaimDate': _lastThirtyAnswersRewardClaimDate,
         // Paused sessions so continue flow survives app data clear/reinstall
         'pausedQuizSessions':
@@ -1609,6 +1831,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   'q': record.questionCount,
                   'c': record.correctCount,
                   'p': record.scorePercent,
+                  'cc': record.categoryCorrect,
+                  'ct': record.categoryTotal,
                 })
             .toList(),
         // Daily reset tracking (prevents re-reset after app data clear)
@@ -1622,7 +1846,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           .set(progressData)
           .timeout(const Duration(seconds: 8));
 
-      debugPrint('✓ Synced all progress to RTDB (device)');
+      debugPrint('Synced all progress to RTDB (device)');
     } catch (e) {
       debugPrint('Could not sync progress to RTDB: $e');
     }
@@ -1818,6 +2042,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _dailyTaskChallengeCompleted,
         (data['dailyTaskChallengeCompleted'] as num?)?.toInt() ?? 0,
       );
+      _dailyTaskTimedCompleted = max(
+        _dailyTaskTimedCompleted,
+        (data['dailyTaskTimedCompleted'] as num?)?.toInt() ?? 0,
+      );
       _dailyTaskQuestionsAnswered = max(
         _dailyTaskQuestionsAnswered,
         (data['dailyTaskQuestionsAnswered'] as num?)?.toInt() ?? 0,
@@ -1841,6 +2069,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           data['lastChallengeRewardClaimDate'] as String?;
       if (remoteChallengeDate != null && remoteChallengeDate.isNotEmpty) {
         _lastChallengeRewardClaimDate = remoteChallengeDate;
+      }
+      final remoteTimedDate =
+          data['lastTimedExamRewardClaimDate'] as String?;
+      if (remoteTimedDate != null && remoteTimedDate.isNotEmpty) {
+        _lastTimedExamRewardClaimDate = remoteTimedDate;
       }
       final remoteThirtyDate =
           data['lastThirtyAnswersRewardClaimDate'] as String?;
@@ -1940,6 +2173,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       await prefs.setInt('dailyTaskFocusCompleted', _dailyTaskFocusCompleted);
       await prefs.setInt(
           'dailyTaskChallengeCompleted', _dailyTaskChallengeCompleted);
+        await prefs.setInt('dailyTaskTimedCompleted', _dailyTaskTimedCompleted);
       await prefs.setInt(
           'dailyTaskQuestionsAnswered', _dailyTaskQuestionsAnswered);
       if (_lastEightSessionRewardClaimDate != null) {
@@ -1965,6 +2199,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             'lastChallengeRewardClaimDate', _lastChallengeRewardClaimDate!);
       } else {
         await prefs.remove('lastChallengeRewardClaimDate');
+      }
+      if (_lastTimedExamRewardClaimDate != null) {
+        await prefs.setString('lastTimedExamRewardClaimDate',
+            _lastTimedExamRewardClaimDate!);
+      } else {
+        await prefs.remove('lastTimedExamRewardClaimDate');
       }
       if (_lastThirtyAnswersRewardClaimDate != null) {
         await prefs.setString('lastThirtyAnswersRewardClaimDate',
@@ -1998,7 +2238,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             DateTime(now.year, now.month, now.day).toIso8601String());
       }
 
-      debugPrint('✓ Restored all progress from RTDB');
+      debugPrint('Restored all progress from RTDB');
       await _processExtraSessionAdRefill(forcePersist: false);
       _ensureExtraSessionRefillTicker();
     } catch (e) {
@@ -2065,7 +2305,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 'lastFreeTestResetDate', today.toIso8601String());
           }
 
-          debugPrint('✓ Loaded free tests from Realtime DB');
+          debugPrint('Loaded free tests from Realtime DB');
         } else {
           // First time - initialize in Realtime DB
           await _initializeRealtimeDbFreeTests();
@@ -2101,7 +2341,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => remainingFreeTests = 4);
 
-      debugPrint('✓ Initialized free tests in Realtime DB');
+      debugPrint('Initialized free tests in Realtime DB');
     } catch (e) {
       debugPrint('Error initializing Realtime DB: $e');
     }
@@ -2171,7 +2411,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'lastResetDate': lastResetDate,
       });
 
-      debugPrint('✓ Synced free tests to Realtime DB');
+      debugPrint('Synced free tests to Realtime DB');
     } catch (e) {
       debugPrint('Could not sync to Realtime DB: $e');
       // This is OK - local is backed up
@@ -2191,8 +2431,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       // Default weights (must match initial state)
       const defaultWeights = {
-        'Language Proficiency': 0.20,
-        'Reading Comprehension': 0.30,
+        'Mental Ability': 0.20,
+        'English': 0.30,
         'Mathematics': 0.25,
         'Science': 0.25,
       };
@@ -2232,7 +2472,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         }
       });
 
-      debugPrint('✓ Loaded category scores from local storage (merged)');
+      debugPrint('Loaded category scores from local storage (merged)');
     } catch (e) {
       debugPrint('Error loading category scores: $e');
     }
@@ -2260,7 +2500,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           DateTime.now().year, DateTime.now().month, DateTime.now().day);
 
       if (lastSessionDateStr == null) {
-        // First time — only set date, don't reset completedSessions
+        // First time â€” only set date, don't reset completedSessions
         // (may already be restored from RTDB/Firestore)
         await prefs.setString('lastSessionDate', today.toIso8601String());
         return;
@@ -2459,6 +2699,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _dailyTaskChallengeCompleted >= 1 &&
       _lastChallengeRewardClaimDate != _getTodayDateString();
 
+    bool get _canClaimTimedExamRewardToday =>
+      _dailyTaskTimedCompleted >= 1 &&
+      _lastTimedExamRewardClaimDate != _getTodayDateString();
+
   bool get _canClaimThirtyAnswersRewardToday =>
       _dailyTaskQuestionsAnswered >= 30 &&
       _lastThirtyAnswersRewardClaimDate != _getTodayDateString();
@@ -2470,6 +2714,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (_canClaimEightSessionRewardToday) count++;
     if (_canClaimFocusRewardToday) count++;
     if (_canClaimChallengeRewardToday) count++;
+    if (_canClaimTimedExamRewardToday) count++;
     if (_canClaimThirtyAnswersRewardToday) count++;
     if (_canClaimHighScoreRewardToday) count++;
     return count;
@@ -2486,11 +2731,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       await prefs.setBool('dailyTaskHighScoreAchieved', false);
       await prefs.setInt('dailyTaskFocusCompleted', 0);
       await prefs.setInt('dailyTaskChallengeCompleted', 0);
+      await prefs.setInt('dailyTaskTimedCompleted', 0);
       await prefs.setInt('dailyTaskQuestionsAnswered', 0);
       await prefs.remove('lastEightSessionRewardClaimDate');
       await prefs.remove('lastHighScoreRewardClaimDate');
       await prefs.remove('lastFocusRewardClaimDate');
       await prefs.remove('lastChallengeRewardClaimDate');
+      await prefs.remove('lastTimedExamRewardClaimDate');
       await prefs.remove('lastThirtyAnswersRewardClaimDate');
       if (!mounted) return;
       setState(() {
@@ -2498,11 +2745,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _dailyTaskHighScoreAchieved = false;
         _dailyTaskFocusCompleted = 0;
         _dailyTaskChallengeCompleted = 0;
+        _dailyTaskTimedCompleted = 0;
         _dailyTaskQuestionsAnswered = 0;
         _lastEightSessionRewardClaimDate = null;
         _lastHighScoreRewardClaimDate = null;
         _lastFocusRewardClaimDate = null;
         _lastChallengeRewardClaimDate = null;
+        _lastTimedExamRewardClaimDate = null;
         _lastThirtyAnswersRewardClaimDate = null;
       });
       return;
@@ -2517,6 +2766,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _dailyTaskFocusCompleted = prefs.getInt('dailyTaskFocusCompleted') ?? 0;
       _dailyTaskChallengeCompleted =
           prefs.getInt('dailyTaskChallengeCompleted') ?? 0;
+        _dailyTaskTimedCompleted = prefs.getInt('dailyTaskTimedCompleted') ?? 0;
       _dailyTaskQuestionsAnswered =
           prefs.getInt('dailyTaskQuestionsAnswered') ?? 0;
       _lastEightSessionRewardClaimDate =
@@ -2526,6 +2776,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _lastFocusRewardClaimDate = prefs.getString('lastFocusRewardClaimDate');
       _lastChallengeRewardClaimDate =
           prefs.getString('lastChallengeRewardClaimDate');
+        _lastTimedExamRewardClaimDate =
+          prefs.getString('lastTimedExamRewardClaimDate');
       _lastThirtyAnswersRewardClaimDate =
           prefs.getString('lastThirtyAnswersRewardClaimDate');
     });
@@ -2541,6 +2793,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     await prefs.setInt('dailyTaskFocusCompleted', _dailyTaskFocusCompleted);
     await prefs.setInt(
         'dailyTaskChallengeCompleted', _dailyTaskChallengeCompleted);
+    await prefs.setInt('dailyTaskTimedCompleted', _dailyTaskTimedCompleted);
     await prefs.setInt(
         'dailyTaskQuestionsAnswered', _dailyTaskQuestionsAnswered);
     if (_lastEightSessionRewardClaimDate == null) {
@@ -2566,6 +2819,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     } else {
       await prefs.setString(
           'lastChallengeRewardClaimDate', _lastChallengeRewardClaimDate!);
+    }
+    if (_lastTimedExamRewardClaimDate == null) {
+      await prefs.remove('lastTimedExamRewardClaimDate');
+    } else {
+      await prefs.setString(
+          'lastTimedExamRewardClaimDate', _lastTimedExamRewardClaimDate!);
     }
     if (_lastThirtyAnswersRewardClaimDate == null) {
       await prefs.remove('lastThirtyAnswersRewardClaimDate');
@@ -2656,6 +2915,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     await _syncAllProgressToRtdb();
   }
 
+  Future<void> _claimTimedExamTaskReward() async {
+    if (!_canClaimTimedExamRewardToday) return;
+    if (!_requireOnlineForProgressAction('claim your timed-exam reward')) {
+      return;
+    }
+
+    final todayKey = _getTodayDateString();
+    setState(() {
+      remainingFreeTests++;
+      _lastTimedExamRewardClaimDate = todayKey;
+    });
+
+    await _persistDailyFreeTests();
+    await _persistDailyTaskRewardState();
+    await _syncAllProgressToRtdb();
+  }
+
   Future<void> _claimThirtyAnswersTaskReward() async {
     if (!_canClaimThirtyAnswersRewardToday) return;
     if (!_requireOnlineForProgressAction('claim your answer-count reward')) {
@@ -2690,60 +2966,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _handleSpecializationSelection(String value) async {
-    String resolved = value;
-    if (value == 'Elementary Majors') {
-      final picked = await showDialog<String>(
-        context: context,
-        barrierColor: Colors.black87,
-        builder: (_) => AlertDialog(
-          title: Text(
-            'Choose Elementary Track',
-            style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
-          ),
-          content: Text(
-            'Select which Elementary Majors sub-category to focus on.',
-            style: GoogleFonts.outfit(),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(
-                context,
-                'Elementary Majors - Early Childhood Education',
-              ),
-              child: const Text('Early Childhood Education'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(
-                context,
-                'Elementary Majors - Special Needs Education',
-              ),
-              child: const Text('Special Needs Education'),
-            ),
-          ],
-        ),
-      );
-
-      if (picked == null) return;
-      resolved = picked;
-    }
-
-    await _saveEligibilityPreference(resolved);
+    await _saveEligibilityPreference(value);
   }
 
   String _normalizeSpecialization(String? value) {
-    if (value == null || value.isEmpty) return 'English Major';
-    if (value == 'Professional Eligibility' ||
-        value == 'Sub-Professional Eligibility') {
-      return 'English Major';
-    }
-
-    const elementaryTracks = {
-      'Elementary Majors - Early Childhood Education',
-      'Elementary Majors - Special Needs Education',
-    };
-    if (elementaryTracks.contains(value)) return value;
-    if (getAllSpecializations().contains(value)) return value;
-    return 'English Major';
+    if (value == null || value.isEmpty) return 'Nursing';
+    if (_ustetCourses.contains(value)) return value;
+    return 'Nursing';
   }
 
   // =========================
@@ -2872,7 +3101,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
     }
 
-    // New day — reset category scores
+    // New day â€” reset category scores
     if (mounted) {
       setState(() {
         for (final key in categoryScores.keys) {
@@ -2886,11 +3115,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _dailyTaskHighScoreAchieved = false;
         _dailyTaskFocusCompleted = 0;
         _dailyTaskChallengeCompleted = 0;
+        _dailyTaskTimedCompleted = 0;
         _dailyTaskQuestionsAnswered = 0;
         _lastEightSessionRewardClaimDate = null;
         _lastHighScoreRewardClaimDate = null;
         _lastFocusRewardClaimDate = null;
         _lastChallengeRewardClaimDate = null;
+        _lastTimedExamRewardClaimDate = null;
         _lastThirtyAnswersRewardClaimDate = null;
         _pausedQuizSessions.clear();
       });
@@ -2903,11 +3134,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     await prefs.setBool('dailyTaskHighScoreAchieved', false);
     await prefs.setInt('dailyTaskFocusCompleted', 0);
     await prefs.setInt('dailyTaskChallengeCompleted', 0);
+    await prefs.setInt('dailyTaskTimedCompleted', 0);
     await prefs.setInt('dailyTaskQuestionsAnswered', 0);
     await prefs.remove('lastEightSessionRewardClaimDate');
     await prefs.remove('lastHighScoreRewardClaimDate');
     await prefs.remove('lastFocusRewardClaimDate');
     await prefs.remove('lastChallengeRewardClaimDate');
+    await prefs.remove('lastTimedExamRewardClaimDate');
     await prefs.remove('lastThirtyAnswersRewardClaimDate');
     await prefs.remove(_pausedQuizSessionPrefsKey);
   }
@@ -2960,7 +3193,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✓ You earned 1 extra quiz! Keep it up! 🎯'),
+            content: Text('You earned 1 extra quiz! Keep it up!'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -3094,8 +3327,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _categoryForQuestionNumber(int number) {
-    if (number >= 1 && number <= 2) return 'Language Proficiency';
-    if (number >= 3 && number <= 7) return 'Reading Comprehension';
+    if (number >= 1 && number <= 2) return 'Mental Ability';
+    if (number >= 3 && number <= 7) return 'English';
     if (number >= 8 && number <= 11) return 'Mathematics';
     return 'Science';
   }
@@ -3451,13 +3684,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     // Use state variables if not passed as parameters
     final useFocusMode = isFocusMode || _isFocusMode;
     final category = focusCategory ?? _focusCategory;
+    final useTimedMode =
+      !useFocusMode && _activeGenerationMode == 'timedExam';
 
     final prompt = useFocusMode && category != null
-        ? _buildFocusPrompt(category)
-        : _buildPrompt();
+      ? _buildFocusPrompt(category)
+      : (useTimedMode ? _buildTimedModePrompt() : _buildPrompt());
     final deepSeekPrompt = useFocusMode && category != null
-        ? _buildFastFocusPrompt(category)
-        : _buildFastPrompt();
+      ? _buildFastFocusPrompt(category)
+      : (useTimedMode ? _buildFastTimedModePrompt() : _buildFastPrompt());
 
     // Build category map for Focus Mode if applicable
     Map<int, String>? categoryMap;
@@ -3466,11 +3701,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (useFocusMode && category != null) {
+      await _ensureSeedPoolBucketsForRequest(
+        mode: 'focusMode',
+        categoryMap: categoryMap!,
+      );
       final seededQuestions = await _takeSeedQuestions(
         'focusMode',
-        categoryMap!,
+        categoryMap,
       );
       if (seededQuestions.length >= 15) {
+        debugPrint('[SeedPool] Focus mode served from pool ($category).');
         _generatedQuestions = seededQuestions.take(15).toList();
         _generatedQuestions =
             _generatedQuestions.map((q) => q.shuffled()).toList();
@@ -3479,11 +3719,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         return true;
       }
     } else {
+      final seedMode =
+          _activeGenerationMode == 'timedExam' ? 'timedExam' : 'randomQuiz';
+      final randomLikeMap = _buildRandomCategoryMap();
+      await _ensureSeedPoolBucketsForRequest(
+        mode: seedMode,
+        categoryMap: randomLikeMap,
+      );
       final seededQuestions = await _takeSeedQuestions(
-        'randomQuiz',
-        _buildRandomCategoryMap(),
+        seedMode,
+        randomLikeMap,
       );
       if (seededQuestions.length >= 15) {
+        debugPrint('[SeedPool] $seedMode served from pool.');
         _generatedQuestions = seededQuestions.take(15).toList();
         _generatedQuestions =
             _generatedQuestions.map((q) => q.shuffled()).toList();
@@ -3494,6 +3742,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (useGemini) {
+      debugPrint('[SeedPool] Falling back to live generation (Gemini-first flow).');
       if (GEMINI_API_KEY.trim().isEmpty) {
         return false;
       }
@@ -3517,6 +3766,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         );
       }
     } else {
+      debugPrint('[SeedPool] Falling back to live generation (DeepSeek flow).');
       if (DEEPSEEK_API_KEY.trim().isEmpty) {
         return false;
       }
@@ -3669,6 +3919,69 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return questions;
   }
 
+  Future<void> _ensureSeedPoolBucketsForRequest({
+    required String mode,
+    required Map<int, String> categoryMap,
+  }) async {
+    if (!_seedPoolReady || categoryMap.isEmpty || _isRefillingSeedPool) {
+      return;
+    }
+    if (GEMINI_API_KEY.trim().isEmpty && DEEPSEEK_API_KEY.trim().isEmpty) {
+      return;
+    }
+
+    final targetCategories = categoryMap.values.toSet();
+
+    _isRefillingSeedPool = true;
+    try {
+      final deficits =
+          await _seedPoolService.getDeficits(threshold: 20, targetSize: 30);
+
+      final modePrefix = '$mode::';
+      for (final entry in deficits.entries) {
+        if (!entry.key.startsWith(modePrefix) || entry.value <= 0) {
+          continue;
+        }
+
+        final category = entry.key.substring(modePrefix.length);
+        if (!targetCategories.contains(category)) {
+          continue;
+        }
+
+        int remaining = entry.value;
+        final generated = <Question>[];
+
+        while (remaining > 0) {
+          final batchSize = remaining > 8 ? 8 : remaining;
+          final batch = await _generateSeedRefillBatch(
+            mode: mode,
+            category: category,
+            count: batchSize,
+          );
+          if (batch.isEmpty) {
+            break;
+          }
+          generated.addAll(batch);
+          remaining -= batch.length;
+        }
+
+        if (generated.isNotEmpty) {
+          await _seedPoolService.addQuestions(
+            mode,
+            category,
+            generated,
+            targetSize: 30,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Targeted seed refill skipped: $e');
+    } finally {
+      _isRefillingSeedPool = false;
+      unawaited(_refreshPoolWarmupStatus());
+    }
+  }
+
   Future<void> _refillSeedPoolsIfNeeded() async {
     if (!_seedPoolReady || _isRefillingSeedPool) return;
     if (GEMINI_API_KEY.trim().isEmpty && DEEPSEEK_API_KEY.trim().isEmpty) {
@@ -3716,6 +4029,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       debugPrint('Seed pool refill skipped: $e');
     } finally {
       _isRefillingSeedPool = false;
+      unawaited(_refreshPoolWarmupStatus());
     }
   }
 
@@ -3776,12 +4090,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'Focus mode style: precise and targeted in one category, medium-to-hard difficulty.',
       'challenge' =>
         'Challenge style: hard but fair, analytical reasoning required, no trick wording.',
+      'timedExam' =>
+        'Timed exam style: concise stems, time-pressure friendly phrasing, medium-to-hard reasoning.',
       _ =>
         'Random quiz style: mixed difficulty with clear wording and strong fundamentals.',
     };
 
     return '''
-Generate exactly $count multiple-choice questions for UPCAT practice.
+Generate exactly $count multiple-choice questions for USTET practice.
 
 Category: $category
 $modeInstruction
@@ -3960,8 +4276,9 @@ Constraints:
     await _clearPausedQuizSession(session.testMode);
 
     if (result is Map<String, dynamic>) {
+      final nextAction = result['nextAction'];
       _updateTestResults(result);
-      if (result['nextAction'] == 'menu') {
+      if (nextAction == 'menu') {
         setState(() {
           currentScreen = 2;
         });
@@ -4460,11 +4777,17 @@ Constraints:
       final categories = _categoriesForEligibility();
       if (categories.isNotEmpty) {
         final focusCategory = categories[Random().nextInt(categories.length)];
+        final challengeMap = _buildChallengeCategoryMap(focusCategory);
+        await _ensureSeedPoolBucketsForRequest(
+          mode: 'challenge',
+          categoryMap: challengeMap,
+        );
         final seededQuestions = await _takeSeedQuestions(
           'challenge',
-          _buildChallengeCategoryMap(focusCategory),
+          challengeMap,
         );
         if (seededQuestions.length >= 10 && mounted) {
+          debugPrint('[SeedPool] challenge served from pool.');
           setState(() {
             _cachedChallengeQuestions = seededQuestions.take(10).toList();
           });
@@ -4511,6 +4834,7 @@ Constraints:
     }
 
     // Show simple loading dialog
+    debugPrint('[SeedPool] challenge falling back to live generation.');
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -4671,6 +4995,546 @@ Constraints:
     return pnleCategories;
   }
 
+  Map<String, int> _activeCourseTargets() {
+    return _courseTargets[eligibility] ?? _courseTargets['Nursing']!;
+  }
+
+  double _categoryPercent(String category) {
+    final data = categoryScores[category];
+    if (data == null) return 0;
+    final correct = (data['correct'] as num?)?.toInt() ?? 0;
+    final total = (data['total'] as num?)?.toInt() ?? 0;
+    if (total <= 0) return 0;
+    return (correct / total) * 100;
+  }
+
+  int _targetForCategory(String category) {
+    return _activeCourseTargets()[category] ?? 80;
+  }
+
+  bool _meetsCourseTarget(String category) {
+    return _categoryPercent(category) >= _targetForCategory(category);
+  }
+
+  String _readinessLabel() {
+    final categories = _categoriesForEligibility();
+    final met = categories.where(_meetsCourseTarget).length;
+    if (met == categories.length) return 'Ready';
+    return 'Not Ready';
+  }
+
+  Color _readinessColor() {
+    switch (_readinessLabel()) {
+      case 'Ready':
+        return const Color(0xFF34D399);
+      case 'Almost Ready':
+        return Colors.amber;
+      default:
+        return const Color(0xFFFF6B6B);
+    }
+  }
+
+  String _readinessPrimaryFeedback() {
+    final categories = _categoriesForEligibility();
+    String? priorityCategory;
+    double priorityScore = -1;
+    int priorityTarget = -1;
+    double priorityPercent = 0;
+
+    for (final category in categories) {
+      final score = _categoryPercent(category);
+      final target = _targetForCategory(category);
+      final deficit = (target - score).clamp(0.0, 100.0);
+      if (deficit <= 0) {
+        continue;
+      }
+
+      final deficitRatio = target > 0 ? (deficit / target) : 0.0;
+      final scoreKey = (deficitRatio * 1000) + target;
+      if (scoreKey > priorityScore) {
+        priorityScore = scoreKey;
+        priorityCategory = category;
+        priorityTarget = target;
+        priorityPercent = score;
+      }
+    }
+
+    if (priorityCategory != null) {
+      final gap = (priorityTarget - priorityPercent).clamp(0, 100).toStringAsFixed(1);
+      return 'Priority insight for $eligibility: $priorityCategory target is $priorityTarget%. You are at ${priorityPercent.toStringAsFixed(1)}% (gap: $gap%).';
+    }
+
+    final avgTarget = categories.isEmpty
+        ? 0.0
+        : categories
+                .map((category) => _targetForCategory(category))
+                .reduce((a, b) => a + b) /
+            categories.length;
+    return 'All $eligibility targets are currently met (avg target ${avgTarget.toStringAsFixed(1)}%). Keep practicing under time pressure to stay ready.';
+  }
+
+  String _recommendedFocusCategory() {
+    final categories = _categoriesForEligibility();
+    if (categories.isEmpty) return '';
+
+    final allTargetsMet = categories.every(_meetsCourseTarget);
+
+    if (!allTargetsMet) {
+      String bestCategory = categories.first;
+      double bestScore = -1;
+
+      for (final category in categories) {
+        final target = _targetForCategory(category).toDouble();
+        final percent = _categoryPercent(category);
+        final deficit = (target - percent).clamp(0.0, 100.0);
+        final normalizedGap = target > 0 ? (deficit / target) : 0.0;
+        final score = (normalizedGap * 1000) + target;
+        if (score > bestScore) {
+          bestScore = score;
+          bestCategory = category;
+        }
+      }
+      return bestCategory;
+    }
+
+    // After meeting all course minimums, use recent user assessments.
+    final recentRecords = _quizActivityRecords.take(12).toList();
+    String weakestCategory = categories.first;
+    double lowestPercent = 101;
+
+    for (final category in categories) {
+      int correct = 0;
+      int total = 0;
+      for (final record in recentRecords) {
+        correct += record.categoryCorrect[category] ?? 0;
+        total += record.categoryTotal[category] ?? 0;
+      }
+
+      final percent = total > 0
+          ? (correct / total) * 100
+          : _categoryPercent(category);
+
+      if (percent < lowestPercent) {
+        lowestPercent = percent;
+        weakestCategory = category;
+      }
+    }
+
+    return weakestCategory;
+  }
+
+  Map<String, dynamic> _estimatedCompetitivenessBand() {
+    final categories = _categoriesForEligibility();
+    final metCount = categories.where(_meetsCourseTarget).length;
+    final metRatio = categories.isEmpty ? 0.0 : metCount / categories.length;
+    final weighted = _calculateTotalAverage().clamp(0.0, 100.0);
+
+    // Composite score blends weighted performance and target-threshold compliance.
+    final estimateScore = (weighted * 0.75) + ((metRatio * 100) * 0.25);
+
+    if (estimateScore >= 88) {
+      return {
+        'label': 'Top 10% readiness',
+        'tier': 'Highly Competitive',
+        'color': const Color(0xFF34D399),
+      };
+    }
+    if (estimateScore >= 80) {
+      return {
+        'label': 'Top 20% readiness',
+        'tier': 'Competitive',
+        'color': const Color(0xFF7DD3FC),
+      };
+    }
+    if (estimateScore >= 72) {
+      return {
+        'label': 'Top 30% readiness',
+        'tier': 'Above Average',
+        'color': const Color(0xFFFACC15),
+      };
+    }
+    if (estimateScore >= 64) {
+      return {
+        'label': 'Top 45% readiness',
+        'tier': 'Developing',
+        'color': const Color(0xFFFFC857),
+      };
+    }
+
+    return {
+      'label': 'Top 60% readiness',
+      'tier': 'Needs Improvement',
+      'color': const Color(0xFFFF6B6B),
+    };
+  }
+
+  String _smartFeedbackSummary() {
+    final categories = _categoriesForEligibility();
+    final strong = <String>[];
+    final weak = <String>[];
+
+    for (final category in categories) {
+      final score = _categoryPercent(category);
+      final target = _targetForCategory(category);
+      if (score >= target + 3) {
+        strong.add(category);
+      } else if (score < target) {
+        weak.add(category);
+      }
+    }
+
+    if (strong.isEmpty && weak.isEmpty) {
+      return 'You are currently close to the target profile for $eligibility. Focus on consistency and speed under time pressure.';
+    }
+    if (weak.isEmpty) {
+      return 'You are strong in ${strong.join(', ')} for $eligibility. Keep speed stable to protect your score under pressure.';
+    }
+    if (strong.isEmpty) {
+      return 'Your key gap for $eligibility is in ${weak.join(', ')}. Prioritize these areas in Focus Mode this week.';
+    }
+
+    return 'You are strong in ${strong.join(', ')}, but below target in ${weak.join(', ')} for $eligibility.';
+  }
+
+  String _microTipForCategory(String category) {
+    switch (category) {
+      case 'Mathematics':
+        return 'Tip: In percent problems, convert percent to decimal before multi-step operations.';
+      case 'Science':
+        return 'Tip: Eliminate options that violate core concepts first, then compare the remaining two.';
+      case 'English':
+        return 'Tip: For reading items, answer from evidence in the passage, not assumptions.';
+      case 'Mental Ability':
+      default:
+        return 'Tip: If a pattern is unclear in 10 seconds, skip and return after easier items.';
+    }
+  }
+
+  Map<String, dynamic> _sessionInsights(Map<String, dynamic> results) {
+    final correctRaw = results['correctCount'];
+    final totalRaw = results['totalCount'];
+    final elapsedRaw = results['elapsedSeconds'];
+    final mistakesRaw = results['mistakes'];
+
+    int sessionTotal = 0;
+    int sessionCorrect = 0;
+
+    if (totalRaw is Map) {
+      sessionTotal = totalRaw.values
+          .whereType<num>()
+          .fold<int>(0, (sum, value) => sum + value.toInt());
+    }
+    if (correctRaw is Map) {
+      sessionCorrect = correctRaw.values
+          .whereType<num>()
+          .fold<int>(0, (sum, value) => sum + value.toInt());
+    }
+
+    final elapsed = (elapsedRaw is num ? elapsedRaw.toInt() : 0).clamp(1, 7200);
+    final sessionAccuracy = sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
+    final secondsPerQuestion = sessionTotal > 0 ? elapsed / sessionTotal : 0.0;
+    final questionsPerMinute = elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
+
+    int timedOutCount = 0;
+    if (mistakesRaw is List) {
+      for (final item in mistakesRaw) {
+        if (item is Map && item['timedOut'] == true) {
+          timedOutCount++;
+        }
+      }
+    }
+
+    final speedLabel = secondsPerQuestion > 50
+        ? 'Too slow'
+        : (secondsPerQuestion < 25 ? 'Too fast' : 'Balanced');
+
+    final focusLabel = timedOutCount >= 3
+        ? 'Low focus'
+        : (timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
+
+    final behaviorMessage = secondsPerQuestion > 50
+        ? 'You spent too long on several items. In USTET, this can cost multiple answer opportunities.'
+        : (secondsPerQuestion < 25 && sessionAccuracy < 70
+            ? 'You moved very fast but accuracy dropped. Slow down slightly on hard items.'
+            : 'Your pacing is close to exam pace. Maintain skip-and-return discipline.');
+
+    return {
+      'sessionTotal': sessionTotal,
+      'sessionAccuracy': sessionAccuracy,
+      'secondsPerQuestion': secondsPerQuestion,
+      'questionsPerMinute': questionsPerMinute,
+      'timedOutCount': timedOutCount,
+      'speedLabel': speedLabel,
+      'focusLabel': focusLabel,
+      'behaviorMessage': behaviorMessage,
+    };
+  }
+
+  Widget _buildCourseReadinessCard() {
+    final categories = _categoriesForEligibility();
+    final totalAvg = _calculateTotalAverage();
+    final readiness = _readinessLabel();
+    final readinessColor = _readinessColor();
+    final competitiveness = _estimatedCompetitivenessBand();
+    final competitivenessColor = competitiveness['color'] as Color;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            readinessColor.withValues(alpha: 0.25),
+            readinessColor.withValues(alpha: 0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: readinessColor.withValues(alpha: 0.55)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.school_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'Course Target',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const Spacer(),
+              InkWell(
+                onTap: _showSpecializationSelectionDialog,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.edit_rounded,
+                    color: Colors.white.withValues(alpha: 0.9),
+                    size: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.11),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+            ),
+            child: Text(
+              eligibility.toUpperCase(),
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.flag_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'Readiness',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: readinessColor.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              readiness.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.score_rounded,
+                  color: totalAvg >= 65
+                      ? const Color(0xFF34D399)
+                      : (totalAvg >= 50
+                          ? const Color(0xFFFFD166)
+                          : const Color(0xFFFF8A80)),
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Overall Average',
+                  style: GoogleFonts.outfit(
+                    color: Colors.white.withValues(alpha: 0.86),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${totalAvg.toStringAsFixed(1)}%',
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Category Snapshot',
+            style: GoogleFonts.outfit(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...categories.map(_buildReadinessMiniCategory),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: competitivenessColor.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: competitivenessColor.withValues(alpha: 0.48),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.leaderboard_rounded,
+                  color: competitivenessColor,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${competitiveness['label']} • ${competitiveness['tier']}',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _readinessPrimaryFeedback(),
+            style: GoogleFonts.outfit(
+              color: Colors.white.withValues(alpha: 0.86),
+              fontSize: 12,
+              height: 1.25,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Scores and competitiveness bands are estimates based on in-app trends and not official UST criteria.',
+            style: GoogleFonts.outfit(
+              color: Colors.white.withValues(alpha: 0.64),
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadinessMiniCategory(String category) {
+    final data = categoryScores[category]!;
+    final correct = data['correct'] as int;
+    final total = data['total'] as int;
+    final percent = total > 0 ? (correct / total) * 100 : 0.0;
+    final target = _targetForCategory(category);
+    final meetsTarget = percent >= target;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  category,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                '${percent.toStringAsFixed(0)}% / $target%',
+                style: GoogleFonts.outfit(
+                  color: meetsTarget
+                      ? const Color(0xFF34D399)
+                      : const Color(0xFFFFD166),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: (percent / 100).clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: Colors.white.withValues(alpha: 0.15),
+              color: meetsTarget
+                  ? const Color(0xFF34D399)
+                  : const Color(0xFFFFC857),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _getWeakestCategory() {
     final categories = _categoriesForEligibility();
     String weakest = '';
@@ -4698,80 +5562,6 @@ Constraints:
     return weakest;
   }
 
-  Widget _buildCircularProgressCard(double totalAvg) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          colors: [
-            Colors.white.withValues(alpha: 0.11),
-            Colors.white.withValues(alpha: 0.05),
-          ],
-        ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: 156,
-                height: 156,
-                child: CircularProgressIndicator(
-                  value: (totalAvg / 100).clamp(0.0, 1.0),
-                  strokeWidth: 9,
-                  backgroundColor: Colors.white.withValues(alpha: 0.1),
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    totalAvg >= 65
-                        ? PnleTheme.success
-                        : totalAvg >= 50
-                            ? PnleTheme.warning
-                            : PnleTheme.danger,
-                  ),
-                ),
-              ),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '${totalAvg.toStringAsFixed(1)}%',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 36,
-                    ),
-                  ),
-                  Text(
-                    'Overall Average',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            totalAvg >= 65
-                ? 'Excellent progress. Keep the momentum.'
-                : totalAvg >= 50
-                    ? 'Steady progress. Keep practicing to reach 65%.'
-                    : 'More practice needed. Stay consistent each day.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.outfit(
-              color: Colors.white.withValues(alpha: 0.85),
-              fontSize: 13,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // _buildQuickStats removed - no longer used in UI
 
   // _buildStatItem removed - was only called by removed _buildQuickStats method
@@ -4790,9 +5580,9 @@ Constraints:
   String _getGreetingWithName() {
     final name = _nickname.trim();
     if (name.isEmpty) {
-      return '${_getGreeting()} there! 👋';
+      return '${_getGreeting()} there!';
     }
-    return '${_getGreeting()} $name! 👋';
+    return '${_getGreeting()} $name!';
   }
 
   String _getDailyMotivationalQuote() {
@@ -4814,16 +5604,37 @@ Constraints:
   // GENERATION DIALOG
   // =========================
 
-  void _showGenerationDialog({String? modeLabel}) {
+  Future<void> _startTimedExamMode() async {
+    _isFocusMode = false;
+    _focusCategory = null;
+    _currentTestCoverage = _generateTestCoverage();
+    _showGenerationDialog(
+      modeLabel: 'TIMED EXAM',
+      launchTestMode: 'timedExam',
+      sourceMode: 'timedExam',
+    );
+  }
+
+  void _showGenerationDialog({
+    String? modeLabel,
+    String launchTestMode = 'randomQuiz',
+    String? sourceMode,
+  }) {
     final bool activeIsFocusMode = _isFocusMode;
     final String? activeFocusCategory = _focusCategory;
     final Map<String, String>? activeCoverage = _currentTestCoverage == null
         ? null
         : Map<String, String>.from(_currentTestCoverage!);
 
+    final effectiveTestMode = activeIsFocusMode ? 'focusMode' : launchTestMode;
+    final effectiveSourceMode =
+        activeIsFocusMode ? 'focusMode' : (sourceMode ?? launchTestMode);
+
+    _activeGenerationMode = effectiveTestMode;
+
     final effectiveModeLabel = modeLabel ??
         (activeIsFocusMode
-            ? 'FOCUS MODE${activeFocusCategory != null ? ' • $activeFocusCategory' : ''}'
+        ? 'FOCUS MODE${activeFocusCategory != null ? ' • $activeFocusCategory' : ''}'
             : 'RANDOM QUIZ');
 
     _isStartingGeneratedSession = false;
@@ -4890,7 +5701,7 @@ Constraints:
               _addSavedSession(
                 _generatedQuestions,
                 activeCoverage,
-                sourceMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
+                sourceMode: effectiveSourceMode,
               );
               if (activeIsFocusMode && activeFocusCategory != null) {
                 unawaited(_primeFocusCacheForCategory(activeFocusCategory,
@@ -4910,7 +5721,7 @@ Constraints:
                       questions: questions,
                       hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
                       recordResults: true,
-                      testMode: activeIsFocusMode ? 'focusMode' : 'randomQuiz',
+                      testMode: effectiveTestMode,
                       zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
                     ),
                   ),
@@ -4921,9 +5732,13 @@ Constraints:
                     return;
                   }
 
-                  _updateTestResults(results);
                   final nextAction = results['nextAction'];
+                  _updateTestResults(results);
                   if (nextAction == 'playAgain') {
+                    if (effectiveTestMode == 'timedExam') {
+                      _startTimedExamMode();
+                      return;
+                    }
                     final replayCoverage = !activeIsFocusMode &&
                             _cachedRandomQuizCoverage != null
                         ? Map<String, String>.from(_cachedRandomQuizCoverage!)
@@ -4943,6 +5758,10 @@ Constraints:
                 }
                 // Handle different return values
                 else if (results == 'playAgain' && mounted) {
+                  if (effectiveTestMode == 'timedExam') {
+                    _startTimedExamMode();
+                    return;
+                  }
                   // User clicked Play Again - show Test Coverage dialog again for new test
                   final replayCoverage =
                       !activeIsFocusMode && _cachedRandomQuizCoverage != null
@@ -5037,7 +5856,11 @@ Constraints:
     String sourceMode = 'randomQuiz',
   }) {
     final title = _pickSavedTitle(coverage);
-    final resolvedTitle = sourceMode == 'challenge' ? 'Challenge Mode' : title;
+    final resolvedTitle = switch (sourceMode) {
+      'challenge' => 'Challenge Mode',
+      'timedExam' => 'Timed Exam',
+      _ => title,
+    };
     final savedSession = _SavedSession(
       title: resolvedTitle,
       questions: questions,
@@ -5467,6 +6290,8 @@ Constraints:
         return Icons.center_focus_strong_rounded;
       case 'challenge':
         return Icons.emoji_events_rounded;
+      case 'timedExam':
+        return Icons.timer_rounded;
       case 'quickPractice':
         return Icons.flash_on_rounded;
       case 'randomQuiz':
@@ -5481,6 +6306,8 @@ Constraints:
         return const Color(0xFFFF8A80);
       case 'challenge':
         return Colors.amber.shade300;
+      case 'timedExam':
+        return const Color(0xFF6EE7FF);
       case 'quickPractice':
         return Colors.purple.shade200;
       case 'randomQuiz':
@@ -5506,7 +6333,10 @@ Constraints:
     }
   }
 
-  void _updateTestResults(dynamic results) {
+  void _updateTestResults(
+    dynamic results, {
+    bool showInsightsDialog = false,
+  }) {
     if (results is! Map<String, dynamic>) return;
 
     _appendMistakesFromResult(results);
@@ -5516,7 +6346,8 @@ Constraints:
     final dynamicTotalCount = results['totalCount'];
 
     if (resultMode != null &&
-        {'randomQuiz', 'focusMode', 'challenge'}.contains(resultMode) &&
+        {'randomQuiz', 'focusMode', 'challenge', 'timedExam'}
+          .contains(resultMode) &&
         dynamicCorrectCount is Map &&
         dynamicTotalCount is Map) {
       final sessionTotal = dynamicTotalCount.values
@@ -5536,6 +6367,9 @@ Constraints:
         if (resultMode == 'challenge') {
           _dailyTaskChallengeCompleted++;
         }
+        if (resultMode == 'timedExam') {
+          _dailyTaskTimedCompleted++;
+        }
         _dailyTaskQuestionsAnswered += sessionTotal;
         if (sessionPercent >= 95) {
           _dailyTaskHighScoreAchieved = true;
@@ -5552,31 +6386,34 @@ Constraints:
 
     if (correctCount == null || totalCount == null) return;
 
-    // Assess only first 4 completed sessions
-    if (completedSessions >= 4) return;
+    // Only the first 4 sessions affect today's readiness bucket,
+    // but all sessions must still be recorded for 10-day analytics.
+    final countsTowardDailyReadiness = completedSessions < 4;
 
     var shouldUpdateStreak = false;
     final hadChallengeUnlock = _hasUnlockedAdvancedModes;
 
     setState(() {
-      // Increment completed sessions
-      completedSessions++;
+      if (countsTowardDailyReadiness) {
+        // Increment completed sessions
+        completedSessions++;
 
-      // Accumulate category scores across sessions
-      correctCount.forEach((category, correct) {
-        if (categoryScores.containsKey(category)) {
-          final currentCorrect = categoryScores[category]!['correct'] as int;
-          final maxTotal = categoryScores[category]!['total'] as int;
-          final updatedCorrect = currentCorrect + correct;
+        // Accumulate category scores across the 4-session daily cap.
+        correctCount.forEach((category, correct) {
+          if (categoryScores.containsKey(category)) {
+            final currentCorrect = categoryScores[category]!['correct'] as int;
+            final maxTotal = categoryScores[category]!['total'] as int;
+            final updatedCorrect = currentCorrect + correct;
 
-          categoryScores[category]!['correct'] =
-              updatedCorrect > maxTotal ? maxTotal : updatedCorrect;
+            categoryScores[category]!['correct'] =
+                updatedCorrect > maxTotal ? maxTotal : updatedCorrect;
+          }
+        });
+
+        // Only update streak when user reaches the 4-session daily goal.
+        if (completedSessions == 4) {
+          shouldUpdateStreak = true;
         }
-      });
-
-      // Only update streak if user completed all 4 sessions
-      if (completedSessions == 4) {
-        shouldUpdateStreak = true;
       }
 
       // Update accumulated stats that persist across days
@@ -5595,6 +6432,14 @@ Constraints:
       final sessionPercent = sessionQuestions > 0
           ? (sessionCorrect / sessionQuestions) * 100
           : 0.0;
+      final sessionCategoryCorrect = <String, int>{
+        for (final entry in correctCount.entries)
+          entry.key: entry.value,
+      };
+      final sessionCategoryTotal = <String, int>{
+        for (final entry in totalCount.entries)
+          entry.key: entry.value,
+      };
 
       _quizActivityRecords.insert(
         0,
@@ -5603,6 +6448,8 @@ Constraints:
           questionCount: sessionQuestions,
           correctCount: sessionCorrect,
           scorePercent: sessionPercent,
+          categoryCorrect: sessionCategoryCorrect,
+          categoryTotal: sessionCategoryTotal,
         ),
       );
       _pruneQuizActivityRecords();
@@ -5629,6 +6476,335 @@ Constraints:
     } else {
       unawaited(_clearPausedQuizSession());
     }
+
+    if (mounted && showInsightsDialog) {
+      unawaited(_showReadinessFeedbackDialog(results));
+    }
+  }
+
+  Future<void> _showReadinessFeedbackDialog(Map<String, dynamic> results) async {
+    if (!mounted) return;
+
+    final categories = _categoriesForEligibility();
+    final readiness = _readinessLabel();
+    final readinessColor = _readinessColor();
+    final weakestCategory = _getWeakestCategory();
+    final tipCategory = weakestCategory.isNotEmpty ? weakestCategory : 'Mental Ability';
+    final competitiveness = _estimatedCompetitivenessBand();
+    final competitivenessColor = competitiveness['color'] as Color;
+    final insights = _sessionInsights(results);
+    final sessionAccuracy = (insights['sessionAccuracy'] as num).toDouble();
+    final secondsPerQuestion = (insights['secondsPerQuestion'] as num).toDouble();
+    final questionsPerMinute = (insights['questionsPerMinute'] as num).toDouble();
+    final timedOutCount = (insights['timedOutCount'] as int);
+    final speedLabel = insights['speedLabel'] as String;
+    final focusLabel = insights['focusLabel'] as String;
+    final behaviorMessage = insights['behaviorMessage'] as String;
+    final compact = MediaQuery.of(context).size.width <= 380;
+
+    await showDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      barrierColor: Colors.black87,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF0B224E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        titlePadding: EdgeInsets.fromLTRB(
+          compact ? 16 : 20,
+          compact ? 14 : 18,
+          compact ? 16 : 20,
+          8,
+        ),
+        contentPadding: EdgeInsets.fromLTRB(
+          compact ? 16 : 20,
+          8,
+          compact ? 16 : 20,
+          compact ? 4 : 8,
+        ),
+        title: Text(
+          'Course Readiness Update',
+          style: GoogleFonts.outfit(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                        'Target Course: ${eligibility.toUpperCase()}',
+                style: GoogleFonts.outfit(
+                  color: PnleTheme.accent,
+                  fontWeight: FontWeight.w700,
+                  fontSize: compact ? 12 : 13,
+                ),
+              ),
+              SizedBox(height: compact ? 8 : 10),
+              Container(
+                padding: EdgeInsets.all(compact ? 10 : 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Target Match Chart',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: compact ? 11 : 12,
+                      ),
+                    ),
+                    SizedBox(height: compact ? 8 : 10),
+                    ...categories.map((category) {
+                      final score = _categoryPercent(category);
+                      final target = _targetForCategory(category);
+                      final met = score >= target;
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: compact ? 8 : 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    category,
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.white,
+                                      fontSize: compact ? 11 : 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '${score.toStringAsFixed(0)}% / $target%',
+                                  style: GoogleFonts.outfit(
+                                    color: met
+                                        ? const Color(0xFF34D399)
+                                        : const Color(0xFFFFD166),
+                                    fontSize: compact ? 11 : 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: compact ? 5 : 6),
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final barWidth = constraints.maxWidth;
+                                final targetOffset =
+                                    (barWidth * (target / 100)).clamp(
+                                  0.0,
+                                  barWidth,
+                                );
+                                return Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Container(
+                                      height: compact ? 6 : 8,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                    ),
+                                    FractionallySizedBox(
+                                      widthFactor: (score / 100).clamp(0.0, 1.0),
+                                      child: Container(
+                                        height: compact ? 6 : 8,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: met
+                                                ? const [
+                                                    Color(0xFF34D399),
+                                                    Color(0xFF7DD3FC),
+                                                  ]
+                                                : const [
+                                                    Color(0xFFFFC857),
+                                                    Color(0xFFFF6B6B),
+                                                  ],
+                                          ),
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      left: targetOffset - 1,
+                                      top: compact ? -1 : -2,
+                                      bottom: compact ? -1 : -2,
+                                      child: Container(
+                                        width: 2,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              SizedBox(height: compact ? 8 : 10),
+              if (!compact)
+                ...categories.map((category) {
+                  final score = _categoryPercent(category);
+                  final target = _targetForCategory(category);
+                  final met = score >= target;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '$category: ${score.toStringAsFixed(0)}% / $target% ${met ? 'OK' : 'LOW'}',
+                      style: GoogleFonts.outfit(
+                        color: met
+                            ? const Color(0xFF34D399)
+                            : const Color(0xFFFFC857),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                }),
+              if (!compact) const SizedBox(height: 10),
+              Text(
+                readiness.toUpperCase(),
+                style: GoogleFonts.outfit(
+                  color: readinessColor,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _readinessPrimaryFeedback(),
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Smart Feedback',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _smartFeedbackSummary(),
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.86),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: competitivenessColor.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: competitivenessColor.withValues(alpha: 0.48),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.query_stats_rounded,
+                      color: competitivenessColor,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${competitiveness['label']} • ${competitiveness['tier']}',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Session Intelligence',
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Speed: $speedLabel (${secondsPerQuestion.toStringAsFixed(1)}s/question, ${questionsPerMinute.toStringAsFixed(2)} q/min)\nAccuracy: ${sessionAccuracy.toStringAsFixed(1)}%\nFocus: $focusLabel ($timedOutCount timeouts)',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.86),
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                behaviorMessage,
+                style: GoogleFonts.outfit(
+                  color: const Color(0xFFFFC857),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _microTipForCategory(tipCategory),
+                style: GoogleFonts.outfit(
+                  color: const Color(0xFF9BE7FF),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Scores and competitiveness bands are estimates based on in-app trends and not official UST criteria.',
+                style: GoogleFonts.outfit(
+                  color: Colors.white.withValues(alpha: 0.62),
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+            child: Text(
+              'Continue',
+              style: GoogleFonts.outfit(
+                color: PnleTheme.accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _remainingSessionsTodayText() {
@@ -5636,230 +6812,273 @@ Constraints:
   }
 
   Future<void> _showMoreSessionsDialog() async {
-    await showDialog<void>(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          Future<void> refreshDialog() async {
-            await _processExtraSessionAdRefill();
-            if (context.mounted) {
-              setDialogState(() {});
+    Timer? dialogTicker;
+    var isDialogRefreshing = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierColor: Colors.black87,
+        builder: (_) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> refreshDialog({bool forcePersist = false}) async {
+              if (isDialogRefreshing) return;
+              isDialogRefreshing = true;
+              try {
+                await _processExtraSessionAdRefill(forcePersist: forcePersist);
+                if (context.mounted) {
+                  setDialogState(() {});
+                }
+              } finally {
+                isDialogRefreshing = false;
+              }
             }
-          }
 
-          final canWatchAd = _isOnline && _extraSessionAdChances > 0;
+            dialogTicker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+              if (!context.mounted) {
+                dialogTicker?.cancel();
+                dialogTicker = null;
+                return;
+              }
+              unawaited(refreshDialog());
+            });
 
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.all(20),
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF473410), Color(0xFF1C1408)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            final canWatchAd = _isOnline && _extraSessionAdChances > 0;
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.all(20),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF473410), Color(0xFF1C1408)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFFFFD76B), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFFFD76B).withValues(alpha: 0.28),
+                      blurRadius: 16,
+                      spreadRadius: 2,
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: const Color(0xFFFFD76B), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFFFD76B).withValues(alpha: 0.28),
-                    blurRadius: 16,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.82,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Get More Sessions TODAY',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 20,
+                child: SafeArea(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.82,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Get More Sessions TODAY',
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 20,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Daily tasks reset every day.',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white.withValues(alpha: 0.75),
-                                  fontSize: 12,
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Daily tasks reset every day.',
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white.withValues(alpha: 0.75),
+                                    fontSize: 12,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 14),
-                              _sessionTaskTile(
-                                icon: Icons.play_circle_fill_rounded,
-                                title: 'Watch ads for +1 session',
-                                subtitle:
-                                    'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances • Next refill: ${_extraSessionCountdownText()}',
-                                actionLabel: 'Watch',
-                                enabled: canWatchAd,
-                                onAction: () async {
-                                  await _watchRewardedAdForExtraQuiz();
-                                  await refreshDialog();
-                                },
-                              ),
-                              const SizedBox(height: 10),
-                              _sessionTaskTile(
-                                icon: Icons.local_fire_department_rounded,
-                                title: 'Complete 4 sessions today',
-                                subtitle: '$completedSessions/4 completed',
-                                actionLabel: _canClaimStreakRewardToday
-                                    ? 'Claim'
-                                    : 'Claimed',
-                                enabled: _canClaimStreakRewardToday,
-                                claimed: !_canClaimStreakRewardToday &&
-                                    _lastStreakRewardClaimDate ==
-                                        _getTodayDateString(),
-                                onAction: () async {
-                                  await _claimFourSessionTaskReward();
-                                  await refreshDialog();
-                                },
-                              ),
-                              const SizedBox(height: 10),
-                              _sessionTaskTile(
-                                icon: Icons.military_tech_rounded,
-                                title: 'Complete 8 sessions today',
-                                subtitle:
-                                    '$_dailyTaskSessionsCompleted/8 completed',
-                                actionLabel: _canClaimEightSessionRewardToday
-                                    ? 'Claim'
-                                    : (_lastEightSessionRewardClaimDate ==
-                                            _getTodayDateString()
-                                        ? 'Claimed'
-                                        : 'Locked'),
-                                enabled: _canClaimEightSessionRewardToday,
-                                claimed: !_canClaimEightSessionRewardToday &&
-                                    _lastEightSessionRewardClaimDate ==
-                                        _getTodayDateString(),
-                                onAction: () async {
-                                  await _claimEightSessionTaskReward();
-                                  await refreshDialog();
-                                },
-                              ),
-                              const SizedBox(height: 10),
-                              _sessionTaskTile(
-                                icon: Icons.gps_fixed_rounded,
-                                title: 'Finish 1 Focus Mode session',
-                                subtitle:
-                                    '$_dailyTaskFocusCompleted/1 completed',
-                                actionLabel: _canClaimFocusRewardToday
-                                    ? 'Claim'
-                                    : (_lastFocusRewardClaimDate ==
-                                            _getTodayDateString()
-                                        ? 'Claimed'
-                                        : 'Locked'),
-                                enabled: _canClaimFocusRewardToday,
-                                claimed: !_canClaimFocusRewardToday &&
-                                    _lastFocusRewardClaimDate ==
-                                        _getTodayDateString(),
-                                onAction: () async {
-                                  await _claimFocusTaskReward();
-                                  await refreshDialog();
-                                },
-                              ),
-                              const SizedBox(height: 10),
-                              _sessionTaskTile(
-                                icon: Icons.emoji_events_rounded,
-                                title: 'Finish 1 Challenge Mode session',
-                                subtitle:
-                                    '$_dailyTaskChallengeCompleted/1 completed',
-                                actionLabel: _canClaimChallengeRewardToday
-                                    ? 'Claim'
-                                    : (_lastChallengeRewardClaimDate ==
-                                            _getTodayDateString()
-                                        ? 'Claimed'
-                                        : 'Locked'),
-                                enabled: _canClaimChallengeRewardToday,
-                                claimed: !_canClaimChallengeRewardToday &&
-                                    _lastChallengeRewardClaimDate ==
-                                        _getTodayDateString(),
-                                onAction: () async {
-                                  await _claimChallengeTaskReward();
-                                  await refreshDialog();
-                                },
-                              ),
-                              const SizedBox(height: 10),
-                              _sessionTaskTile(
-                                icon: Icons.format_list_numbered_rounded,
-                                title: 'Answer 30 questions today',
-                                subtitle:
-                                    '$_dailyTaskQuestionsAnswered/30 answered',
-                                actionLabel: _canClaimThirtyAnswersRewardToday
-                                    ? 'Claim'
-                                    : (_lastThirtyAnswersRewardClaimDate ==
-                                            _getTodayDateString()
-                                        ? 'Claimed'
-                                        : 'Locked'),
-                                enabled: _canClaimThirtyAnswersRewardToday,
-                                claimed: !_canClaimThirtyAnswersRewardToday &&
-                                    _lastThirtyAnswersRewardClaimDate ==
-                                        _getTodayDateString(),
-                                onAction: () async {
-                                  await _claimThirtyAnswersTaskReward();
-                                  await refreshDialog();
-                                },
-                              ),
-                              const SizedBox(height: 10),
-                              _sessionTaskTile(
-                                icon: Icons.workspace_premium_rounded,
-                                title: 'Score 95%+ in Random/Focus/Challenge',
-                                subtitle: _dailyTaskHighScoreAchieved
-                                    ? 'Qualified today'
-                                    : 'Not yet qualified today',
-                                actionLabel: _canClaimHighScoreRewardToday
-                                    ? 'Claim'
-                                    : (_lastHighScoreRewardClaimDate ==
-                                            _getTodayDateString()
-                                        ? 'Claimed'
-                                        : 'Locked'),
-                                enabled: _canClaimHighScoreRewardToday,
-                                claimed: !_canClaimHighScoreRewardToday &&
-                                    _lastHighScoreRewardClaimDate ==
-                                        _getTodayDateString(),
-                                onAction: () async {
-                                  await _claimHighScoreTaskReward();
-                                  await refreshDialog();
-                                },
-                              ),
-                            ],
+                                const SizedBox(height: 14),
+                                _sessionTaskTile(
+                                  icon: Icons.play_circle_fill_rounded,
+                                  title: 'Watch ads for +1 session',
+                                  subtitle:
+                                      'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances • Next refill: ${_extraSessionCountdownText()}',
+                                  actionLabel: 'Watch',
+                                  enabled: canWatchAd,
+                                  onAction: () async {
+                                    await _watchRewardedAdForExtraQuiz();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                _sessionTaskTile(
+                                  icon: Icons.local_fire_department_rounded,
+                                  title: 'Complete 4 sessions today',
+                                  subtitle: '$completedSessions/4 completed',
+                                  actionLabel: _canClaimStreakRewardToday
+                                      ? 'Claim'
+                                      : 'Claimed',
+                                  enabled: _canClaimStreakRewardToday,
+                                  claimed: !_canClaimStreakRewardToday &&
+                                      _lastStreakRewardClaimDate ==
+                                          _getTodayDateString(),
+                                  onAction: () async {
+                                    await _claimFourSessionTaskReward();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                _sessionTaskTile(
+                                  icon: Icons.military_tech_rounded,
+                                  title: 'Complete 8 sessions today',
+                                  subtitle:
+                                      '$_dailyTaskSessionsCompleted/8 completed',
+                                  actionLabel: _canClaimEightSessionRewardToday
+                                      ? 'Claim'
+                                      : (_lastEightSessionRewardClaimDate ==
+                                              _getTodayDateString()
+                                          ? 'Claimed'
+                                          : 'Locked'),
+                                  enabled: _canClaimEightSessionRewardToday,
+                                  claimed: !_canClaimEightSessionRewardToday &&
+                                      _lastEightSessionRewardClaimDate ==
+                                          _getTodayDateString(),
+                                  onAction: () async {
+                                    await _claimEightSessionTaskReward();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                _sessionTaskTile(
+                                  icon: Icons.gps_fixed_rounded,
+                                  title: 'Finish 1 Focus Mode session',
+                                  subtitle:
+                                      '$_dailyTaskFocusCompleted/1 completed',
+                                  actionLabel: _canClaimFocusRewardToday
+                                      ? 'Claim'
+                                      : (_lastFocusRewardClaimDate ==
+                                              _getTodayDateString()
+                                          ? 'Claimed'
+                                          : 'Locked'),
+                                  enabled: _canClaimFocusRewardToday,
+                                  claimed: !_canClaimFocusRewardToday &&
+                                      _lastFocusRewardClaimDate ==
+                                          _getTodayDateString(),
+                                  onAction: () async {
+                                    await _claimFocusTaskReward();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                _sessionTaskTile(
+                                  icon: Icons.emoji_events_rounded,
+                                  title: 'Finish 1 Challenge Mode session',
+                                  subtitle:
+                                      '$_dailyTaskChallengeCompleted/1 completed',
+                                  actionLabel: _canClaimChallengeRewardToday
+                                      ? 'Claim'
+                                      : (_lastChallengeRewardClaimDate ==
+                                              _getTodayDateString()
+                                          ? 'Claimed'
+                                          : 'Locked'),
+                                  enabled: _canClaimChallengeRewardToday,
+                                  claimed: !_canClaimChallengeRewardToday &&
+                                      _lastChallengeRewardClaimDate ==
+                                          _getTodayDateString(),
+                                  onAction: () async {
+                                    await _claimChallengeTaskReward();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                _sessionTaskTile(
+                                  icon: Icons.timer_rounded,
+                                  title: 'Finish 1 Timed Exam session',
+                                  subtitle:
+                                      '$_dailyTaskTimedCompleted/1 completed',
+                                  actionLabel: _canClaimTimedExamRewardToday
+                                      ? 'Claim'
+                                      : (_lastTimedExamRewardClaimDate ==
+                                              _getTodayDateString()
+                                          ? 'Claimed'
+                                          : 'Locked'),
+                                  enabled: _canClaimTimedExamRewardToday,
+                                  claimed: !_canClaimTimedExamRewardToday &&
+                                      _lastTimedExamRewardClaimDate ==
+                                          _getTodayDateString(),
+                                  onAction: () async {
+                                    await _claimTimedExamTaskReward();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                _sessionTaskTile(
+                                  icon: Icons.format_list_numbered_rounded,
+                                  title: 'Answer 30 questions today',
+                                  subtitle:
+                                      '$_dailyTaskQuestionsAnswered/30 answered',
+                                  actionLabel: _canClaimThirtyAnswersRewardToday
+                                      ? 'Claim'
+                                      : (_lastThirtyAnswersRewardClaimDate ==
+                                              _getTodayDateString()
+                                          ? 'Claimed'
+                                          : 'Locked'),
+                                  enabled: _canClaimThirtyAnswersRewardToday,
+                                  claimed: !_canClaimThirtyAnswersRewardToday &&
+                                      _lastThirtyAnswersRewardClaimDate ==
+                                          _getTodayDateString(),
+                                  onAction: () async {
+                                    await _claimThirtyAnswersTaskReward();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                                const SizedBox(height: 10),
+                                _sessionTaskTile(
+                                  icon: Icons.workspace_premium_rounded,
+                                  title: 'Score 95%+ in Random/Focus/Challenge/Timed',
+                                  subtitle: _dailyTaskHighScoreAchieved
+                                      ? 'Qualified today'
+                                      : 'Not yet qualified today',
+                                  actionLabel: _canClaimHighScoreRewardToday
+                                      ? 'Claim'
+                                      : (_lastHighScoreRewardClaimDate ==
+                                              _getTodayDateString()
+                                          ? 'Claimed'
+                                          : 'Locked'),
+                                  enabled: _canClaimHighScoreRewardToday,
+                                  claimed: !_canClaimHighScoreRewardToday &&
+                                      _lastHighScoreRewardClaimDate ==
+                                          _getTodayDateString(),
+                                  onAction: () async {
+                                    await _claimHighScoreTaskReward();
+                                    await refreshDialog(forcePersist: true);
+                                  },
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: Text(
-                            'Close',
-                            style: GoogleFonts.outfit(color: Colors.white70),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: Text(
+                              'Close',
+                              style: GoogleFonts.outfit(color: Colors.white70),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
-      ),
-    );
+            );
+          },
+        ),
+      );
+    } finally {
+      dialogTicker?.cancel();
+    }
   }
 
   Widget _sessionTaskTile({
@@ -6075,7 +7294,8 @@ Constraints:
 
   // ignore: unused_element
   void _showSpecializationSelectionDialog() {
-    final specializations = getAllSpecializations();
+    final specializations = List<String>.from(_ustetCourses);
+    _isCoursePickerOpen = true;
 
     showDialog(
       context: context,
@@ -6121,7 +7341,7 @@ Constraints:
                     child: Column(
                       children: [
                         Text(
-                          'Select your Focus Category',
+                          'What course are you aiming for?',
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
                             color: PnleTheme.accent,
@@ -6145,51 +7365,27 @@ Constraints:
                         String description = '';
                         IconData icon = Icons.book_rounded;
 
-                        // Customize display for each specialization
+                        // Course-based targets for USTET readiness mode
                         switch (spec) {
-                          case 'Elementary Majors':
-                            description = 'Early Childhood & Special Needs';
-                            icon = Icons.school_rounded;
+                          case 'Nursing':
+                            description = 'Science-heavy and highly competitive';
+                            icon = Icons.local_hospital_rounded;
                             break;
-                          case 'English Major':
-                            description = 'Language & Communication';
-                            icon = Icons.language_rounded;
-                            break;
-                          case 'Filipino Major':
-                            description = 'Filipino Language & Literature';
-                            icon = Icons.abc_rounded;
-                            break;
-                          case 'Mathematics Major':
-                            description = 'Numbers & Calculations';
-                            icon = Icons.calculate_rounded;
-                            break;
-                          case 'Science Major':
-                            description = 'Natural Sciences';
-                            icon = Icons.science_rounded;
-                            break;
-                          case 'Social Studies Major':
-                            description = 'History & Social Sciences';
-                            icon = Icons.public_rounded;
-                            break;
-                          case 'Values Education Major':
-                            description = 'Ethics & Values';
-                            icon = Icons.favorite_rounded;
-                            break;
-                          case 'TLE Major':
-                            description = 'Technical & Livelihood';
-                            icon = Icons.build_rounded;
-                            break;
-                          case 'TVTEd Major':
-                            description = 'Technical-Vocational Ed';
+                          case 'Engineering':
+                            description = 'Math-focused admission track';
                             icon = Icons.engineering_rounded;
                             break;
-                          case 'Physical Education Major':
-                            description = 'Health & Physical Education';
-                            icon = Icons.fitness_center_rounded;
+                          case 'Business':
+                            description = 'Balanced math and communication';
+                            icon = Icons.business_center_rounded;
                             break;
-                          case 'Culture and Arts Education Major':
-                            description = 'Arts & Cultural Education';
+                          case 'Arts':
+                            description = 'Language and reasoning priority';
                             icon = Icons.palette_rounded;
+                            break;
+                          case 'Science':
+                            description = 'Science depth with strong math support';
+                            icon = Icons.science_rounded;
                             break;
                         }
 
@@ -6282,7 +7478,9 @@ Constraints:
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      _isCoursePickerOpen = false;
+    });
   }
 
   Widget _buildStudyHubAction({
@@ -6552,19 +7750,20 @@ Constraints:
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                Colors.orange.withValues(alpha: 0.3),
-                Colors.red.withValues(alpha: 0.2),
+                PnleTheme.accent.withValues(alpha: 0.34),
+                PnleTheme.glowB.withValues(alpha: 0.22),
               ],
             ),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+            border: Border.all(color: PnleTheme.accent.withValues(alpha: 0.55)),
           ),
           child: Column(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('🔥', style: TextStyle(fontSize: 24)),
+                  const Icon(Icons.local_fire_department_rounded,
+                      color: Color(0xFFFFD166), size: 24),
                   const SizedBox(width: 12),
                   Text(
                     '$currentStreak day streak!',
@@ -6592,50 +7791,17 @@ Constraints:
 
   Widget _startQuizScreen() {
     final totalAvg = _calculateTotalAverage();
-    final weakestCategory = _getWeakestCategory();
     final categories = _categoriesForEligibility();
-    final effectiveFocusCategory = weakestCategory.isNotEmpty
-        ? weakestCategory
-        : (categories.isNotEmpty ? categories.first : '');
+    final totalWarmupBuckets = categories.length * 4;
+    final effectiveFocusCategory = _recommendedFocusCategory();
     // Use accumulated stats that persist across sessions
     final totalQuizzesTaken = accumulatedQuizzesCompleted;
     final totalQuestionsAnswered = accumulatedQuestionsAnswered;
     final bestScore = totalAvg;
     final canTakeQuiz = remainingFreeTests > 0;
-    final hasSeedRandomReady = _seedPoolReady &&
-        _seedPoolService.canServe('randomQuiz', _buildRandomCategoryMap());
-    final hasSeedFocusReady = _seedPoolReady &&
-        effectiveFocusCategory.isNotEmpty &&
-        _seedPoolService.canServe(
-          'focusMode',
-          _buildFocusCategoryMap(effectiveFocusCategory),
-        );
-    final hasSeedChallengeReady = _seedPoolReady &&
-        _categoriesForEligibility().any((category) => _seedPoolService.canServe(
-            'challenge', _buildChallengeCategoryMap(category)));
-
-    final hasRandomReady = hasSeedRandomReady ||
-        ((_cachedRandomQuizQuestions?.length ?? 0) >= 15 &&
-            _cachedRandomQuizCoverage != null);
-    final hasFocusReady = hasSeedFocusReady ||
-        (effectiveFocusCategory.isNotEmpty &&
-            ((_cachedFocusQuestions[effectiveFocusCategory]?.length ?? 0) >=
-                15));
-    final hasChallengeReady = hasSeedChallengeReady ||
-        ((_cachedChallengeQuestions?.length ?? 0) >= 10);
     final isFocusModeLocked =
         !_hasUnlockedAdvancedModes || effectiveFocusCategory.isEmpty;
     final isChallengeModeLocked = !_hasUnlockedAdvancedModes;
-    final showPregenerationState = _canUseDeepSeekPregeneration();
-    final isRandomFetching =
-        showPregenerationState && _isPrimingRandomQuizCache && !hasRandomReady;
-    final isFocusFetching = _hasUnlockedAdvancedModes &&
-        _isPrimingFreeDeepSeekCache &&
-        !hasFocusReady;
-    final isChallengeFetching = _hasUnlockedAdvancedModes &&
-        _isPrimingChallengeCache &&
-        !hasChallengeReady;
-    final showRandomPregenBadge = canTakeQuiz && showPregenerationState;
 
     return Stack(
       children: [
@@ -6739,19 +7905,79 @@ Constraints:
                   ),
                 ),
 
+              if (_showPoolWarmupIndicator)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _poolWarmupComplete
+                        ? const Color(0xFF34D399).withValues(alpha: 0.18)
+                        : const Color(0xFFFFD166).withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _poolWarmupComplete
+                          ? const Color(0xFF34D399).withValues(alpha: 0.7)
+                          : const Color(0xFFFFD166).withValues(alpha: 0.7),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        _poolWarmupComplete
+                            ? Icons.verified_rounded
+                            : Icons.hourglass_bottom_rounded,
+                        color: _poolWarmupComplete
+                            ? const Color(0xFF34D399)
+                            : const Color(0xFFFFD166),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          !_poolWarmupChecked
+                              ? 'Checking offline question pool status...'
+                              : (_poolWarmupComplete
+                                  ? 'Offline pool warmed up: all mode buckets are fully ready (Random, Focus, Challenge, Timed).'
+                                  : 'Offline pool warm-up in progress: $_poolWarmupReadyBuckets/$totalWarmupBuckets buckets ready.'),
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: _dismissPoolWarmupIndicator,
+                        borderRadius: BorderRadius.circular(999),
+                        child: Padding(
+                          padding: const EdgeInsets.all(2),
+                          child: Icon(
+                            Icons.close_rounded,
+                            color: Colors.white.withValues(alpha: 0.8),
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               // Daily Progress Tracker & Motivational Elements
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Colors.orange.withValues(alpha: 0.3),
-                      Colors.orange.withValues(alpha: 0.1),
+                      PnleTheme.accent.withValues(alpha: 0.30),
+                      PnleTheme.glowB.withValues(alpha: 0.14),
                     ],
                   ),
                   borderRadius: BorderRadius.circular(12),
                   border:
-                      Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+                      Border.all(color: PnleTheme.accent.withValues(alpha: 0.52)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -6759,7 +7985,7 @@ Constraints:
                     Row(
                       children: [
                         const Icon(Icons.local_fire_department_rounded,
-                            color: Colors.orange, size: 20),
+                            color: Color(0xFFFFD166), size: 20),
                         const SizedBox(width: 8),
                         Text(
                           'Today\'s Progress',
@@ -6770,6 +7996,26 @@ Constraints:
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.28),
+                        ),
+                      ),
+                      child: Text(
+                        'Course Goal: ${eligibility.toUpperCase()}',
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -6787,7 +8033,7 @@ Constraints:
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Streak: $currentStreak ${currentStreak == 1 ? 'day' : 'days'} 🔥',
+                              'Streak: $currentStreak ${currentStreak == 1 ? 'day' : 'days'}',
                               style: GoogleFonts.outfit(
                                 color: Colors.white.withValues(alpha: 0.9),
                                 fontSize: 13,
@@ -6972,8 +8218,6 @@ Constraints:
                     : () => _showMoreSessionsDialog(),
                 isPrimary: true,
                 badge: canTakeQuiz ? null : 'NO CREDITS',
-                showReadyBadge: showRandomPregenBadge && hasRandomReady,
-                showFetchingBadge: showRandomPregenBadge && isRandomFetching,
                 isLocked: false,
               ),
               const SizedBox(height: 12),
@@ -6986,8 +8230,8 @@ Constraints:
                     ? 'Target: $effectiveFocusCategory'
                     : 'Adaptive focus practice',
                 gradient: _modeFadeGradientWithColors(
-                  const Color(0xFFFF6B6B),
-                  const Color(0xFFFF8A80),
+                  PnleTheme.glowB,
+                  PnleTheme.accent,
                   strength: 0.9,
                 ),
                 onTap: (canTakeQuiz &&
@@ -7023,10 +8267,6 @@ Constraints:
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
-                showReadyBadge:
-                    canTakeQuiz && !isFocusModeLocked && hasFocusReady,
-                showFetchingBadge:
-                    canTakeQuiz && !isFocusModeLocked && isFocusFetching,
                 isLocked: isFocusModeLocked,
               ),
               const SizedBox(height: 12),
@@ -7037,8 +8277,8 @@ Constraints:
                 title: 'Quick Practice',
                 description: '5 questions • Perfect for breaks',
                 gradient: _modeFadeGradientWithColors(
-                  Colors.purple,
-                  Colors.deepPurple,
+                  PnleTheme.bgTop,
+                  PnleTheme.glowB,
                   strength: 0.8,
                 ),
                 onTap: _hasSavedTestsData ? () => _startQuickPractice() : null,
@@ -7052,10 +8292,10 @@ Constraints:
                 icon: Icons.emoji_events_rounded,
                 title: 'Challenge Mode',
                 description:
-                    'Advanced mixed-difficulty simulation • Does not count toward daily session objective',
+                  'Advanced mixed-difficulty simulation • Does not count toward daily session objective',
                 gradient: _modeFadeGradientWithColors(
-                  Colors.amber,
-                  Colors.orange,
+                  PnleTheme.accent,
+                  PnleTheme.accentDeep,
                   strength: 0.86,
                 ),
                 onTap: (canTakeQuiz && _hasUnlockedAdvancedModes)
@@ -7071,12 +8311,31 @@ Constraints:
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
-                showReadyBadge:
-                    canTakeQuiz && !isChallengeModeLocked && hasChallengeReady,
-                showFetchingBadge: canTakeQuiz &&
-                    !isChallengeModeLocked &&
-                    isChallengeFetching,
                 isLocked: isChallengeModeLocked,
+              ),
+              const SizedBox(height: 12),
+
+              // 5. Timed Exam
+              _quizModeCard(
+                icon: Icons.timer_rounded,
+                title: 'Timed Exam',
+                description:
+                  'Exam pressure mode • strict timer with auto-next on timeout',
+                gradient: _modeFadeGradientWithColors(
+                  PnleTheme.glowB,
+                  PnleTheme.bgTop,
+                  strength: 0.86,
+                ),
+                onTap: canTakeQuiz
+                    ? () async {
+                        await _startOrResumeMode(
+                          mode: 'timedExam',
+                          onStartNew: _startTimedExamMode,
+                        );
+                      }
+                    : () => _showMoreSessionsDialog(),
+                badge: canTakeQuiz ? null : 'NO CREDITS',
+                isLocked: false,
               ),
               const SizedBox(height: 12),
 
@@ -7088,8 +8347,8 @@ Constraints:
                   description:
                       '${_savedSessions.length} saved ${_savedSessions.length == 1 ? 'test' : 'tests'} available',
                   gradient: _modeFadeGradientWithColors(
-                    Colors.blueGrey,
-                    Colors.blue,
+                    PnleTheme.bgBottom,
+                    PnleTheme.glowB,
                     strength: 0.74,
                   ),
                   onTap: _showSavedTestsDialog,
@@ -7098,47 +8357,7 @@ Constraints:
                 ),
 
               if (_savedSessions.isNotEmpty) const SizedBox(height: 24),
-
               const SizedBox(height: 24),
-
-              // Recent Activity (if any quizzes taken) - moved after quiz modes
-              if (totalQuizzesTaken > 0) ...[
-                Text(
-                  'RECENT ACTIVITY',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.7),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border:
-                        Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                  ),
-                  child: Column(
-                    children: [
-                      _activityRow(Icons.quiz_rounded, 'Total Quizzes',
-                          '$totalQuizzesTaken completed'),
-                      const Divider(height: 16, color: Colors.white24),
-                      _activityRow(Icons.grade_rounded, 'Current Score',
-                          '${totalAvg.toStringAsFixed(1)}%'),
-                      if (_savedSessions.isNotEmpty) ...[
-                        const Divider(height: 16, color: Colors.white24),
-                        _activityRow(Icons.save_rounded, 'Saved Tests',
-                            '${_savedSessions.length} available'),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
             ],
           ),
         ),
@@ -7175,35 +8394,6 @@ Constraints:
     );
   }
 
-  Widget _activityRow(IconData icon, String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: PnleTheme.accent, size: 18),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: GoogleFonts.outfit(
-                color: Colors.white.withValues(alpha: 0.8),
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-        Text(
-          value,
-          style: GoogleFonts.outfit(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _quizModeCard({
     required IconData icon,
     required String title,
@@ -7212,8 +8402,6 @@ Constraints:
     VoidCallback? onTap,
     bool isPrimary = false,
     String? badge,
-    bool showReadyBadge = false,
-    bool showFetchingBadge = false,
     bool isLocked = false,
   }) {
     return InkWell(
@@ -7287,83 +8475,30 @@ Constraints:
                               ),
                             ),
                           ),
-                          if (badge != null ||
-                              showReadyBadge ||
-                              showFetchingBadge)
+                          if (badge != null)
                             Wrap(
                               spacing: 6,
                               runSpacing: 4,
                               children: [
-                                if (badge != null)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.92),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      badge,
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.black,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 10,
-                                      ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Colors.white.withValues(alpha: 0.92),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    badge,
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.black,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 10,
                                     ),
                                   ),
-                                if (showReadyBadge)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF2E7D32)
-                                          .withValues(alpha: 0.95),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.35),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'READY',
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 10,
-                                        letterSpacing: 0.3,
-                                      ),
-                                    ),
-                                  ),
-                                if (!showReadyBadge && showFetchingBadge)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF1565C0)
-                                          .withValues(alpha: 0.95),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.35),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'FETCHING',
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 10,
-                                        letterSpacing: 0.3,
-                                      ),
-                                    ),
-                                  ),
+                                ),
                               ],
                             ),
                         ],
@@ -7492,37 +8627,14 @@ Constraints:
     setState(() {
       currentScreen = index;
     });
+    if (index == 2) {
+      unawaited(_refreshPoolWarmupStatus());
+    }
   }
 
   Widget _dailyPerformanceScreen() {
-    final categories = _categoriesForEligibility();
-    final totalAvg = _calculateTotalAverage();
     final hasData =
         categoryScores.values.any((data) => (data['total'] as int) > 0);
-
-    // Calculate category performance groups
-    final excellent = <String>[];
-    final good = <String>[];
-    final needsWork = <String>[];
-
-    for (final cat in categories) {
-      final data = categoryScores[cat]!;
-      final correct = data['correct'] as int;
-      final total = data['total'] as int;
-
-      if (total > 0) {
-        final percentage = (correct / total) * 100;
-        if (percentage >= 80) {
-          excellent.add(cat);
-        } else if (percentage >= 60) {
-          good.add(cat);
-        } else {
-          needsWork.add(cat);
-        }
-      }
-    }
-
-    final weakestCategory = _getWeakestCategory();
 
     return Stack(
       children: [
@@ -7533,7 +8645,6 @@ Constraints:
             key: const PageStorageKey('daily_performance_screen'),
             controller: _dailyScrollController,
             children: [
-              // Header Section
               const SizedBox(height: 8),
               Text(
                 'Daily Progress',
@@ -7556,8 +8667,8 @@ Constraints:
                 ),
               ),
               const SizedBox(height: 24),
-
-              // DAILY OBJECTIVES SECTION
+              _buildCourseReadinessCard(),
+              const SizedBox(height: 20),
               Text(
                 'TODAY\'S OBJECTIVES',
                 textAlign: TextAlign.center,
@@ -7581,61 +8692,6 @@ Constraints:
                 trailing: _getTotalAverageText(),
                 trailingColor: _getTotalAverageColor(),
               ),
-              const SizedBox(height: 28),
-
-              _buildCircularProgressCard(totalAvg),
-              const SizedBox(height: 24),
-
-              // Sessions completed today
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      PnleTheme.accent.withValues(alpha: 0.3),
-                      PnleTheme.accent.withValues(alpha: 0.1),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: PnleTheme.accent.withValues(alpha: 0.5)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.today_rounded,
-                            color: PnleTheme.accent, size: 20),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Sessions Today',
-                          style: GoogleFonts.outfit(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      '$completedSessions/4',
-                      style: GoogleFonts.outfit(
-                        color: PnleTheme.accent,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // OLD: Sessions completed today - REMOVED IN FAVOR OF OBJECTIVES ABOVE
-
-              const SizedBox(height: 24),
-
-              // Empty State
               if (!hasData) ...[
                 const SizedBox(height: 40),
                 Icon(
@@ -7680,130 +8736,7 @@ Constraints:
                   ),
                 ),
               ],
-
-              // Performance Insights Card
-              if (hasData) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFF34D399).withValues(alpha: 0.2),
-                        const Color(0xFF34D399).withValues(alpha: 0.05),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: const Color(0xFF34D399).withValues(alpha: 0.4)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.insights,
-                              color: Color(0xFF34D399), size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Performance Insights',
-                            style: GoogleFonts.outfit(
-                              color: const Color(0xFF34D399),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (weakestCategory.isNotEmpty)
-                        _insightRow(Icons.trending_down_rounded, 'Focus on',
-                            weakestCategory, const Color(0xFFFF6B6B)),
-                      _insightRow(
-                        Icons.local_fire_department_rounded,
-                        'Current Streak',
-                        '$currentStreak ${currentStreak == 1 ? 'day' : 'days'}',
-                        Colors.orange,
-                      ),
-                      _insightRow(
-                        Icons.score_rounded,
-                        'Overall Score',
-                        '${totalAvg.toStringAsFixed(1)}%',
-                        totalAvg >= 80
-                            ? const Color(0xFF34D399)
-                            : totalAvg >= 60
-                                ? Colors.amber
-                                : const Color(0xFFFF6B6B),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Visual Categorization by Performance Level
-                if (excellent.isNotEmpty) ...[
-                  _performanceGroupHeader('Excellent Performance',
-                      const Color(0xFF34D399), Icons.emoji_events_rounded),
-                  const SizedBox(height: 8),
-                  ...excellent.map((cat) => _categoryProgressEnhanced(cat)),
-                  const SizedBox(height: 16),
-                ],
-                if (good.isNotEmpty) ...[
-                  _performanceGroupHeader(
-                      'Good Progress', Colors.amber, Icons.thumb_up_rounded),
-                  const SizedBox(height: 8),
-                  ...good.map((cat) => _categoryProgressEnhanced(cat)),
-                  const SizedBox(height: 16),
-                ],
-                if (needsWork.isNotEmpty) ...[
-                  _performanceGroupHeader('Needs Improvement',
-                      const Color(0xFFFF6B6B), Icons.trending_up_rounded),
-                  const SizedBox(height: 8),
-                  ...needsWork.map((cat) => _categoryProgressEnhanced(cat)),
-                  const SizedBox(height: 16),
-                ],
-
-                // Quick Actions
-                const SizedBox(height: 8),
-                Text(
-                  'QUICK ACTIONS',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.7),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _quickActionButton(
-                        icon: Icons.refresh_rounded,
-                        label: 'Retake\nWeak Areas',
-                        onTap: () {
-                          setState(() => currentScreen = 2);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Focus on: $weakestCategory'),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _quickActionButton(
-                        icon: Icons.history_rounded,
-                        label: 'View\nHistory',
-                        onTap: () => setState(() => currentScreen = 3),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-              ],
+              const SizedBox(height: 16),
             ],
           ),
         ),
@@ -7838,209 +8771,22 @@ Constraints:
     return '${days[date.weekday - 1]}, ${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  Widget _insightRow(IconData icon, String label, String value, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              value,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-                height: 1.15,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _performanceGroupHeader(String title, Color color, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, color: color, size: 18),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: GoogleFonts.outfit(
-            color: color,
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-            letterSpacing: 0.5,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _categoryProgressEnhanced(String category) {
-    final data = categoryScores[category]!;
-    final correct = data['correct'] as int;
-    final total = data['total'] as int;
-    final percentage = total > 0 ? (correct / total * 100) : 0.0;
-    final progress = total > 0 ? correct / total : 0.0;
-
-    final barColor = Color.lerp(
-      const Color(0xFFFF6B6B),
-      const Color(0xFF34D399),
-      progress.clamp(0.0, 1.0),
-    );
-
-    // Simulate trend (compare with previous data — need real history)
-    // When data is minimal, show neutral icon instead of misleading down arrow
-    final trendUp = percentage >= 50;
-    final hasEnoughData =
-        total >= 5; // Need at least 5 answers for meaningful trend
-
-    return _glassContainer(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      borderRadius: 12,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  category,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 74, maxWidth: 96),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      hasEnoughData
-                          ? (trendUp ? Icons.trending_up : Icons.trending_down)
-                          : Icons.horizontal_rule_rounded,
-                      color: hasEnoughData
-                          ? (trendUp
-                              ? const Color(0xFF34D399)
-                              : const Color(0xFFFF6B6B))
-                          : Colors.white38,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 4),
-                        decoration: BoxDecoration(
-                          color:
-                              (barColor ?? Colors.grey).withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            '${percentage.toStringAsFixed(0)}%',
-                            style: GoogleFonts.outfit(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 6,
-              backgroundColor: Colors.white.withValues(alpha: 0.15),
-              color: barColor,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '$correct/$total correct answers',
-            style: GoogleFonts.outfit(
-              color: Colors.white.withValues(alpha: 0.7),
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _quickActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.white.withValues(alpha: 0.2),
-              Colors.white.withValues(alpha: 0.1),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: PnleTheme.accent, size: 28),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-                height: 1.2,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  String _formatShortMonthDay(DateTime date) {
+    const months = [
+      'Jan.',
+      'Feb.',
+      'Mar.',
+      'Apr.',
+      'May.',
+      'Jun.',
+      'Jul.',
+      'Aug.',
+      'Sep.',
+      'Oct.',
+      'Nov.',
+      'Dec.'
+    ];
+    return '${months[date.month - 1]} ${date.day}';
   }
 
   Widget _historyScreen() {
@@ -8053,7 +8799,7 @@ Constraints:
   List<Map<String, dynamic>> _buildTenDayActivity() {
     final now = DateTime.now();
     final today = _dateOnly(now);
-    final activity = <DateTime, Map<String, num>>{};
+    final activity = <DateTime, Map<String, dynamic>>{};
 
     for (int i = 9; i >= 0; i--) {
       final day = _dateOnly(now.subtract(Duration(days: i)));
@@ -8062,6 +8808,8 @@ Constraints:
         'questions': 0,
         'correct': 0,
         'percentSum': 0,
+        'categoryCorrect': <String, int>{},
+        'categoryTotal': <String, int>{},
       };
     }
 
@@ -8075,13 +8823,27 @@ Constraints:
           (activity[day]!['correct'] ?? 0) + record.correctCount;
       activity[day]!['percentSum'] =
           (activity[day]!['percentSum'] ?? 0) + record.scorePercent;
+
+        final dayCategoryCorrect =
+          activity[day]!['categoryCorrect'] as Map<String, int>;
+        final dayCategoryTotal =
+          activity[day]!['categoryTotal'] as Map<String, int>;
+        for (final category in record.categoryTotal.keys) {
+        dayCategoryCorrect[category] =
+          (dayCategoryCorrect[category] ?? 0) +
+            (record.categoryCorrect[category] ?? 0);
+        dayCategoryTotal[category] =
+          (dayCategoryTotal[category] ?? 0) + record.categoryTotal[category]!;
+        }
     }
 
     final todayData = activity[today];
+    final fallbackSessions = max(completedSessions, _dailyTaskSessionsCompleted);
     if (todayData != null &&
-        (todayData['quizzes'] ?? 0) == 0 &&
-        completedSessions > 0) {
-      final fallbackQuestions = completedSessions * 15;
+        ((todayData['quizzes'] ?? 0) == 0 ||
+            (todayData['quizzes'] as int? ?? 0) < fallbackSessions) &&
+        fallbackSessions > 0) {
+      final fallbackQuestions = fallbackSessions * 15;
       final fallbackCorrect = categoryScores.values.fold<int>(
         0,
         (sum, value) => sum + ((value['correct'] as int?) ?? 0),
@@ -8090,10 +8852,18 @@ Constraints:
           ? (fallbackCorrect / fallbackQuestions) * 100
           : 0.0;
 
-      todayData['quizzes'] = completedSessions;
+      todayData['quizzes'] = fallbackSessions;
       todayData['questions'] = fallbackQuestions;
       todayData['correct'] = fallbackCorrect;
-      todayData['percentSum'] = fallbackPercent * completedSessions;
+      todayData['percentSum'] = fallbackPercent * fallbackSessions;
+      todayData['categoryCorrect'] = <String, int>{
+        for (final entry in categoryScores.entries)
+          entry.key: (entry.value['correct'] as int?) ?? 0,
+      };
+      todayData['categoryTotal'] = <String, int>{
+        for (final entry in categoryScores.entries)
+          entry.key: (entry.value['total'] as int?) ?? 0,
+      };
     }
 
     final entries = activity.entries.toList()
@@ -8107,9 +8877,63 @@ Constraints:
             'questions': entry.value['questions'] ?? 0,
             'correct': entry.value['correct'] ?? 0,
             'percentSum': entry.value['percentSum'] ?? 0,
+            'categoryCorrect': entry.value['categoryCorrect'] ?? <String, int>{},
+            'categoryTotal': entry.value['categoryTotal'] ?? <String, int>{},
           },
         )
         .toList();
+  }
+
+  double _calculateDayCourseReadinessPercent(Map<String, dynamic> day) {
+    final quizzes = (day['quizzes'] as int?) ?? 0;
+    if (quizzes > 0 && quizzes < 4) {
+      return _calculateDayOverallAverage(day).clamp(0.0, 100.0);
+    }
+
+    final categoryCorrectRaw = day['categoryCorrect'];
+    final categoryTotalRaw = day['categoryTotal'];
+
+    if (categoryCorrectRaw is Map && categoryTotalRaw is Map) {
+      final categories = _categoriesForEligibility();
+      double normalizedSum = 0;
+      int evaluatedCount = 0;
+      for (final category in categories) {
+        final total = (categoryTotalRaw[category] as num?)?.toInt() ?? 0;
+        if (total <= 0) continue;
+        evaluatedCount++;
+        final correct = (categoryCorrectRaw[category] as num?)?.toInt() ?? 0;
+        final percent = (correct / total) * 100;
+        final target = _targetForCategory(category);
+        final normalized = target <= 0 ? 0.0 : ((percent / target) * 100);
+        normalizedSum += normalized.clamp(0.0, 100.0);
+      }
+      if (evaluatedCount > 0) {
+        return (normalizedSum / evaluatedCount).clamp(0.0, 100.0);
+      }
+    }
+
+    final fallbackAvg = _calculateDayOverallAverage(day);
+    final categories = _categoriesForEligibility();
+    if (categories.isEmpty) {
+      return fallbackAvg.clamp(0.0, 100.0);
+    }
+
+    final avgTarget = categories
+            .map((category) => _targetForCategory(category))
+            .reduce((a, b) => a + b) /
+        categories.length;
+    if (avgTarget <= 0) {
+      return fallbackAvg.clamp(0.0, 100.0);
+    }
+
+    // Fallback keeps historical days target-sensitive when category splits are missing.
+    return ((fallbackAvg / avgTarget) * 100).clamp(0.0, 100.0);
+  }
+
+  bool _isDayCourseReady(Map<String, dynamic> day) {
+    final quizzes = (day['quizzes'] as int?) ?? 0;
+    if (quizzes < 4) return false;
+    return _calculateDayCourseReadinessPercent(day) >= 99.9;
   }
 
   double _calculateDayOverallAverage(Map<String, dynamic> day) {
@@ -8131,13 +8955,11 @@ Constraints:
     final tenDayActivity = _buildTenDayActivity();
     final activeDays =
         tenDayActivity.where((day) => (day['quizzes'] as int) > 0).length;
+    final goalPassDays =
+        tenDayActivity.where((day) => _isDayCourseReady(day)).length;
     final totalQuizzes = tenDayActivity.fold<int>(
       0,
       (sum, day) => sum + (day['quizzes'] as int),
-    );
-    final totalQuestions = tenDayActivity.fold<int>(
-      0,
-      (sum, day) => sum + (day['questions'] as int),
     );
     return Stack(
       children: [
@@ -8169,6 +8991,16 @@ Constraints:
                         color: Colors.white.withValues(alpha: 0.7),
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Target Course: ${eligibility.toUpperCase()}',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.86),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -8195,8 +9027,8 @@ Constraints:
                       width: 1,
                       color: Colors.white.withValues(alpha: 0.2),
                     ),
-                    _build10DayStatItem('$totalQuestions', 'Questions',
-                        Icons.fact_check_outlined),
+                    _build10DayStatItem('$goalPassDays', 'Goal-Pass Days',
+                        Icons.flag_rounded),
                   ],
                 ),
               ),
@@ -8251,7 +9083,7 @@ Constraints:
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Daily Quiz Activity',
+                          'Daily Course Readiness',
                           style: GoogleFonts.outfit(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -8261,24 +9093,7 @@ Constraints:
                       ],
                     ),
                     const SizedBox(height: 18),
-                    SizedBox(
-                      height: 150,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: tenDayActivity.map((day) {
-                          final date = day['date'] as DateTime;
-                          final percentage = _calculateDayOverallAverage(day)
-                              .clamp(0.0, 100.0);
-                          return _buildChartBar(
-                            percentage,
-                            '${date.day}',
-                            '${percentage.toStringAsFixed(0)}%',
-                            true,
-                          );
-                        }).toList(),
-                      ),
-                    ),
+                    _buildReadinessLineChart(tenDayActivity),
                   ],
                 ),
               ),
@@ -8299,11 +9114,21 @@ Constraints:
                         color: Colors.white,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Overall = day accuracy, Target match = alignment with your selected course targets.',
+                      style: GoogleFonts.outfit(
+                        fontSize: 11,
+                        color: Colors.white.withValues(alpha: 0.68),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     ...tenDayActivity.reversed.map((day) {
                       final date = day['date'] as DateTime;
                       final quizzes = day['quizzes'] as int;
-                      // final questions = day['questions'] as int; // Number of quizzes in this day
+                      final questions = day['questions'] as int;
+                      final correct = day['correct'] as int;
                       final hasActivity = quizzes > 0;
                       final isComplete = quizzes >= 4; // Must complete 4 tests
 
@@ -8311,24 +9136,31 @@ Constraints:
                       String statusText;
                       Color statusColor;
                       if (!hasActivity) {
-                        statusText = 'No activity';
+                        statusText = 'No session data for this day.';
                         statusColor = Colors.white.withValues(alpha: 0.4);
                       } else if (!isComplete) {
-                        // Show current overall average if not finished
                         final dayOverallAvg = _calculateDayOverallAverage(day);
+                        final missingSessions = 4 - quizzes;
+                        final accuracyData = questions > 0
+                            ? '${correct.clamp(0, questions)}/$questions correct'
+                            : '${dayOverallAvg.toStringAsFixed(0)}% average so far';
                         statusText =
-                            '${dayOverallAvg.toStringAsFixed(0)}% - UNFINISHED';
+                            'Incomplete: $quizzes/4 sessions. Need $missingSessions more to evaluate readiness. Accuracy: $accuracyData.';
                         statusColor = const Color(0xFFFFA726);
                       } else {
-                        // Show pass/fail only when 4 tests are complete
                         final dayOverallAvg = _calculateDayOverallAverage(day);
-                        if (dayOverallAvg >= 80) {
+                        final readinessPercent =
+                            _calculateDayCourseReadinessPercent(day);
+                        final accuracyData = questions > 0
+                            ? '${correct.clamp(0, questions)}/$questions correct'
+                            : '${dayOverallAvg.toStringAsFixed(0)}% average';
+                        if (_isDayCourseReady(day)) {
                           statusText =
-                              '${dayOverallAvg.toStringAsFixed(0)}% - Passed ✓';
+                              'Ready: 4/4 sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (met).';
                           statusColor = const Color(0xFF34D399);
                         } else {
                           statusText =
-                              '${dayOverallAvg.toStringAsFixed(0)}% - Failed';
+                              'Not ready: 4/4 sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (needs 100%).';
                           statusColor = const Color(0xFFFF6B6B);
                         }
                       }
@@ -8346,24 +9178,25 @@ Constraints:
                                 : Colors.white.withValues(alpha: 0.14),
                           ),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                _formatDate(date),
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
+                            Text(
+                              _formatShortMonthDay(date),
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
                               ),
                             ),
+                            const SizedBox(height: 4),
                             Text(
                               statusText,
                               style: GoogleFonts.outfit(
                                 color: statusColor,
-                                fontSize: 12,
+                                fontSize: 11.5,
                                 fontWeight: FontWeight.w600,
+                                height: 1.3,
                               ),
                             ),
                           ],
@@ -8382,58 +9215,51 @@ Constraints:
   }
 
   // Helper method to build feature items
-  // Helper method to build chart bars
-  Widget _buildChartBar(
-    double percentage,
-    String label,
-    String percentLabel,
-    bool unlocked,
-  ) {
-    return Expanded(
+  Widget _buildReadinessLineChart(List<Map<String, dynamic>> tenDayActivity) {
+    final points = tenDayActivity
+        .map((day) => _calculateDayCourseReadinessPercent(day).clamp(0.0, 100.0))
+        .toList();
+
+    final labels = tenDayActivity
+        .map((day) => (day['date'] as DateTime).day.toString())
+        .toList();
+
+    return SizedBox(
+      height: 176,
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          Text(
-            percentLabel,
-            style: GoogleFonts.outfit(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: unlocked
-                  ? Colors.white.withValues(alpha: 0.9)
-                  : Colors.white.withValues(alpha: 0.35),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Container(
-            height: (percentage / 100) * 100,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: unlocked
-                    ? [
-                        const Color(0xFF34D399),
-                        const Color(0xFF2196F3),
-                      ]
-                    : [
-                        Colors.grey.withValues(alpha: 0.3),
-                        Colors.grey.withValues(alpha: 0.2),
-                      ],
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
               ),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(4)),
+              child: CustomPaint(
+                painter: _ReadinessLinePainter(points),
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: GoogleFonts.outfit(
-              fontSize: 10,
-              color: unlocked
-                  ? Colors.white.withValues(alpha: 0.7)
-                  : Colors.white.withValues(alpha: 0.3),
-            ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: labels
+                .map(
+                  (label) => SizedBox(
+                    width: 20,
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(
+                        fontSize: 9,
+                        color: Colors.white.withValues(alpha: 0.65),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
           ),
         ],
       ),
@@ -8671,8 +9497,8 @@ Constraints:
                   children: [
                     Text(
                       isImproving
-                          ? '📈 You\'re improving!'
-                          : '📉 Slight decrease',
+                          ? 'Uptrend: You\'re improving!'
+                          : 'Downtrend: Slight decrease',
                       style: GoogleFonts.outfit(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
@@ -8703,8 +9529,8 @@ Constraints:
     Color? trailingColor,
   }) {
     final barColor = Color.lerp(
-      const Color(0xFFFF6B6B),
-      const Color(0xFF34D399),
+      PnleTheme.warning,
+      PnleTheme.success,
       progress.clamp(0.0, 1.0),
     );
     final percentage = (progress * 100).toStringAsFixed(0);
@@ -8767,6 +9593,9 @@ Constraints:
             alignment: Alignment.centerRight,
             child: Text(
               trailing,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
               style: GoogleFonts.outfit(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -8812,13 +9641,13 @@ Constraints:
       totalQuestions += data['total'] as int;
     }
 
-    // Get weighted overall average across UPCAT categories.
+    // Get weighted overall average across USTET categories.
     final weightedAvg = _calculateTotalAverage();
 
     // Show cumulative format with session indicator
     final cumulativeText = totalQuestions > 0
-        ? '$totalCorrect/$totalQuestions · Session $completedSessions/4'
-        : '0/0 · Session 0/4';
+      ? '$totalCorrect/$totalQuestions | Session $completedSessions/4'
+      : '0/0 | Session 0/4';
 
     if (completedSessions < 4) {
       return '$cumulativeText\n${weightedAvg.toStringAsFixed(1)}% (Weighted) - Incomplete';
@@ -9199,7 +10028,7 @@ void _showLimitReachedDialog() {
                               if (!mounted) return;
                               _showGenerationDialog(
                                 modeLabel: isFocusMode
-                                    ? 'FOCUS MODE${focusCategory != null ? ' • $focusCategory' : ''}'
+                                ? 'FOCUS MODE${focusCategory != null ? ' • $focusCategory' : ''}'
                                     : 'RANDOM QUIZ',
                               );
                             });
@@ -9409,69 +10238,7 @@ void _showLimitReachedDialog() {
     if (_currentTestCoverage == null) {
       throw Exception('Test coverage not generated');
     }
-
-    final language = _currentTestCoverage!['Language Proficiency'] ??
-        'General language proficiency topics';
-    final reading = _currentTestCoverage!['Reading Comprehension'] ??
-        'General reading comprehension topics';
-    final mathematics =
-        _currentTestCoverage!['Mathematics'] ?? 'General mathematics topics';
-    final science =
-        _currentTestCoverage!['Science'] ?? 'General science topics';
-
-    return '''Create 15 unique, reasoning-based multiple-choice questions in JSON format for a UPCAT Reviewer Quiz App.
-
-Each question must include:
-- "number": Question number (1 to 15)
-- "question": The full question text
-- "choices": A list of exactly 4 answer choices
-- "answer": The correct answer letter ("A", "B", "C", or "D")
-
-Structure the JSON exactly like this:
-{
-  "questions": [
-    {
-      "number": 1,
-      "question": "Question text here",
-      "choices": ["Choice A", "Choice B", "Choice C", "Choice D"],
-      "answer": "A"
-    }
-  ]
-}
-
-Constraints:
-- Questions 1-2: Language Proficiency - $language
-- Questions 3-7: Reading Comprehension - $reading
-- Questions 8-11: Mathematics - $mathematics
-- Questions 12-15: Science - $science
-- Do not ask direct definition or pure recall questions.
-- Every item must require reasoning, interpretation, comparison, or application.
-- Use UPCAT-style wording and difficulty (academic, concise, non-trivial).
-- Ensure one choice is correct and the answer logically follows from the question.
-- Include plausible distractors based on common student mistakes.
-- Keep each question clear and concise.
-- Make all answer choices balanced in length and tone.
-- Do not make the correct choice the longest option by wording length.
-- Do not make the correct choice the shortest option either.
-- All answer choices should be short noun phrases or short clauses of similar length.
-- At least one incorrect choice must be as long as or longer than the correct answer.
-- Language Proficiency questions must use sentence-based or word-relationship reasoning.
-- Reading Comprehension questions must include a full passage in the same question text.
-- For Reading Comprehension, never reference another item/passage using words like previous, above, below, earlier, or as mentioned.
-- Reading passages should be 60-120 words in formal academic English.
-- Mathematics questions must focus on evaluating/simplifying expressions or quantitative reasoning.
-- Science questions must focus on systems, interactions, mechanisms, or cause-effect reasoning.
-- Use only Unicode math symbols where needed (e.g., 1/2, 1/3, √, x²).
-- Do not use LaTeX or backslashes.
-- Randomize correct-answer letters across A/B/C/D; avoid obvious patterns or repeated streaks.
-- Do not reveal the correct answer by wording patterns.
-- No asterisks, bold, or special formatting.
-- All text must be plain and readable.
-
-Output rules:
-- Return only a raw JSON object.
-- Do not use triple backticks.
-- Do not add explanations outside JSON.''';
+    return _buildFastPromptFromCoverage(_currentTestCoverage!);
   }
 
   String _buildFastPrompt() {
@@ -9483,120 +10250,47 @@ Output rules:
   }
 
   String _buildFastPromptFromCoverage(Map<String, String> coverage) {
-    final language = coverage['Language Proficiency'] ??
-        'General language proficiency topics';
-    final reading = coverage['Reading Comprehension'] ??
-        'General reading comprehension topics';
-    final mathematics = coverage['Mathematics'] ?? 'General mathematics topics';
-    final science = coverage['Science'] ?? 'General science topics';
+    final mentalAbilityTopic =
+        coverage['Mental Ability'] ?? 'General mental ability topics';
+    final englishTopic = coverage['English'] ?? 'General english topics';
+    final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
+    final scienceTopic = coverage['Science'] ?? 'General science topics';
 
-    return '''Generate 15 reasoning-based UPCAT multiple-choice questions as raw JSON only.
+    return '''Generate 15 USTET-style multiple-choice questions as raw JSON only.
+
 Format:
 {"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
+
 Distribution:
-- Q1-2 Language Proficiency: $language
-- Q3-7 Reading Comprehension: $reading
-- Q8-11 Mathematics: $mathematics
-- Q12-15 Science: $science
+Q1-2 Mental Ability questions specifically about this key area: $mentalAbilityTopic
+Q3-7 English questions specifically about this key area: $englishTopic
+Q8-11 Mathematics questions specifically about this key area: $mathTopic
+Q12-15 Science questions specifically about this key area: $scienceTopic
+
 Rules:
 - Exactly 4 choices per question
 - Correct answer must be one of A/B/C/D
 - Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-- No direct recall/definition items; require interpretation or application
-- Language: sentence/relationship reasoning
-- Reading: embed full 60-120 word passage per item; no cross-reference words (previous/above/below/earlier/as mentioned)
-- Math: expression evaluation/simplification or quantitative reasoning
-- Science: system interaction and mechanism reasoning
-- Choices must be short phrases/short clauses with balanced length/tone
+- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
+- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation
+- No direct recall or pure definition items; require interpretation, application, comparison, inference, or computation
+- Mental Ability items must use patterns, series, analogy, classification, spatial reasoning, or logic
+- English items may include grammar, vocabulary, sentence logic, paragraph logic, or reading; only 2-3 items should be passage-based and each passage should be 60-120 words; do not use cross-reference words like previous, above, below, earlier, or as mentioned
+- Math items must involve arithmetic, algebra, geometry, word problems, or quantitative reasoning with actual solving required
+- Science items must involve biology, chemistry, physics, or earth science with interpretation, mechanism reasoning, experiment reasoning, or data analysis
+- Choices must be short phrases or short clauses with balanced length and tone
 - At least one wrong choice must be as long as or longer than the correct choice
-- Use Unicode math symbols only; no LaTeX or backslashes
-- Make distractors plausible based on common student misconceptions
+- Use plausible distractors based on common student misconceptions
 - Avoid giveaway wording patterns
-- Do not make correct answer obviously longest/shortest
+- Do not make the correct answer obviously longest or shortest
 - Randomize answer letters across A/B/C/D without obvious streaks
+- Use Unicode math symbols only; no LaTeX or backslashes
 - No markdown, no asterisks, no extra text
-- Return JSON only, no markdown.''';
+- Return JSON only''';
   }
 
   String _buildFocusPrompt(String focusCategory) {
-    if (_currentTestCoverage == null) {
-      throw Exception('Test coverage not generated');
-    }
-
-    // Get topic for the focus category
-    final focusTopic = _currentTestCoverage![focusCategory] ?? 'General topics';
-
-    // Get other topics for variety (1 question each)
-    final categories = _categoriesForEligibility();
-    final otherCategories =
-        categories.where((cat) => cat != focusCategory).toList();
-
-    // Focus mode creates 10 questions from the focus category, 5 from others
-    String distribution = '';
-    int questionNumber = 1;
-
-    // 10 questions from focus category
-    distribution +=
-        '- Questions $questionNumber–${questionNumber + 9}: $focusCategory - $focusTopic.\n';
-    questionNumber += 10;
-
-    // 5 questions from other categories
-    for (int i = 0; i < otherCategories.length && questionNumber <= 15; i++) {
-      final cat = otherCategories[i];
-      final topic = _currentTestCoverage![cat] ?? 'General topics';
-      final questionsInCat =
-          (15 - questionNumber + 1) ~/ (otherCategories.length - i);
-      final endQuestion = questionNumber + questionsInCat - 1;
-
-      if (questionsInCat == 1) {
-        distribution += '- Question $questionNumber: $cat - $topic.\n';
-      } else {
-        distribution +=
-            '- Questions $questionNumber–$endQuestion: $cat - $topic.\n';
-      }
-      questionNumber += questionsInCat;
-    }
-
-    return '''Create 15 unique, practical multiple-choice questions in JSON format for a UPCAT AI Reviewer app.
-
-Each question must include:
-- "number": Question number (1 to 15)
-- "question": The full question text
-- "choices": A list of exactly 4 answer choices
-- "answer": The correct answer letter ("A", "B", "C", or "D")
-
-Structure the JSON exactly like this:
-{
-  "questions": [
-    {
-      "number": 1,
-      "question": "Question text here",
-      "choices": ["Choice A", "Choice B", "Choice C", "Choice D"],
-      "answer": "A"
-    }
-  ]
-}
-
-Constraints:
-- FOCUS MODE distribution (10 focus + 5 mixed):
-$distribution
-- Ensure one choice is correct and the answer logically follows from the question.
-- Use practical, application-based UPCAT scenarios.
-- Keep all questions clear and concise.
-- Make all answer choices balanced in length and tone.
-- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above".
-- Do not make the correct choice the longest option by wording length.
-- Do not make the correct choice the shortest option either.
-- Keep all 4 choices within a similar length range (target 8-14 words each when feasible).
-- Randomize correct-answer letters across A/B/C/D; avoid obvious patterns or repeated streaks.
-- Do not reveal the correct answer by wording patterns.
-- No asterisks, bold, or special formatting.
-- All text must be plain and readable.
-
-Output rules:
-- Return only a raw JSON object.
-- Do not use triple backticks.
-- Do not add explanations outside JSON.''';
+    return _buildFastFocusPrompt(focusCategory);
   }
 
   String _buildFastFocusPrompt(String focusCategory) {
@@ -9611,129 +10305,252 @@ Output rules:
       return '$cat: $topic';
     }).join(' | ');
 
-    return '''Generate 15 UPCAT reasoning multiple-choice questions as raw JSON only.
+    return '''Generate 15 USTET-style multiple-choice questions as raw JSON only.
+
 Format:
 {"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
+
 Distribution:
-- Q1-10 focus category: $focusCategory ($focusTopic)
-- Q11-15 mixed from: $otherText
+Q1-10 focus category: $focusCategory
+Q1-10 key area: $focusTopic
+Q11-15 mixed from: $otherText
+
 Rules:
 - Exactly 4 choices per question
 - Correct answer must be one of A/B/C/D
 - Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-  - Use practical UPCAT-style scenarios with interpretation and application
-  - Keep wording concise and academically accurate
-  - Keep choices similar in length and tone (target 8-14 words when feasible)
+- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
+- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation
+- Use practical USTET-style scenarios with application and analysis
+- Q1-10 must strongly match the focus category and focus topic while still being real exam items, not lesson labels
+- Q11-15 must be mixed supporting questions from the listed other categories
+- Keep wording concise and academically accurate
+- Keep choices similar in length and tone
 - Make distractors plausible based on common student misconceptions
-- Avoid giveaway wording like "always", "never", or obvious textbook clues
-- Vary stem style (analysis, inference, best answer, problem-solving)
-  - Do not make correct answer obviously longest/shortest by wording
-  - Randomize answer letters across A/B/C/D without obvious streaks
-  - No markdown, no asterisks, no extra text
-- Return JSON only, no markdown.''';
+- Avoid giveaway wording like always, never, or obvious textbook clues
+- Vary stem style using analysis, inference, best answer, comparison, or problem-solving
+- Do not make the correct answer obviously longest or shortest by wording
+- Randomize answer letters across A/B/C/D without obvious streaks
+- Use Unicode math symbols only when needed; avoid LaTeX and backslashes
+- No markdown, no asterisks, no extra text
+- Return JSON only''';
   }
 
   String _buildChallengeModePrompt(String focusCategory) {
-    final focusTopic = _pickRandomKeyArea(focusCategory);
-    final categories = _categoriesForEligibility();
-    final otherCategories =
-        categories.where((cat) => cat != focusCategory).toList();
-
-    // Build distribution string for questions 7-10 (other categories)
-    String otherCategoriesDistribution = '';
-    if (otherCategories.length == 1) {
-      final cat = otherCategories[0];
-      final topic = _pickRandomKeyArea(cat);
-      otherCategoriesDistribution =
-          '- Questions 7–10: $cat - $topic (ADVANCED/DIFFICULT)';
-    } else if (otherCategories.length == 2) {
-      final cat1 = otherCategories[0];
-      final cat2 = otherCategories[1];
-      final topic1 = _pickRandomKeyArea(cat1);
-      final topic2 = _pickRandomKeyArea(cat2);
-      otherCategoriesDistribution =
-          '- Questions 7–8: $cat1 - $topic1 (ADVANCED/DIFFICULT)\n- Questions 9–10: $cat2 - $topic2 (ADVANCED/DIFFICULT)';
-    } else if (otherCategories.length == 3) {
-      final cat1 = otherCategories[0];
-      final cat2 = otherCategories[1];
-      final cat3 = otherCategories[2];
-      final topic1 = _pickRandomKeyArea(cat1);
-      final topic2 = _pickRandomKeyArea(cat2);
-      final topic3 = _pickRandomKeyArea(cat3);
-      otherCategoriesDistribution =
-          '- Question 7: $cat1 - $topic1 (ADVANCED/DIFFICULT)\n- Question 8: $cat2 - $topic2 (ADVANCED/DIFFICULT)\n- Questions 9–10: $cat3 - $topic3 (ADVANCED/DIFFICULT)';
-    }
-
-    return '''Create 10 unique, advanced multiple-choice questions in JSON format for a UPCAT AI Reviewer app.
-
-Each question must include:
-- "number": Question number (1 to 10)
-- "question": The full question text
-- "choices": A list of exactly 4 answer choices
-- "answer": The correct answer letter ("A", "B", "C", or "D")
-
-Structure the JSON exactly like this:
-{
-  "questions": [
-    {
-      "number": 1,
-      "question": "Question text here",
-      "choices": ["Choice A", "Choice B", "Choice C", "Choice D"],
-      "answer": "A"
-    }
-  ]
-}
-
-Constraints:
-- Challenge distribution:
-- Questions 1-6: $focusCategory - $focusTopic
-$otherCategoriesDistribution
-- Use advanced UPCAT-level application and critical-thinking scenarios.
-- Ensure one choice is correct and the answer logically follows from the question.
-- Make all answer choices balanced in length and tone.
-- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above".
-- Do not make the correct choice the longest option by wording length.
-- Do not make the correct choice the shortest option either.
-- Keep all 4 choices within a similar length range (target 8-14 words each when feasible).
-- Randomize correct-answer letters across A/B/C/D; avoid obvious patterns or repeated streaks.
-- Do not reveal the correct answer by wording patterns.
-- No asterisks, bold, or special formatting.
-- All text must be plain and readable.
-
-Output rules:
-- Return only a raw JSON object.
-- Do not use triple backticks.
-- Do not add explanations outside JSON.''';
+    return _buildFastChallengeModePrompt(focusCategory);
   }
 
   String _buildFastChallengeModePrompt(String focusCategory) {
-    final focusTopic = _pickRandomKeyArea(focusCategory);
-    final categories = _categoriesForEligibility();
-    final otherCategories =
-        categories.where((cat) => cat != focusCategory).toList();
-    final otherText = otherCategories.map((cat) {
-      final topic = _pickRandomKeyArea(cat);
-      return '$cat: $topic';
-    }).join(' | ');
+    final mentalAbilityTopic = _pickRandomKeyArea('Mental Ability');
+    final englishTopic = _pickRandomKeyArea('English');
+    final mathTopic = _pickRandomKeyArea('Mathematics');
+    final scienceTopic = _pickRandomKeyArea('Science');
 
-    return '''Generate 10 advanced UPCAT reasoning multiple-choice questions as raw JSON only.
+    return '''Generate 15 hard USTET-style multiple-choice questions as raw JSON only.
+
 Format:
 {"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
+
 Distribution:
-- Q1-6 focus category: $focusCategory ($focusTopic)
-- Q7-10 mixed categories: $otherText
+Q1-4 Mental Ability questions specifically about this key area: $mentalAbilityTopic
+Q5-8 English questions specifically about this key area: $englishTopic
+Q9-12 Mathematics questions specifically about this key area: $mathTopic
+Q13-15 Science questions specifically about this key area: $scienceTopic
+
 Rules:
 - Exactly 4 choices per question
 - Correct answer must be one of A/B/C/D
 - Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-- Keep wording concise but appropriately difficult (higher-order UPCAT reasoning)
-- Keep choices similar in length and tone (target 8-14 words when feasible)
-- Make distractors plausible based on common student misconceptions
-- Avoid giveaway wording like "always", "never", or obvious textbook clues
-- Vary stem style (analysis, inference, best answer, problem-solving)
-- Do not make correct answer obviously longest/shortest by wording
+- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
+- Each item must be a real exam-style question with one clearly correct answer
+- Challenge items must be harder than random mode and should require deeper analysis, multi-step reasoning, stronger inference, or more careful comparison
+- No direct recall or pure definition items
+- Mental Ability items should emphasize harder patterns, layered analogy, logic chains, or less obvious series
+- English items should emphasize inference, sentence logic, paragraph logic, grammar traps, vocabulary in context, or deeper reading analysis
+- Math items should emphasize multi-step arithmetic, algebra, geometry, quantitative reasoning, or word problems that require careful setup
+- Science items should emphasize mechanism reasoning, interpretation of scenarios, experiment logic, cause-and-effect, or data analysis
+- Keep wording concise but cognitively demanding
+- Choices must be similar in length and tone
+- At least one incorrect choice must be as long as or longer than the correct answer
+- Use plausible distractors based on common student misconceptions
+- Avoid giveaway wording patterns
+- Do not make the correct answer obviously longest or shortest
 - Randomize answer letters across A/B/C/D without obvious streaks
+- Use Unicode math symbols only; no LaTeX or backslashes
 - No markdown, no asterisks, no extra text
-- Return JSON only, no markdown.''';
+- Return JSON only''';
+  }
+
+  String _buildTimedModePrompt() {
+    if (_currentTestCoverage == null) {
+      throw Exception('Test coverage not generated');
+    }
+
+    return _buildTimedModePromptFromCoverage(_currentTestCoverage!);
+  }
+
+  String _buildFastTimedModePrompt() {
+    if (_currentTestCoverage == null) {
+      throw Exception('Test coverage not generated');
+    }
+
+    return _buildTimedModePromptFromCoverage(_currentTestCoverage!);
+  }
+
+  String _buildTimedModePromptFromCoverage(Map<String, String> coverage) {
+    final mentalAbilityTopic =
+        coverage['Mental Ability'] ?? 'General mental ability topics';
+    final englishTopic = coverage['English'] ?? 'General english topics';
+    final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
+    final scienceTopic = coverage['Science'] ?? 'General science topics';
+
+    return '''Generate 15 timed-practice USTET-style multiple-choice questions as raw JSON only.
+
+Format:
+{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
+
+Distribution:
+Q1-2 Mental Ability questions specifically about this key area: $mentalAbilityTopic
+Q3-7 English questions specifically about this key area: $englishTopic
+Q8-11 Mathematics questions specifically about this key area: $mathTopic
+Q12-15 Science questions specifically about this key area: $scienceTopic
+
+Rules:
+Exactly 4 choices per question
+Correct answer must be one of A/B/C/D
+Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
+Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
+Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation
+Timed mode items must be medium difficulty, concise, and realistically answerable under time pressure
+Prefer shorter stems, faster recognition, shorter computation, and clean wording
+No direct recall or pure definition items
+Mental Ability items should favor series, patterns, analogy, classification, or quick logic
+English items should favor concise grammar, vocabulary in context, sentence logic, short reading, or paragraph logic
+Math items should favor shorter arithmetic, algebra, geometry, or word problems that can be solved quickly but still require thinking
+Science items should favor brief interpretation, mechanism reasoning, practical science scenarios, or simple data reasoning
+Choices must be short phrases or short clauses with balanced length and tone
+At least one wrong choice must be as long as or longer than the correct choice
+Use plausible distractors based on common student misconceptions
+Avoid giveaway wording patterns
+Do not make the correct answer obviously longest or shortest
+Randomize answer letters across A/B/C/D without obvious streaks
+Use Unicode math symbols only; no LaTeX or backslashes
+No markdown, no asterisks, no extra text
+Return JSON only''';
   }
 }
+
+class _ReadinessLinePainter extends CustomPainter {
+  final List<double> points;
+
+  _ReadinessLinePainter(this.points);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) {
+      return;
+    }
+
+    final gridPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.12)
+      ..strokeWidth = 1;
+
+    for (int i = 1; i <= 4; i++) {
+      final y = (size.height / 4) * i;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    final stepX = points.length > 1 ? size.width / (points.length - 1) : 0.0;
+
+    final linePath = Path();
+    final dotOffsets = <Offset>[];
+
+    for (int i = 0; i < points.length; i++) {
+      final x = stepX * i;
+      final y = size.height - (points[i].clamp(0.0, 100.0) / 100.0) * size.height;
+      final point = Offset(x, y);
+      dotOffsets.add(point);
+      if (i == 0) {
+        linePath.moveTo(x, y);
+      } else {
+        linePath.lineTo(x, y);
+      }
+    }
+
+    final areaPath = Path.from(linePath)
+      ..lineTo(dotOffsets.last.dx, size.height)
+      ..lineTo(dotOffsets.first.dx, size.height)
+      ..close();
+
+    final areaPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          const Color(0xFF34D399).withValues(alpha: 0.32),
+          const Color(0xFF34D399).withValues(alpha: 0.02),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    final linePaint = Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF34D399), Color(0xFF22D3EE)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    canvas.drawPath(areaPath, areaPaint);
+    canvas.drawPath(linePath, linePaint);
+
+    final dotPaint = Paint()..color = const Color(0xFF34D399);
+    final dotStroke = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    for (final offset in dotOffsets) {
+      canvas.drawCircle(offset, 3.2, dotPaint);
+      canvas.drawCircle(offset, 3.2, dotStroke);
+    }
+
+    for (int i = 0; i < dotOffsets.length; i++) {
+      final pctText = '${points[i].toStringAsFixed(1)}%';
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: pctText,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final dx = (dotOffsets[i].dx - (textPainter.width / 2))
+          .clamp(0.0, size.width - textPainter.width);
+      final preferredY = dotOffsets[i].dy - 16;
+      final fallbackY = dotOffsets[i].dy + 6;
+      final dy = preferredY >= 0
+          ? preferredY
+          : fallbackY.clamp(0.0, size.height - textPainter.height);
+      textPainter.paint(canvas, Offset(dx, dy));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ReadinessLinePainter oldDelegate) {
+    if (oldDelegate.points.length != points.length) {
+      return true;
+    }
+    for (int i = 0; i < points.length; i++) {
+      if (oldDelegate.points[i] != points[i]) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+

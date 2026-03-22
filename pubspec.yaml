@@ -1,5 +1,5 @@
 name: let_reviewer
-description: "UPCAT Reviewer 2027 - University of the Philippines College Admission Test preparation app"
+description: "USTET Reviewer 2027 - University of Santo Tomas Entrance Test preparation app"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.15+16
+version: 1.0.0+1
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -60,14 +60,14 @@ dev_dependencies:
     
 
 flutter_launcher_icons:
-  image_path: "assets/images/upcatlogo.png"
+  image_path: "assets/images/ustetlogo1024.png"
   android: true
   ios: true
   remove_alpha_ios: true
   web:
     generate: true
   adaptive_icon_background: "#1a1a2e"
-  adaptive_icon_foreground: "assets/images/upcatlogo.png"
+  adaptive_icon_foreground: "assets/images/ustetlogo1024.png"
   min_sdk_android: 21
 
   # The "flutter_lints" package below contains a set of recommended lints to
