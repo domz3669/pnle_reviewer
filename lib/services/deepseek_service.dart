@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import '../models/question.dart';
+import 'exam_driven_config_service.dart';
 
 class DeepSeekService {
   static const List<String> _apiUrls = [
@@ -19,6 +20,9 @@ class DeepSeekService {
   final int maxRetries;
   final double temperature;
   final int? maxTokens;
+  final String examId;
+  final ExamDrivenConfigService _examConfigService =
+      ExamDrivenConfigService.instance;
 
   DeepSeekService({
     required this.apiKey,
@@ -26,6 +30,7 @@ class DeepSeekService {
     this.maxRetries = _defaultMaxRetries,
     this.temperature = 0.3,
     this.maxTokens,
+    this.examId = 'ustet',
   });
 
   Future<List<Question>> generateQuestions(
@@ -64,23 +69,30 @@ class DeepSeekService {
     Map<int, String>? categoryMap,
     bool allowPartialResults = false,
   }) async {
+    await _examConfigService.ensureLoaded();
+
+    final systemPrompt = _examConfigService.systemPromptForExam(
+      examId: examId,
+      fallback:
+          "You are a USTET item writer. "
+          "Return VALID JSON ONLY. No markdown. No comments. "
+          "Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. "
+          "Never ask the student to identify the skill, category, competency, or lesson being tested. "
+          "Every item must have a solvable stem and one clearly correct answer. "
+          "Keep all options similar in length. "
+          "Never use combined-option wording like 'A and B', 'A and C', 'both A and B', or 'all of the above' in any choice text. "
+          "Never make the correct option obviously the longest or shortest by wording. "
+          "Use plausible distractors based on common student mistakes. "
+          "Use Unicode math symbols only when needed; avoid LaTeX and backslashes. "
+          "Distribute correct answers across A/B/C/D without obvious repeating patterns.",
+    );
+
     final requestBody = jsonEncode({
       "model": "deepseek-chat",
       "messages": [
         {
           "role": "system",
-          "content":
-              "You are a USTET item writer. "
-              "Return VALID JSON ONLY. No markdown. No comments. "
-            "Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. "
-            "Never ask the student to identify the skill, category, competency, or lesson being tested. "
-            "Every item must have a solvable stem and one clearly correct answer. "
-              "Keep all options similar in length. "
-              "Never use combined-option wording like 'A and B', 'A and C', 'both A and B', or 'all of the above' in any choice text. "
-            "Never make the correct option obviously the longest or shortest by wording. "
-              "Use plausible distractors based on common student mistakes. "
-              "Use Unicode math symbols only when needed; avoid LaTeX and backslashes. "
-              "Distribute correct answers across A/B/C/D without obvious repeating patterns."
+          "content": systemPrompt,
         },
         {
           "role": "user",
@@ -123,7 +135,7 @@ class DeepSeekService {
             ? '${candidate.body.substring(0, 240)}...'
             : candidate.body;
         lastErrorMessage =
-            'DeepSeek API error (${endpointLabel}): ${candidate.statusCode} - $bodyPreview';
+          'DeepSeek API error ($endpointLabel): ${candidate.statusCode} - $bodyPreview';
         debugPrint('Warning: $lastErrorMessage');
       } on TimeoutException {
         lastErrorMessage =

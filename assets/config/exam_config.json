@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "defaultExamId": "ustet",
+  "exams": {
+    "ustet": {
+      "appTitle": "USTET Reviewer 2027",
+      "language": "English",
+      "categories": [
+        "Mental Ability",
+        "English",
+        "Mathematics",
+        "Science"
+      ],
+      "modes": {
+        "randomQuiz": {
+          "questionCount": 15,
+          "usesMixedCategories": true
+        },
+        "focusMode": {
+          "questionCount": 15,
+          "usesSingleCategory": true
+        },
+        "quickPractice": {
+          "questionCount": 5
+        },
+        "challenge": {
+          "questionCount": 15
+        },
+        "timedExam": {
+          "questionCount": 15,
+          "timePerQuestionSeconds": 40,
+          "autoNextOnTimeout": true
+        },
+        "reviewMistakes": {
+          "questionCount": 15
+        }
+      },
+      "dailySessionTarget": 4,
+      "savedTestsLimit": 30
+    }
+  }
+}

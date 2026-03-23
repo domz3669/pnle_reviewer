@@ -2,14 +2,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import '../models/question.dart';
+import 'exam_driven_config_service.dart';
 
 class QuestionGenerationService {
   static const int _maxRetries = 2;
 
   final String apiKey;
+  final String examId;
+  final ExamDrivenConfigService _examConfigService =
+      ExamDrivenConfigService.instance;
   late final GenerativeModel model;
 
-  QuestionGenerationService({required this.apiKey}) {
+  QuestionGenerationService({required this.apiKey, this.examId = 'ustet'}) {
     model = GenerativeModel(
       model: 'gemini-2.5-flash-lite',
       apiKey: apiKey,
@@ -48,19 +52,27 @@ class QuestionGenerationService {
     String eligibility, {
     Map<int, String>? categoryMap,
   }) async {
+    await _examConfigService.ensureLoaded();
+
+    final systemPrompt = _examConfigService.systemPromptForExam(
+      examId: examId,
+      fallback:
+          'You are a USTET item writer. '
+          'Return VALID JSON ONLY. No markdown. No comments. '
+          'Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. '
+          'Never ask the student to identify the skill, category, competency, or lesson being tested. '
+          'Every item must have a solvable stem and one clearly correct answer. '
+          'Keep all options similar in length. '
+          'Never use combined-option wording like "A and B", "A and C", "both A and B", or "all of the above" in any choice text. '
+          'Never make the correct option obviously the longest or shortest by wording. '
+          'Use plausible distractors based on common student mistakes. '
+          'Distribute correct answers across A/B/C/D without obvious repeating patterns. '
+          'Use Unicode math symbols only when needed; avoid LaTeX and backslashes.',
+    );
+
     final content = [
       Content.text(
-        'You are a USTET item writer. '
-        'Return VALID JSON ONLY. No markdown. No comments. '
-        'Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. '
-        'Never ask the student to identify the skill, category, competency, or lesson being tested. '
-        'Every item must have a solvable stem and one clearly correct answer. '
-        'Keep all options similar in length. '
-        'Never use combined-option wording like "A and B", "A and C", "both A and B", or "all of the above" in any choice text. '
-        'Never make the correct option obviously the longest or shortest by wording. '
-        'Use plausible distractors based on common student mistakes. '
-        'Distribute correct answers across A/B/C/D without obvious repeating patterns. '
-        'Use Unicode math symbols only when needed; avoid LaTeX and backslashes.\n\n$prompt',
+        '$systemPrompt\n\n$prompt',
       ),
     ];
 

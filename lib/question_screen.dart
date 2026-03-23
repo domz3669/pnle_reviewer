@@ -1722,6 +1722,21 @@ class _QuestionScreenState extends State<QuestionScreen>
         hasAdFreeAccess: widget.hasAdFreeAccess,
         onReportContent: _reportContent,
         onUseBetterAI: () async {
+          final hasInternet = await _hasInternetConnection();
+          if (!hasInternet) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'No internet connection. Coach Note requires internet access.',
+                  style: GoogleFonts.outfit(),
+                ),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+            return;
+          }
+
           Navigator.pop(context);
 
           // Get user's selected answer text
@@ -1763,6 +1778,26 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   void _showExplanation() {
+    _showExplanationWithConnectivityCheck();
+  }
+
+  Future<void> _showExplanationWithConnectivityCheck() async {
+    final hasInternet = await _hasInternetConnection();
+    if (!mounted) return;
+
+    if (!hasInternet) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No internet connection. Coach Note requires internet access.',
+            style: GoogleFonts.outfit(),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     if (!widget.hasAdFreeAccess && !_canUseExplainWhy()) {
       if (!_canOfferExplainAdUnlock()) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1784,6 +1819,28 @@ class _QuestionScreenState extends State<QuestionScreen>
       countAsFreeUsage:
           !widget.hasAdFreeAccess && !_explainAdUnlockedForCurrentQuestion,
     );
+  }
+
+  Future<bool> _hasInternetConnection() async {
+    try {
+      final response = await http
+          .get(Uri.parse('https://clients3.google.com/generate_204'))
+          .timeout(const Duration(seconds: 3));
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        return true;
+      }
+    } catch (_) {}
+
+    try {
+      final response = await http
+          .get(Uri.parse('https://www.google.com'))
+          .timeout(const Duration(seconds: 3));
+      if (response.statusCode >= 200 && response.statusCode < 500) {
+        return true;
+      }
+    } catch (_) {}
+
+    return false;
   }
 }
 

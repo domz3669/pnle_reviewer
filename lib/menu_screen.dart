@@ -19,6 +19,7 @@ import 'models/question.dart';
 import 'models/pnle_key_areas.dart';
 import 'services/question_generation_service.dart';
 import 'services/deepseek_service.dart';
+import 'services/exam_driven_config_service.dart';
 import 'services/seed_question_pool_service.dart';
 import 'config/secrets.dart';
 import 'config/admob_ids.dart';
@@ -321,6 +322,12 @@ class MenuScreen extends StatefulWidget {
 }
 
 class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
+  // Change this for future app clones (e.g. "acet", "upcat").
+  static const String _activeExamId = 'ustet';
+
+  final ExamDrivenConfigService _examConfigService =
+      ExamDrivenConfigService.instance;
+
   // =========================
   // STATE
   // =========================
@@ -369,14 +376,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool hasGraceAccess = false;
   DateTime? graceAccessEndDate;
   // Daily tracking
-  int completedSessions = 0; // Out of 4 per day
-  int remainingFreeTests = 4; // Firebase-synced daily counter
+  int completedSessions = 0; // Out of daily target per day
+  int remainingFreeTests = 4; // Firebase-synced daily counter (fallback default)
   int _extraSessionAdChances = 2;
   DateTime? _nextExtraSessionAdRefillAt;
   static const int _maxExtraSessionAdChances = 2;
   static const Duration _extraSessionAdRefillDuration = Duration(hours: 2);
   Timer? _extraSessionAdRefillTicker;
-  int _zeroAdSessionsRemaining = 4; // First 4 sessions are ad-free
+  int _zeroAdSessionsRemaining = 4; // First daily-target sessions are ad-free
   String? _lastStreakRewardClaimDate;
   int _dailyTaskSessionsCompleted = 0;
   bool _dailyTaskHighScoreAchieved = false;
@@ -417,7 +424,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/',
       );
 
-  // Category scoring targets across 4 daily sessions.
+  // Category scoring targets across daily target sessions.
   Map<String, Map<String, dynamic>> categoryScores = {
     'Mental Ability': {'correct': 0, 'total': 8, 'weight': 0.20},
     'English': {'correct': 0, 'total': 20, 'weight': 0.30},
@@ -579,8 +586,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   bool get _hasSavedTestsData => _savedSessions.isNotEmpty;
 
+    int get _dailySessionTarget =>
+      _examConfigService.getExamConfig(_activeExamId)?.dailySessionTarget ?? 4;
+
   bool get _canClaimStreakRewardToday =>
-      completedSessions >= 4 &&
+      completedSessions >= _dailySessionTarget &&
       _lastStreakRewardClaimDate != _getTodayDateString();
 
   // Motivational quotes for daily encouragement
@@ -616,6 +626,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    remainingFreeTests = _dailySessionTarget;
+    _zeroAdSessionsRemaining = _dailySessionTarget;
+    unawaited(_examConfigService.ensureLoaded());
     _ensurePnleCategoryScores();
     WidgetsBinding.instance.addObserver(this);
     _homeScrollController = ScrollController();
@@ -1500,6 +1513,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     unawaited(_persistMistakeQueue());
   }
 
+  bool _shouldQueueMistakesFromResult(Map<String, dynamic> results) {
+    final shouldRecord = results['recordResults'];
+    if (shouldRecord is bool && !shouldRecord) return false;
+
+    final mode = results['testMode'];
+    if (mode is! String) return false;
+
+    return mode == 'randomQuiz' ||
+        mode == 'focusMode' ||
+        mode == 'challenge' ||
+        mode == 'timedExam';
+  }
+
   Future<void> _loadPausedQuizSession() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1570,7 +1596,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _savePausedSessionFromResult(Map<String, dynamic> result) async {
-    _appendMistakesFromResult(result);
+    if (_shouldQueueMistakesFromResult(result)) {
+      _appendMistakesFromResult(result);
+    }
 
     final raw = result['resumeState'];
     if (raw is! Map) return;
@@ -1991,7 +2019,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _pruneQuizActivityRecords();
 
     // --- Free tests (same day only) ---
-    final remoteRemaining = (data['remainingFreeTests'] as num?)?.toInt() ?? 4;
+    final remoteRemaining =
+      (data['remainingFreeTests'] as num?)?.toInt() ?? _dailySessionTarget;
     final remoteResetDate = data['lastFreeTestResetDate'] as String?;
     if (remoteResetDate != null) {
       final resetDate = DateTime.tryParse(remoteResetDate);
@@ -2001,7 +2030,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         if (todayOnly.isAtSameMomentAs(resetDayOnly)) {
           remainingFreeTests = min(remainingFreeTests, remoteRemaining);
         } else {
-          remainingFreeTests = 4;
+          remainingFreeTests = _dailySessionTarget;
         }
       }
     }
@@ -2275,32 +2304,33 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             if (!mounted) return;
             setState(() {
               if (today.isAfter(lastResetDay)) {
-                // New day - reset to 4
-                remainingFreeTests = 4;
+                // New day - reset to configured daily target
+                remainingFreeTests = _dailySessionTarget;
               } else {
                 // Same day - restore from server
-                remainingFreeTests = (data['remaining'] as int?) ?? 4;
+                remainingFreeTests =
+                    (data['remaining'] as int?) ?? _dailySessionTarget;
               }
             });
 
             // Update server date if new day
             if (today.isAfter(lastResetDay)) {
               await ref.update({
-                'remaining': 4,
+                'remaining': _dailySessionTarget,
                 'lastResetDate': today.toIso8601String(),
               });
               final prefs = await SharedPreferences.getInstance();
-              await prefs.setInt('remainingFreeTests', 4);
+              await prefs.setInt('remainingFreeTests', _dailySessionTarget);
               await prefs.setString(
                   'lastFreeTestResetDate', today.toIso8601String());
             }
           } else {
             await ref.update({
-              'remaining': 4,
+              'remaining': _dailySessionTarget,
               'lastResetDate': today.toIso8601String(),
             });
             final prefs = await SharedPreferences.getInstance();
-            await prefs.setInt('remainingFreeTests', 4);
+            await prefs.setInt('remainingFreeTests', _dailySessionTarget);
             await prefs.setString(
                 'lastFreeTestResetDate', today.toIso8601String());
           }
@@ -2333,13 +2363,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final ref = db.ref('devices/$_deviceId/freeTests');
 
       await ref.set({
-        'remaining': 4,
+        'remaining': _dailySessionTarget,
         'lastResetDate': today.toIso8601String(),
         'createdAt': DateTime.now().toIso8601String(),
       });
 
       if (!mounted) return;
-      setState(() => remainingFreeTests = 4);
+      setState(() => remainingFreeTests = _dailySessionTarget);
 
       debugPrint('Initialized free tests in Realtime DB');
     } catch (e) {
@@ -2358,7 +2388,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (lastResetDateStr == null) {
         await prefs.setString('lastFreeTestResetDate', today.toIso8601String());
         if (!mounted) return;
-        setState(() => remainingFreeTests = 4);
+        setState(() => remainingFreeTests = _dailySessionTarget);
         return;
       }
 
@@ -2369,14 +2399,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         if (today.isAfter(lastResetDay)) {
-          remainingFreeTests = 4;
+          remainingFreeTests = _dailySessionTarget;
         } else {
-          remainingFreeTests = prefs.getInt('remainingFreeTests') ?? 4;
+          remainingFreeTests =
+              prefs.getInt('remainingFreeTests') ?? _dailySessionTarget;
         }
       });
 
       if (today.isAfter(lastResetDay)) {
-        await prefs.setInt('remainingFreeTests', 4);
+        await prefs.setInt('remainingFreeTests', _dailySessionTarget);
         await prefs.setString('lastFreeTestResetDate', today.toIso8601String());
       }
     } catch (e) {
@@ -2563,7 +2594,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showStreakRewardClaimDialogIfEligible() async {
-    if (!mounted || completedSessions < 4) return;
+    if (!mounted || completedSessions < _dailySessionTarget) return;
     if (!_requireOnlineForProgressAction('claim your streak reward')) return;
 
     final todayKey = _getTodayDateString();
@@ -2618,7 +2649,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'You completed all 4 sessions today. Claim +1 free session now?',
+                    'You completed all $_dailySessionTarget sessions today. Claim +1 free session now?',
                     style: GoogleFonts.outfit(
                       color: Colors.white.withValues(alpha: 0.88),
                       fontWeight: FontWeight.w500,
@@ -2837,7 +2868,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _claimFourSessionTaskReward() async {
     if (!_canClaimStreakRewardToday) return;
-    if (!_requireOnlineForProgressAction('claim your 4-session reward')) return;
+    if (!_requireOnlineForProgressAction(
+      'claim your $_dailySessionTarget-session reward',
+    )) {
+      return;
+    }
 
     final todayKey = _getTodayDateString();
     setState(() {
@@ -4096,30 +4131,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'Random quiz style: mixed difficulty with clear wording and strong fundamentals.',
     };
 
-    return '''
-Generate exactly $count multiple-choice questions for USTET practice.
-
-Category: $category
-$modeInstruction
-
-Constraints:
-- Return strict JSON array only (no markdown):
-[
-  {
-    "number": 1,
-    "category": "$category",
-    "question": "...",
-    "choices": ["A", "B", "C", "D"],
-    "answer": "A",
-    "explanation": "2-3 sentence concise rationale",
-    "source": "seed_refill"
-  }
-]
-- Exactly 4 choices per question.
-- One correct answer only, answer must be A/B/C/D.
-- Keep questions age-appropriate for Filipino SHS and college admission prep.
-- Avoid duplicates and avoid requiring images or tables.
-''';
+    return _examConfigService.buildSeedRefillPrompt(
+      examId: _activeExamId,
+      mode: mode,
+      category: category,
+      count: count,
+      fallbackModeInstruction: modeInstruction,
+      fallbackTemplate:
+          'Generate exactly {{count}} multiple-choice questions for USTET practice.\n\nCategory: {{category}}\n{{modeInstruction}}\n\nConstraints:\n- Return strict JSON array only (no markdown):\n[\n  {\n    "number": 1,\n    "category": "{{category}}",\n    "question": "...",\n    "choices": ["A", "B", "C", "D"],\n    "answer": "A",\n    "explanation": "2-3 sentence concise rationale",\n    "source": "seed_refill"\n  }\n]\n- Exactly 4 choices per question.\n- One correct answer only, answer must be A/B/C/D.\n- Keep questions age-appropriate for Filipino SHS and college admission prep.\n- Avoid duplicates and avoid requiring images or tables.',
+    );
   }
 
   Future<void> _primeChallengeCacheIfEligible({bool force = false}) async {
@@ -4280,7 +4300,7 @@ Constraints:
       _updateTestResults(result);
       if (nextAction == 'menu') {
         setState(() {
-          currentScreen = 2;
+          currentScreen = session.testMode == 'reviewMistakes' ? 0 : 2;
         });
       }
     }
@@ -4408,20 +4428,25 @@ Constraints:
       return;
     }
 
-    if (result is Map<String, dynamic>) {
-      final nextAction = result['nextAction'];
-      if (nextAction == 'playAgain') {
-        await _startReviewMistakesSession();
-        return;
-      }
-    }
-
     final consumed = min(15, _mistakeQueue.length);
     if (consumed > 0) {
       setState(() {
         _mistakeQueue.removeRange(0, consumed);
       });
       unawaited(_persistMistakeQueue());
+    }
+
+    if (result is Map<String, dynamic>) {
+      final nextAction = result['nextAction'];
+      if (nextAction == 'playAgain') {
+        await _startReviewMistakesSession();
+        return;
+      }
+      if (nextAction == 'menu' && mounted) {
+        setState(() {
+          currentScreen = 0;
+        });
+      }
     }
   }
 
@@ -5034,6 +5059,20 @@ Constraints:
     }
   }
 
+  List<String> _recommendedKeyAreasForCategory(
+    String category, {
+    int count = 3,
+  }) {
+    final topics = keyAreas[category] ?? const <String>[];
+    if (topics.isEmpty) return const <String>[];
+
+    final now = DateTime.now();
+    final seed =
+        now.year * 10000 + now.month * 100 + now.day + category.hashCode;
+    final shuffled = List<String>.from(topics)..shuffle(Random(seed));
+    return shuffled.take(min(count, shuffled.length)).toList();
+  }
+
   String _readinessPrimaryFeedback() {
     final categories = _categoriesForEligibility();
     String? priorityCategory;
@@ -5061,7 +5100,12 @@ Constraints:
 
     if (priorityCategory != null) {
       final gap = (priorityTarget - priorityPercent).clamp(0, 100).toStringAsFixed(1);
-      return 'Priority insight for $eligibility: $priorityCategory target is $priorityTarget%. You are at ${priorityPercent.toStringAsFixed(1)}% (gap: $gap%).';
+      final keyAreasToReview =
+          _recommendedKeyAreasForCategory(priorityCategory).join(', ');
+      final keyAreaLine = keyAreasToReview.isEmpty
+          ? ''
+          : ' Recommended key areas to review now: $keyAreasToReview.';
+      return 'Priority insight for $eligibility: $priorityCategory target is $priorityTarget%. You are at ${priorityPercent.toStringAsFixed(1)}% (gap: $gap%).$keyAreaLine';
     }
 
     final avgTarget = categories.isEmpty
@@ -5305,37 +5349,43 @@ Constraints:
                   fontSize: 13,
                 ),
               ),
-              const Spacer(),
-              InkWell(
-                onTap: _showSpecializationSelectionDialog,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    Icons.edit_rounded,
-                    color: Colors.white.withValues(alpha: 0.9),
-                    size: 16,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.11),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _showSpecializationSelectionDialog,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-            ),
-            child: Text(
-              eligibility.toUpperCase(),
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-                letterSpacing: 0.4,
+              child: Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.11),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      eligibility.toUpperCase(),
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.edit_rounded,
+                      color: Colors.white.withValues(alpha: 0.9),
+                      size: 16,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -6339,7 +6389,9 @@ Constraints:
   }) {
     if (results is! Map<String, dynamic>) return;
 
-    _appendMistakesFromResult(results);
+    if (_shouldQueueMistakesFromResult(results)) {
+      _appendMistakesFromResult(results);
+    }
 
     final resultMode = results['testMode'] as String?;
     final dynamicCorrectCount = results['correctCount'];
@@ -6386,9 +6438,9 @@ Constraints:
 
     if (correctCount == null || totalCount == null) return;
 
-    // Only the first 4 sessions affect today's readiness bucket,
+    // Only the first daily-target sessions affect today's readiness bucket,
     // but all sessions must still be recorded for 10-day analytics.
-    final countsTowardDailyReadiness = completedSessions < 4;
+    final countsTowardDailyReadiness = completedSessions < _dailySessionTarget;
 
     var shouldUpdateStreak = false;
     final hadChallengeUnlock = _hasUnlockedAdvancedModes;
@@ -6398,7 +6450,7 @@ Constraints:
         // Increment completed sessions
         completedSessions++;
 
-        // Accumulate category scores across the 4-session daily cap.
+        // Accumulate category scores across the daily-target cap.
         correctCount.forEach((category, correct) {
           if (categoryScores.containsKey(category)) {
             final currentCorrect = categoryScores[category]!['correct'] as int;
@@ -6410,8 +6462,8 @@ Constraints:
           }
         });
 
-        // Only update streak when user reaches the 4-session daily goal.
-        if (completedSessions == 4) {
+        // Only update streak when user reaches the configured daily goal.
+        if (completedSessions == _dailySessionTarget) {
           shouldUpdateStreak = true;
         }
       }
@@ -6821,6 +6873,40 @@ Constraints:
         barrierColor: Colors.black87,
         builder: (_) => StatefulBuilder(
           builder: (context, setDialogState) {
+              Future<bool> ensureOnlineForDialogAction(String actionName) async {
+                if (_isOnline) return true;
+                await showDialog<void>(
+                  context: context,
+                  barrierColor: Colors.black87,
+                  builder: (_) => AlertDialog(
+                    backgroundColor: PnleTheme.bgTop,
+                    title: Text(
+                      'Internet Required',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    content: Text(
+                      'Please reconnect to the internet to $actionName.',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white.withValues(alpha: 0.88),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(
+                          'OK',
+                          style: GoogleFonts.outfit(color: PnleTheme.accent),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+                return false;
+              }
+
             Future<void> refreshDialog({bool forcePersist = false}) async {
               if (isDialogRefreshing) return;
               isDialogRefreshing = true;
@@ -6904,6 +6990,11 @@ Constraints:
                                   actionLabel: 'Watch',
                                   enabled: canWatchAd,
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'watch an ad for a bonus session',
+                                    )) {
+                                      return;
+                                    }
                                     await _watchRewardedAdForExtraQuiz();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -6911,8 +7002,10 @@ Constraints:
                                 const SizedBox(height: 10),
                                 _sessionTaskTile(
                                   icon: Icons.local_fire_department_rounded,
-                                  title: 'Complete 4 sessions today',
-                                  subtitle: '$completedSessions/4 completed',
+                                  title:
+                                    'Complete $_dailySessionTarget sessions today',
+                                  subtitle:
+                                    '$completedSessions/$_dailySessionTarget completed',
                                   actionLabel: _canClaimStreakRewardToday
                                       ? 'Claim'
                                       : 'Claimed',
@@ -6921,6 +7014,11 @@ Constraints:
                                       _lastStreakRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'claim this free session',
+                                    )) {
+                                      return;
+                                    }
                                     await _claimFourSessionTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -6942,6 +7040,11 @@ Constraints:
                                       _lastEightSessionRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'claim this free session',
+                                    )) {
+                                      return;
+                                    }
                                     await _claimEightSessionTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -6963,6 +7066,11 @@ Constraints:
                                       _lastFocusRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'claim this free session',
+                                    )) {
+                                      return;
+                                    }
                                     await _claimFocusTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -6984,6 +7092,11 @@ Constraints:
                                       _lastChallengeRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'claim this free session',
+                                    )) {
+                                      return;
+                                    }
                                     await _claimChallengeTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7005,6 +7118,11 @@ Constraints:
                                       _lastTimedExamRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'claim this free session',
+                                    )) {
+                                      return;
+                                    }
                                     await _claimTimedExamTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7026,6 +7144,11 @@ Constraints:
                                       _lastThirtyAnswersRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'claim this free session',
+                                    )) {
+                                      return;
+                                    }
                                     await _claimThirtyAnswersTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7048,6 +7171,11 @@ Constraints:
                                       _lastHighScoreRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
+                                    if (!await ensureOnlineForDialogAction(
+                                      'claim this free session',
+                                    )) {
+                                      return;
+                                    }
                                     await _claimHighScoreTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7306,10 +7434,10 @@ Constraints:
           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
           constraints: const BoxConstraints(maxWidth: 500, maxHeight: 700),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
+            gradient: const LinearGradient(
               colors: [
-                PnleTheme.bgTop.withValues(alpha: 0.98),
-                PnleTheme.bgBottom.withValues(alpha: 0.98),
+                PnleTheme.bgTop,
+                PnleTheme.bgBottom,
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -7329,11 +7457,9 @@ Constraints:
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(26),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                   // Header
                   Container(
                     padding: const EdgeInsets.all(24),
@@ -7348,6 +7474,7 @@ Constraints:
                             fontWeight: FontWeight.w700,
                             fontSize: 20,
                             letterSpacing: 0.5,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
@@ -7473,7 +7600,6 @@ Constraints:
                     ),
                   ),
                 ],
-              ),
             ),
           ),
         ),
@@ -7670,7 +7796,7 @@ Constraints:
           Row(
             children: [
               _buildStudyHubMetric(
-                value: '$completedSessions/4',
+                value: '$completedSessions/$_dailySessionTarget',
                 label: 'Today',
               ),
               const SizedBox(width: 8),
@@ -7939,7 +8065,9 @@ Constraints:
                           !_poolWarmupChecked
                               ? 'Checking offline question pool status...'
                               : (_poolWarmupComplete
-                                  ? 'Offline pool warmed up: all mode buckets are fully ready (Random, Focus, Challenge, Timed).'
+                                  ? (_isOnline
+                                      ? 'Offline pool warmed up: all mode buckets are fully ready (Random, Focus, Challenge, Timed).'
+                                      : 'Offline pool warmed up for all modes, but internet is still required to start sessions and sync progress.')
                                   : 'Offline pool warm-up in progress: $_poolWarmupReadyBuckets/$totalWarmupBuckets buckets ready.'),
                           style: GoogleFonts.outfit(
                             color: Colors.white,
@@ -8025,7 +8153,7 @@ Constraints:
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Sessions: $completedSessions/4',
+                              'Sessions: $completedSessions/$_dailySessionTarget',
                               style: GoogleFonts.outfit(
                                 color: Colors.white.withValues(alpha: 0.9),
                                 fontSize: 13,
@@ -8666,32 +8794,17 @@ Constraints:
                   fontSize: 14,
                 ),
               ),
+              const SizedBox(height: 12),
+              _objectiveCard(
+                text:
+                    'Complete $_dailySessionTarget new sessions today to finish your daily assessment.',
+                progress:
+                    (completedSessions / _dailySessionTarget).clamp(0.0, 1.0),
+                trailing: '$completedSessions/$_dailySessionTarget',
+              ),
               const SizedBox(height: 24),
               _buildCourseReadinessCard(),
-              const SizedBox(height: 20),
-              Text(
-                'TODAY\'S OBJECTIVES',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                  letterSpacing: 1.1,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _objectiveCard(
-                text: 'Complete 4 new sessions today.',
-                progress: completedSessions / 4,
-                trailing: '$completedSessions/4',
-              ),
-              const SizedBox(height: 12),
-              _objectiveCard(
-                text: 'Maintain overall average of at least 65%.',
-                progress: _calculateTotalAverage() / 100,
-                trailing: _getTotalAverageText(),
-                trailingColor: _getTotalAverageColor(),
-              ),
+              const SizedBox(height: 16),
               if (!hasData) ...[
                 const SizedBox(height: 40),
                 Icon(
@@ -9130,7 +9243,9 @@ Constraints:
                       final questions = day['questions'] as int;
                       final correct = day['correct'] as int;
                       final hasActivity = quizzes > 0;
-                      final isComplete = quizzes >= 4; // Must complete 4 tests
+                      final dailyTarget = _dailySessionTarget;
+                      final isComplete =
+                          quizzes >= dailyTarget; // Must complete target tests
 
                       // Calculate percentage and status
                       String statusText;
@@ -9140,12 +9255,12 @@ Constraints:
                         statusColor = Colors.white.withValues(alpha: 0.4);
                       } else if (!isComplete) {
                         final dayOverallAvg = _calculateDayOverallAverage(day);
-                        final missingSessions = 4 - quizzes;
+                        final missingSessions = dailyTarget - quizzes;
                         final accuracyData = questions > 0
                             ? '${correct.clamp(0, questions)}/$questions correct'
                             : '${dayOverallAvg.toStringAsFixed(0)}% average so far';
                         statusText =
-                            'Incomplete: $quizzes/4 sessions. Need $missingSessions more to evaluate readiness. Accuracy: $accuracyData.';
+                          'Incomplete: $quizzes/$dailyTarget sessions. Need $missingSessions more to evaluate readiness. Accuracy: $accuracyData.';
                         statusColor = const Color(0xFFFFA726);
                       } else {
                         final dayOverallAvg = _calculateDayOverallAverage(day);
@@ -9156,11 +9271,11 @@ Constraints:
                             : '${dayOverallAvg.toStringAsFixed(0)}% average';
                         if (_isDayCourseReady(day)) {
                           statusText =
-                              'Ready: 4/4 sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (met).';
+                              'Ready: $dailyTarget/$dailyTarget sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (met).';
                           statusColor = const Color(0xFF34D399);
                         } else {
                           statusText =
-                              'Not ready: 4/4 sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (needs 100%).';
+                              'Not ready: $dailyTarget/$dailyTarget sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (needs 100%).';
                           statusColor = const Color(0xFFFF6B6B);
                         }
                       }
@@ -9643,13 +9758,14 @@ Constraints:
 
     // Get weighted overall average across USTET categories.
     final weightedAvg = _calculateTotalAverage();
+    final dailyTarget = _dailySessionTarget;
 
     // Show cumulative format with session indicator
     final cumulativeText = totalQuestions > 0
-      ? '$totalCorrect/$totalQuestions | Session $completedSessions/4'
-      : '0/0 | Session 0/4';
+      ? '$totalCorrect/$totalQuestions | Session $completedSessions/$dailyTarget'
+      : '0/0 | Session 0/$dailyTarget';
 
-    if (completedSessions < 4) {
+    if (completedSessions < dailyTarget) {
       return '$cumulativeText\n${weightedAvg.toStringAsFixed(1)}% (Weighted) - Incomplete';
     } else if (weightedAvg >= 65) {
       return '$cumulativeText\n${weightedAvg.toStringAsFixed(1)}% (Weighted) - PASSED';
@@ -9660,8 +9776,9 @@ Constraints:
 
   Color _getTotalAverageColor() {
     final avg = _calculateTotalAverage();
+    final dailyTarget = _dailySessionTarget;
 
-    if (completedSessions < 4) {
+    if (completedSessions < dailyTarget) {
       return Colors.amber;
     } else if (avg >= 65) {
       return Colors.green;
@@ -10256,37 +10373,24 @@ void _showLimitReachedDialog() {
     final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
     final scienceTopic = coverage['Science'] ?? 'General science topics';
 
-    return '''Generate 15 USTET-style multiple-choice questions as raw JSON only.
+    final questionCount = _examConfigService
+            .getModeConfig(_activeExamId, 'randomQuiz')
+            ?.questionCount ??
+        15;
 
-Format:
-{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
-
-Distribution:
-Q1-2 Mental Ability questions specifically about this key area: $mentalAbilityTopic
-Q3-7 English questions specifically about this key area: $englishTopic
-Q8-11 Mathematics questions specifically about this key area: $mathTopic
-Q12-15 Science questions specifically about this key area: $scienceTopic
-
-Rules:
-- Exactly 4 choices per question
-- Correct answer must be one of A/B/C/D
-- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
-- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation
-- No direct recall or pure definition items; require interpretation, application, comparison, inference, or computation
-- Mental Ability items must use patterns, series, analogy, classification, spatial reasoning, or logic
-- English items may include grammar, vocabulary, sentence logic, paragraph logic, or reading; only 2-3 items should be passage-based and each passage should be 60-120 words; do not use cross-reference words like previous, above, below, earlier, or as mentioned
-- Math items must involve arithmetic, algebra, geometry, word problems, or quantitative reasoning with actual solving required
-- Science items must involve biology, chemistry, physics, or earth science with interpretation, mechanism reasoning, experiment reasoning, or data analysis
-- Choices must be short phrases or short clauses with balanced length and tone
-- At least one wrong choice must be as long as or longer than the correct choice
-- Use plausible distractors based on common student misconceptions
-- Avoid giveaway wording patterns
-- Do not make the correct answer obviously longest or shortest
-- Randomize answer letters across A/B/C/D without obvious streaks
-- Use Unicode math symbols only; no LaTeX or backslashes
-- No markdown, no asterisks, no extra text
-- Return JSON only''';
+    return _examConfigService.renderPrompt(
+      examId: _activeExamId,
+      mode: 'randomQuiz',
+      values: {
+        'questionCount': '$questionCount',
+        'mentalAbilityTopic': mentalAbilityTopic,
+        'englishTopic': englishTopic,
+        'mathTopic': mathTopic,
+        'scienceTopic': scienceTopic,
+      },
+      fallbackTemplate:
+          'Generate {{questionCount}} USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-2 Mental Ability questions specifically about this key area: {{mentalAbilityTopic}}\nQ3-7 English questions specifically about this key area: {{englishTopic}}\nQ8-11 Mathematics questions specifically about this key area: {{mathTopic}}\nQ12-15 Science questions specifically about this key area: {{scienceTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\n- No direct recall or pure definition items; require interpretation, application, comparison, inference, or computation\n- Mental Ability items must use patterns, series, analogy, classification, spatial reasoning, or logic\n- English items may include grammar, vocabulary, sentence logic, paragraph logic, or reading; only 2-3 items should be passage-based and each passage should be 60-120 words; do not use cross-reference words like previous, above, below, earlier, or as mentioned\n- Math items must involve arithmetic, algebra, geometry, word problems, or quantitative reasoning with actual solving required\n- Science items must involve biology, chemistry, physics, or earth science with interpretation, mechanism reasoning, experiment reasoning, or data analysis\n- Choices must be short phrases or short clauses with balanced length and tone\n- At least one wrong choice must be as long as or longer than the correct choice\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+    );
   }
 
   String _buildFocusPrompt(String focusCategory) {
@@ -10305,35 +10409,23 @@ Rules:
       return '$cat: $topic';
     }).join(' | ');
 
-    return '''Generate 15 USTET-style multiple-choice questions as raw JSON only.
+    final questionCount = _examConfigService
+            .getModeConfig(_activeExamId, 'focusMode')
+            ?.questionCount ??
+        15;
 
-Format:
-{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
-
-Distribution:
-Q1-10 focus category: $focusCategory
-Q1-10 key area: $focusTopic
-Q11-15 mixed from: $otherText
-
-Rules:
-- Exactly 4 choices per question
-- Correct answer must be one of A/B/C/D
-- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
-- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation
-- Use practical USTET-style scenarios with application and analysis
-- Q1-10 must strongly match the focus category and focus topic while still being real exam items, not lesson labels
-- Q11-15 must be mixed supporting questions from the listed other categories
-- Keep wording concise and academically accurate
-- Keep choices similar in length and tone
-- Make distractors plausible based on common student misconceptions
-- Avoid giveaway wording like always, never, or obvious textbook clues
-- Vary stem style using analysis, inference, best answer, comparison, or problem-solving
-- Do not make the correct answer obviously longest or shortest by wording
-- Randomize answer letters across A/B/C/D without obvious streaks
-- Use Unicode math symbols only when needed; avoid LaTeX and backslashes
-- No markdown, no asterisks, no extra text
-- Return JSON only''';
+    return _examConfigService.renderPrompt(
+      examId: _activeExamId,
+      mode: 'focusMode',
+      values: {
+        'questionCount': '$questionCount',
+        'focusCategory': focusCategory,
+        'focusTopic': focusTopic,
+        'otherText': otherText,
+      },
+      fallbackTemplate:
+          'Generate {{questionCount}} USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-10 focus category: {{focusCategory}}\nQ1-10 key area: {{focusTopic}}\nQ11-15 mixed from: {{otherText}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\n- Use practical USTET-style scenarios with application and analysis\n- Q1-10 must strongly match the focus category and focus topic while still being real exam items, not lesson labels\n- Q11-15 must be mixed supporting questions from the listed other categories\n- Keep wording concise and academically accurate\n- Keep choices similar in length and tone\n- Make distractors plausible based on common student misconceptions\n- Avoid giveaway wording like always, never, or obvious textbook clues\n- Vary stem style using analysis, inference, best answer, comparison, or problem-solving\n- Do not make the correct answer obviously longest or shortest by wording\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only when needed; avoid LaTeX and backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+    );
   }
 
   String _buildChallengeModePrompt(String focusCategory) {
@@ -10346,39 +10438,24 @@ Rules:
     final mathTopic = _pickRandomKeyArea('Mathematics');
     final scienceTopic = _pickRandomKeyArea('Science');
 
-    return '''Generate 15 hard USTET-style multiple-choice questions as raw JSON only.
+    final questionCount = _examConfigService
+            .getModeConfig(_activeExamId, 'challenge')
+            ?.questionCount ??
+        15;
 
-Format:
-{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
-
-Distribution:
-Q1-4 Mental Ability questions specifically about this key area: $mentalAbilityTopic
-Q5-8 English questions specifically about this key area: $englishTopic
-Q9-12 Mathematics questions specifically about this key area: $mathTopic
-Q13-15 Science questions specifically about this key area: $scienceTopic
-
-Rules:
-- Exactly 4 choices per question
-- Correct answer must be one of A/B/C/D
-- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
-- Each item must be a real exam-style question with one clearly correct answer
-- Challenge items must be harder than random mode and should require deeper analysis, multi-step reasoning, stronger inference, or more careful comparison
-- No direct recall or pure definition items
-- Mental Ability items should emphasize harder patterns, layered analogy, logic chains, or less obvious series
-- English items should emphasize inference, sentence logic, paragraph logic, grammar traps, vocabulary in context, or deeper reading analysis
-- Math items should emphasize multi-step arithmetic, algebra, geometry, quantitative reasoning, or word problems that require careful setup
-- Science items should emphasize mechanism reasoning, interpretation of scenarios, experiment logic, cause-and-effect, or data analysis
-- Keep wording concise but cognitively demanding
-- Choices must be similar in length and tone
-- At least one incorrect choice must be as long as or longer than the correct answer
-- Use plausible distractors based on common student misconceptions
-- Avoid giveaway wording patterns
-- Do not make the correct answer obviously longest or shortest
-- Randomize answer letters across A/B/C/D without obvious streaks
-- Use Unicode math symbols only; no LaTeX or backslashes
-- No markdown, no asterisks, no extra text
-- Return JSON only''';
+    return _examConfigService.renderPrompt(
+      examId: _activeExamId,
+      mode: 'challenge',
+      values: {
+        'questionCount': '$questionCount',
+        'mentalAbilityTopic': mentalAbilityTopic,
+        'englishTopic': englishTopic,
+        'mathTopic': mathTopic,
+        'scienceTopic': scienceTopic,
+      },
+      fallbackTemplate:
+          'Generate {{questionCount}} hard USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 Mental Ability questions specifically about this key area: {{mentalAbilityTopic}}\nQ5-8 English questions specifically about this key area: {{englishTopic}}\nQ9-12 Mathematics questions specifically about this key area: {{mathTopic}}\nQ13-15 Science questions specifically about this key area: {{scienceTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with one clearly correct answer\n- Challenge items must be harder than random mode and should require deeper analysis, multi-step reasoning, stronger inference, or more careful comparison\n- No direct recall or pure definition items\n- Mental Ability items should emphasize harder patterns, layered analogy, logic chains, or less obvious series\n- English items should emphasize inference, sentence logic, paragraph logic, grammar traps, vocabulary in context, or deeper reading analysis\n- Math items should emphasize multi-step arithmetic, algebra, geometry, quantitative reasoning, or word problems that require careful setup\n- Science items should emphasize mechanism reasoning, interpretation of scenarios, experiment logic, cause-and-effect, or data analysis\n- Keep wording concise but cognitively demanding\n- Choices must be similar in length and tone\n- At least one incorrect choice must be as long as or longer than the correct answer\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+    );
   }
 
   String _buildTimedModePrompt() {
@@ -10404,39 +10481,24 @@ Rules:
     final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
     final scienceTopic = coverage['Science'] ?? 'General science topics';
 
-    return '''Generate 15 timed-practice USTET-style multiple-choice questions as raw JSON only.
+    final questionCount = _examConfigService
+            .getModeConfig(_activeExamId, 'timedExam')
+            ?.questionCount ??
+        15;
 
-Format:
-{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}
-
-Distribution:
-Q1-2 Mental Ability questions specifically about this key area: $mentalAbilityTopic
-Q3-7 English questions specifically about this key area: $englishTopic
-Q8-11 Mathematics questions specifically about this key area: $mathTopic
-Q12-15 Science questions specifically about this key area: $scienceTopic
-
-Rules:
-Exactly 4 choices per question
-Correct answer must be one of A/B/C/D
-Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"
-Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested
-Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation
-Timed mode items must be medium difficulty, concise, and realistically answerable under time pressure
-Prefer shorter stems, faster recognition, shorter computation, and clean wording
-No direct recall or pure definition items
-Mental Ability items should favor series, patterns, analogy, classification, or quick logic
-English items should favor concise grammar, vocabulary in context, sentence logic, short reading, or paragraph logic
-Math items should favor shorter arithmetic, algebra, geometry, or word problems that can be solved quickly but still require thinking
-Science items should favor brief interpretation, mechanism reasoning, practical science scenarios, or simple data reasoning
-Choices must be short phrases or short clauses with balanced length and tone
-At least one wrong choice must be as long as or longer than the correct choice
-Use plausible distractors based on common student misconceptions
-Avoid giveaway wording patterns
-Do not make the correct answer obviously longest or shortest
-Randomize answer letters across A/B/C/D without obvious streaks
-Use Unicode math symbols only; no LaTeX or backslashes
-No markdown, no asterisks, no extra text
-Return JSON only''';
+    return _examConfigService.renderPrompt(
+      examId: _activeExamId,
+      mode: 'timedExam',
+      values: {
+        'questionCount': '$questionCount',
+        'mentalAbilityTopic': mentalAbilityTopic,
+        'englishTopic': englishTopic,
+        'mathTopic': mathTopic,
+        'scienceTopic': scienceTopic,
+      },
+      fallbackTemplate:
+          'Generate {{questionCount}} timed-practice USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-2 Mental Ability questions specifically about this key area: {{mentalAbilityTopic}}\nQ3-7 English questions specifically about this key area: {{englishTopic}}\nQ8-11 Mathematics questions specifically about this key area: {{mathTopic}}\nQ12-15 Science questions specifically about this key area: {{scienceTopic}}\n\nRules:\nExactly 4 choices per question\nCorrect answer must be one of A/B/C/D\nNever write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\nDo not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\nEach item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\nTimed mode items must be medium difficulty, concise, and realistically answerable under time pressure\nPrefer shorter stems, faster recognition, shorter computation, and clean wording\nNo direct recall or pure definition items\nMental Ability items should favor series, patterns, analogy, classification, or quick logic\nEnglish items should favor concise grammar, vocabulary in context, sentence logic, short reading, or paragraph logic\nMath items should favor shorter arithmetic, algebra, geometry, or word problems that can be solved quickly but still require thinking\nScience items should favor brief interpretation, mechanism reasoning, practical science scenarios, or simple data reasoning\nChoices must be short phrases or short clauses with balanced length and tone\nAt least one wrong choice must be as long as or longer than the correct choice\nUse plausible distractors based on common student misconceptions\nAvoid giveaway wording patterns\nDo not make the correct answer obviously longest or shortest\nRandomize answer letters across A/B/C/D without obvious streaks\nUse Unicode math symbols only; no LaTeX or backslashes\nNo markdown, no asterisks, no extra text\nReturn JSON only',
+    );
   }
 }
 
