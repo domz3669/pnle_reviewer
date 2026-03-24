@@ -6,6 +6,8 @@ import 'utils/responsive.dart';
 
 class ExplanationDialog extends StatefulWidget {
   final Future<String> Function() onGenerate;
+  final String? initialExplanation;
+  final bool isStoredExplanation;
   final String userAnswer;
   final String correctAnswer;
   final bool isCorrect;
@@ -16,6 +18,8 @@ class ExplanationDialog extends StatefulWidget {
   const ExplanationDialog({
     super.key,
     required this.onGenerate,
+    this.initialExplanation,
+    this.isStoredExplanation = false,
     required this.userAnswer,
     required this.correctAnswer,
     required this.isCorrect,
@@ -38,6 +42,13 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
   @override
   void initState() {
     super.initState();
+    final initialExplanation = widget.initialExplanation?.trim();
+    if (initialExplanation != null && initialExplanation.isNotEmpty) {
+      explanation = initialExplanation;
+      isGenerating = false;
+      counter = 100;
+      return;
+    }
     _startGeneration();
   }
 
@@ -180,7 +191,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Preparing your AI coaching notes...',
+                      'Preparing your Coach Note...',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(16),
@@ -190,7 +201,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'These coaching notes are generated online and may vary by question.',
+                      'This note is generated online when the question does not already include a saved explanation.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(13),
@@ -363,7 +374,9 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    'Coaching notes are for review guidance. Please verify with trusted references.',
+                                    widget.isStoredExplanation
+                                        ? 'This Coach Note comes from the question\'s saved explanation. Please verify with trusted references.'
+                                        : 'This Coach Note is generated online for review guidance. Please verify with trusted references.',
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(12),
                                       color: Colors.white.withOpacity(0.6),
@@ -396,51 +409,50 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                       const SizedBox(height: 16),
 
                       // Not satisfied section
-                      Text(
-                        'Need a deeper breakdown?',
-                        style: GoogleFonts.outfit(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: r.fontSize(14),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      // Enhanced explanation button
-                      ElevatedButton(
-                        onPressed: widget.onUseBetterAI,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: PnleTheme.bgTop,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
+                      if (widget.onUseBetterAI != null) ...[
+                        Text(
+                          'Need a deeper breakdown?',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: r.fontSize(14),
+                            fontWeight: FontWeight.w500,
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 4,
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.auto_awesome,
-                              color: Colors.white,
-                              size: 20,
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: widget.onUseBetterAI,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: PnleTheme.bgTop,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
                             ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'DEEPER COACHING',
-                              style: GoogleFonts.outfit(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 4,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.auto_awesome,
                                 color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: r.fontSize(14),
+                                size: 20,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 8),
+                              Text(
+                                'DEEPER COACHING',
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: r.fontSize(14),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),

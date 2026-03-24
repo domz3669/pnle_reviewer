@@ -440,9 +440,8 @@ class _QuestionScreenState extends State<QuestionScreen>
         final ratio = (1.0 - _timeController.value).clamp(0.03, 1.0);
         final isCritical = ratio <= 0.3;
         final barColor = _timeColorFromRatio(ratio);
-        final secondsLeft =
-            (_currentMaxTime * (1.0 - _timeController.value))
-                .clamp(0.0, _currentMaxTime.toDouble());
+        final secondsLeft = (_currentMaxTime * (1.0 - _timeController.value))
+            .clamp(0.0, _currentMaxTime.toDouble());
 
         return Row(
           children: [
@@ -642,31 +641,32 @@ class _QuestionScreenState extends State<QuestionScreen>
   // =========================
   void _reportContent() async {
     final question = currentQuestion.question;
+    final reportWebhookUrl = REPORT_CONTENT_WEBHOOK_URL.trim();
 
     // Try to send report via backend webhook
     bool sentSuccessfully = false;
-    try {
-      // Send to backend webhook to process and email
-      final response = await http
-          .post(
-            Uri.parse('https://your-backend.com/api/report-question'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'question': question,
-              'category': currentQuestion.category,
-              'questionNumber': currentQuestion.number,
-              'timestamp': DateTime.now().toIso8601String(),
-              'userEmail':
-                  'domingotambasacan@gmail.com', // TODO: Get from user auth
-            }),
-          )
-          .timeout(const Duration(seconds: 5));
+    if (reportWebhookUrl.isNotEmpty) {
+      try {
+        final response = await http
+            .post(
+              Uri.parse(reportWebhookUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'question': question,
+                'category': currentQuestion.category,
+                'questionNumber': currentQuestion.number,
+                'timestamp': DateTime.now().toIso8601String(),
+                'testMode': widget.testMode,
+              }),
+            )
+            .timeout(const Duration(seconds: 5));
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        sentSuccessfully = true;
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          sentSuccessfully = true;
+        }
+      } catch (e) {
+        debugPrint('Failed to send report via webhook: $e');
       }
-    } catch (e) {
-      debugPrint('Failed to send report via webhook: $e');
     }
 
     // Always store locally as backup
@@ -679,6 +679,7 @@ class _QuestionScreenState extends State<QuestionScreen>
         'category': currentQuestion.category,
         'timestamp': DateTime.now().toIso8601String(),
         'questionNumber': currentQuestion.number,
+        'testMode': widget.testMode,
         'synced': sentSuccessfully,
       };
 
@@ -701,8 +702,8 @@ class _QuestionScreenState extends State<QuestionScreen>
           children: [
             Text(
               sentSuccessfully
-                  ? 'Your report has been sent via email.'
-                  : 'Your report has been recorded.',
+                  ? 'Your report has been sent to the review queue.'
+                  : 'Your report has been saved on this device.',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -715,8 +716,10 @@ class _QuestionScreenState extends State<QuestionScreen>
             const SizedBox(height: 12),
             Text(
               sentSuccessfully
-                  ? 'Check your email at domingotambasacan@gmail.com for confirmation. Thank you!'
-                  : 'Reports will be synced when you reconnect. Thank you for your feedback!',
+                  ? 'Thank you for flagging the issue. We will review it.'
+                  : (reportWebhookUrl.isEmpty
+                      ? 'The report service is not configured in this build yet, so the report was stored locally only.'
+                      : 'The report service is currently unavailable, so the report was stored locally as a backup.'),
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -1058,29 +1061,21 @@ class _QuestionScreenState extends State<QuestionScreen>
                   const SizedBox(height: 12),
 
                   // BANNER AD (placed above bottom actions)
-                  if (!widget.hasAdFreeAccess)
+                  if (!widget.hasAdFreeAccess &&
+                      _isBannerAdLoaded &&
+                      _bannerAd != null) ...[
                     SizedBox(
                       height: 50,
-                      child: (_isBannerAdLoaded && _bannerAd != null)
-                          ? Center(
-                              child: SizedBox(
-                                width: _bannerAd!.size.width.toDouble(),
-                                height: _bannerAd!.size.height.toDouble(),
-                                child: AdWidget(ad: _bannerAd!),
-                              ),
-                            )
-                          : Center(
-                              child: Text(
-                                'Loading ad...',
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white.withValues(alpha: 0.45),
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
+                      child: Center(
+                        child: SizedBox(
+                          width: _bannerAd!.size.width.toDouble(),
+                          height: _bannerAd!.size.height.toDouble(),
+                          child: AdWidget(ad: _bannerAd!),
+                        ),
+                      ),
                     ),
-
-                  if (!widget.hasAdFreeAccess) const SizedBox(height: 12),
+                    const SizedBox(height: 12),
+                  ],
 
                   // BOTTOM ACTIONS: EXPLAIN + NEXT
                   Row(
@@ -1435,33 +1430,35 @@ class _QuestionScreenState extends State<QuestionScreen>
     }
   }
 
-    Map<String, dynamic> _buildSessionInsights(int elapsedSeconds) {
+  Map<String, dynamic> _buildSessionInsights(int elapsedSeconds) {
     final sessionTotal =
-      _totalCount.values.fold<int>(0, (sum, value) => sum + value);
+        _totalCount.values.fold<int>(0, (sum, value) => sum + value);
     final sessionCorrect =
-      _correctCount.values.fold<int>(0, (sum, value) => sum + value);
+        _correctCount.values.fold<int>(0, (sum, value) => sum + value);
 
     final elapsed = elapsedSeconds.clamp(1, 7200);
     final sessionAccuracy =
-      sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
+        sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
     final secondsPerQuestion = sessionTotal > 0 ? elapsed / sessionTotal : 0.0;
-    final questionsPerMinute = elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
+    final questionsPerMinute =
+        elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
 
-    final timedOutCount = _mistakes.where((item) => item['timedOut'] == true).length;
+    final timedOutCount =
+        _mistakes.where((item) => item['timedOut'] == true).length;
 
     final speedLabel = secondsPerQuestion > 50
-      ? 'Too slow'
-      : (secondsPerQuestion < 25 ? 'Too fast' : 'Balanced');
+        ? 'Too slow'
+        : (secondsPerQuestion < 25 ? 'Too fast' : 'Balanced');
 
     final focusLabel = timedOutCount >= 3
-      ? 'Low focus'
-      : (timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
+        ? 'Low focus'
+        : (timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
 
     final behaviorMessage = secondsPerQuestion > 50
-      ? 'You spent too long on several items. In USTET, this can cost multiple answer opportunities.'
-      : (secondsPerQuestion < 25 && sessionAccuracy < 70
-        ? 'You moved very fast but accuracy dropped. Slow down slightly on hard items.'
-        : 'Your pacing is close to exam pace. Maintain skip-and-return discipline.');
+        ? 'You spent too long on several items. In USTET, this can cost multiple answer opportunities.'
+        : (secondsPerQuestion < 25 && sessionAccuracy < 70
+            ? 'You moved very fast but accuracy dropped. Slow down slightly on hard items.'
+            : 'Your pacing is close to exam pace. Maintain skip-and-return discipline.');
 
     return {
       'sessionAccuracy': sessionAccuracy,
@@ -1472,7 +1469,7 @@ class _QuestionScreenState extends State<QuestionScreen>
       'focusLabel': focusLabel,
       'behaviorMessage': behaviorMessage,
     };
-    }
+  }
 
   // OLD RESULTS DIALOG - Removed. Using AnimatedResultsDialog instead.
   // _showResultsDialog_REMOVED method removed - using AnimatedResultsDialog  // _resultItem removed - not used
@@ -1683,7 +1680,33 @@ class _QuestionScreenState extends State<QuestionScreen>
     return completer.future;
   }
 
-  void _openExplanationDialog({required bool countAsFreeUsage}) {
+  Future<void> _openExplanationDialog({required bool countAsFreeUsage}) async {
+    final localExplanation = currentQuestion.explanation?.trim();
+    final hasLocalExplanation =
+        localExplanation != null && localExplanation.isNotEmpty;
+    bool hasInternet = true;
+
+    if (!hasLocalExplanation) {
+      hasInternet = await _hasInternetConnection();
+      if (!mounted) return;
+
+      if (!hasInternet) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No internet connection. Coach Note is available offline only when the question already has a saved explanation.',
+              style: GoogleFonts.outfit(),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        return;
+      }
+    } else {
+      hasInternet = await _hasInternetConnection();
+      if (!mounted) return;
+    }
+
     setState(() {
       _explanationRequested = true;
       if (countAsFreeUsage && !widget.hasAdFreeAccess) {
@@ -1707,7 +1730,13 @@ class _QuestionScreenState extends State<QuestionScreen>
       barrierDismissible: false,
       barrierColor: Colors.black87,
       builder: (_) => ExplanationDialog(
+        initialExplanation: localExplanation,
+        isStoredExplanation: hasLocalExplanation,
         onGenerate: () async {
+          if (hasLocalExplanation) {
+            return localExplanation;
+          }
+
           final service = GeminiService(apiKey: GEMINI_API_KEY);
           return await service.getExplanation(
             question: currentQuestion.question,
@@ -1721,58 +1750,66 @@ class _QuestionScreenState extends State<QuestionScreen>
         isCorrect: isCorrect,
         hasAdFreeAccess: widget.hasAdFreeAccess,
         onReportContent: _reportContent,
-        onUseBetterAI: () async {
-          final hasInternet = await _hasInternetConnection();
-          if (!hasInternet) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'No internet connection. Coach Note requires internet access.',
-                  style: GoogleFonts.outfit(),
-                ),
-                duration: const Duration(seconds: 3),
-              ),
-            );
-            return;
-          }
+        onUseBetterAI: hasInternet
+            ? () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final navigator = Navigator.of(context, rootNavigator: true);
+                final hasInternet = await _hasInternetConnection();
+                if (!mounted) return;
 
-          Navigator.pop(context);
-
-          // Get user's selected answer text
-          final userAnswerText = selectedChoiceIndex != null
-              ? currentQuestion.choices[selectedChoiceIndex!]
-              : 'No answer selected';
-
-          // Get correct answer text
-          final correctAnswerText = currentQuestion.choices[_correctIndex];
-
-          // Check if user is correct
-          final isCorrect = selectedChoiceIndex == _correctIndex;
-
-          if (mounted) {
-            showDialog(
-              context: context,
-              barrierDismissible: false,
-              barrierColor: Colors.black87,
-              builder: (_) => BetterExplanationDialog(
-                onGenerate: () async {
-                  final service = GptService(apiKey: GPT_API_KEY);
-                  return await service.getBetterExplanation(
-                    question: currentQuestion.question,
-                    choices: currentQuestion.choices,
-                    userAnswer: userAnswerText,
-                    correctAnswer: correctAnswerText,
+                if (!hasInternet) {
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'No internet connection. Coach Note requires internet access.',
+                        style: GoogleFonts.outfit(),
+                      ),
+                      duration: const Duration(seconds: 3),
+                    ),
                   );
-                },
-                userAnswer: userAnswerText,
-                correctAnswer: correctAnswerText,
-                isCorrect: isCorrect,
-                onReportContent: _reportContent,
-              ),
-            );
-          }
-        },
+                  return;
+                }
+
+                navigator.pop();
+
+                // Get user's selected answer text
+                final userAnswerText = selectedChoiceIndex != null
+                    ? currentQuestion.choices[selectedChoiceIndex!]
+                    : 'No answer selected';
+
+                // Get correct answer text
+                final correctAnswerText =
+                    currentQuestion.choices[_correctIndex];
+
+                // Check if user is correct
+                final isCorrect = selectedChoiceIndex == _correctIndex;
+
+                if (!mounted) return;
+
+                await navigator.push(
+                  DialogRoute<void>(
+                    context: navigator.context,
+                    barrierDismissible: false,
+                    barrierColor: Colors.black87,
+                    builder: (_) => BetterExplanationDialog(
+                      onGenerate: () async {
+                        final service = GptService(apiKey: GPT_API_KEY);
+                        return await service.getBetterExplanation(
+                          question: currentQuestion.question,
+                          choices: currentQuestion.choices,
+                          userAnswer: userAnswerText,
+                          correctAnswer: correctAnswerText,
+                        );
+                      },
+                      userAnswer: userAnswerText,
+                      correctAnswer: correctAnswerText,
+                      isCorrect: isCorrect,
+                      onReportContent: _reportContent,
+                    ),
+                  ),
+                );
+              }
+            : null,
       ),
     );
   }
@@ -1782,21 +1819,9 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   Future<void> _showExplanationWithConnectivityCheck() async {
-    final hasInternet = await _hasInternetConnection();
-    if (!mounted) return;
-
-    if (!hasInternet) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No internet connection. Coach Note requires internet access.',
-            style: GoogleFonts.outfit(),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
+    final localExplanation = currentQuestion.explanation?.trim();
+    final hasLocalExplanation =
+        localExplanation != null && localExplanation.isNotEmpty;
 
     if (!widget.hasAdFreeAccess && !_canUseExplainWhy()) {
       if (!_canOfferExplainAdUnlock()) {
@@ -1811,11 +1836,30 @@ class _QuestionScreenState extends State<QuestionScreen>
         );
         return;
       }
+
+      if (hasLocalExplanation) {
+        final hasInternet = await _hasInternetConnection();
+        if (!mounted) return;
+
+        if (!hasInternet) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Saved Coach Notes work offline, but ad unlocks for extra uses need internet access.',
+                style: GoogleFonts.outfit(),
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          return;
+        }
+      }
+
       _showExplainAdOfferDialog();
       return;
     }
 
-    _openExplanationDialog(
+    await _openExplanationDialog(
       countAsFreeUsage:
           !widget.hasAdFreeAccess && !_explainAdUnlockedForCurrentQuestion,
     );
@@ -1843,4 +1887,3 @@ class _QuestionScreenState extends State<QuestionScreen>
     return false;
   }
 }
-

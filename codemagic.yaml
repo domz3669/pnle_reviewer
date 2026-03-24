@@ -53,9 +53,9 @@ workflows:
 
       - name: Build IPA for TestFlight
         script: |
-          if [ -z "$GPT_API_KEY" ] || [ -z "$GEMINI_API_KEY" ] || [ -z "$DEEPSEEK_API_KEY" ]; then
-            echo "Missing one or more API keys in environment group 'Secure'."
-            echo "Make sure GPT_API_KEY, GEMINI_API_KEY, and DEEPSEEK_API_KEY exist in Codemagic and this workflow imports that group."
+          if [ -z "$GPT_API_KEY" ] || [ -z "$GEMINI_API_KEY" ] || [ -z "$DEEPSEEK_API_KEY" ] || [ -z "$REPORT_CONTENT_WEBHOOK_URL" ]; then
+            echo "Missing one or more required environment values in group 'Secure'."
+            echo "Make sure GPT_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, and REPORT_CONTENT_WEBHOOK_URL exist in Codemagic and this workflow imports that group."
             exit 1
           fi
 
@@ -65,6 +65,7 @@ workflows:
             --dart-define=GPT_API_KEY="${GPT_API_KEY}" \
             --dart-define=GEMINI_API_KEY="${GEMINI_API_KEY}" \
             --dart-define=DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY}" \
+            --dart-define=REPORT_CONTENT_WEBHOOK_URL="${REPORT_CONTENT_WEBHOOK_URL}" \
             --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:

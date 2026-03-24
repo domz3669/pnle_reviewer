@@ -31,7 +31,7 @@ Reviewer Test Path
    - View 10-day performance record and summary stats.
 
 Feature Notes
-- Random Quiz: 15-question mixed UPCAT practice.
+- Random Quiz: 15-question mixed USTET practice.
 - Focus Mode: category-targeted practice available on first launch.
 - Timed Exam: countdown-based practice mode.
 - Challenge Mode: advanced mixed simulation when online generation is available.
@@ -42,8 +42,12 @@ Feature Notes
 Network and Fallback Behavior
 - The app launches even without internet and shows the native home screen.
 - Random Quiz, Focus Mode, and Timed Exam can start from local seeded question pools while offline.
-- Syncing, streak rewards, ads, and Coach Note explanations resume when internet access returns.
+- Syncing, streak rewards, ads, report submission, and Coach Note explanations resume when internet access returns.
 - If remote generation is unavailable, online-only features degrade gracefully and show a clear message.
+
+Current Build Clarifications
+- Report Inaccuracy is available from the question and explanation flow. If the report service is unavailable, the app stores the report locally instead of blocking the user.
+- Paused sessions expire at the next daily reset and do not carry across days.
 
 Metadata Alignment
 - Screenshots and metadata should match this build's visible features:
@@ -53,3 +57,4 @@ Reviewer Advice
 - Do not mention features that are planned, partially wired, or only conditionally available.
 - Avoid saying the app works fully offline. Be precise: core seeded quiz modes start offline, while syncing and Coach Note explanations require internet.
 - If Challenge Mode is shown in screenshots, capture it from a successful online session and avoid wording that implies offline availability.
+- Keep screenshot captions and metadata aligned with visible labels like Random Quiz, Focus Mode, Timed Exam, Saved Tests or Continue Session, History, and Coach Note.

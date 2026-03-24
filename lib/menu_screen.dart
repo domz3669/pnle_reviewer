@@ -86,9 +86,10 @@ class _SavedSession {
         : 'Saved Session';
 
     final rawSourceMode = json['sourceMode'];
-    final sourceMode = rawSourceMode is String && rawSourceMode.trim().isNotEmpty
-        ? rawSourceMode.trim()
-        : 'randomQuiz';
+    final sourceMode =
+        rawSourceMode is String && rawSourceMode.trim().isNotEmpty
+            ? rawSourceMode.trim()
+            : 'randomQuiz';
 
     return _SavedSession(
       title: title,
@@ -135,8 +136,8 @@ class _QuizActivityRecord {
         'questionCount': questionCount,
         'correctCount': correctCount,
         'scorePercent': scorePercent,
-      'categoryCorrect': categoryCorrect,
-      'categoryTotal': categoryTotal,
+        'categoryCorrect': categoryCorrect,
+        'categoryTotal': categoryTotal,
       };
 
   static _QuizActivityRecord? fromJson(Map<String, dynamic> json) {
@@ -241,6 +242,7 @@ class _PausedQuizSession {
   final int elapsedSeconds;
   final String testMode;
   final bool recordResults;
+  final DateTime pausedAt;
 
   const _PausedQuizSession({
     required this.questions,
@@ -249,6 +251,7 @@ class _PausedQuizSession {
     required this.elapsedSeconds,
     required this.testMode,
     required this.recordResults,
+    required this.pausedAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -268,6 +271,7 @@ class _PausedQuizSession {
         'elapsedSeconds': elapsedSeconds,
         'testMode': testMode,
         'recordResults': recordResults,
+        'pausedAt': pausedAt.toIso8601String(),
       };
 
   static _PausedQuizSession? fromJson(Map<String, dynamic> json) {
@@ -277,6 +281,7 @@ class _PausedQuizSession {
     final elapsedRaw = json['elapsedSeconds'];
     final modeRaw = json['testMode'];
     final recordRaw = json['recordResults'];
+    final pausedAtRaw = json['pausedAt'];
 
     if (questionsRaw is! List ||
         indexRaw is! num ||
@@ -303,6 +308,9 @@ class _PausedQuizSession {
     }
 
     final idx = indexRaw.toInt().clamp(0, questions.length - 1);
+    final pausedAt = pausedAtRaw is String
+        ? (DateTime.tryParse(pausedAtRaw) ?? DateTime.now())
+        : DateTime.now();
     return _PausedQuizSession(
       questions: questions,
       currentIndex: idx,
@@ -310,6 +318,27 @@ class _PausedQuizSession {
       elapsedSeconds: elapsedRaw.toInt(),
       testMode: modeRaw,
       recordResults: recordRaw,
+      pausedAt: pausedAt,
+    );
+  }
+
+  _PausedQuizSession copyWith({
+    List<Question>? questions,
+    int? currentIndex,
+    Map<String, int>? correctCount,
+    int? elapsedSeconds,
+    String? testMode,
+    bool? recordResults,
+    DateTime? pausedAt,
+  }) {
+    return _PausedQuizSession(
+      questions: questions ?? this.questions,
+      currentIndex: currentIndex ?? this.currentIndex,
+      correctCount: correctCount ?? this.correctCount,
+      elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+      testMode: testMode ?? this.testMode,
+      recordResults: recordResults ?? this.recordResults,
+      pausedAt: pausedAt ?? this.pausedAt,
     );
   }
 }
@@ -377,13 +406,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   DateTime? graceAccessEndDate;
   // Daily tracking
   int completedSessions = 0; // Out of daily target per day
-  int remainingFreeTests = 4; // Firebase-synced daily counter (fallback default)
+  int remainingFreeTests =
+      4; // Firebase-synced daily counter (fallback default)
   int _extraSessionAdChances = 2;
   DateTime? _nextExtraSessionAdRefillAt;
   static const int _maxExtraSessionAdChances = 2;
   static const Duration _extraSessionAdRefillDuration = Duration(hours: 2);
   Timer? _extraSessionAdRefillTicker;
   int _zeroAdSessionsRemaining = 4; // First daily-target sessions are ad-free
+  bool _isLoadingDailyFreeTests = true;
+  bool _isLoadingDailyTaskRewards = true;
   String? _lastStreakRewardClaimDate;
   int _dailyTaskSessionsCompleted = 0;
   bool _dailyTaskHighScoreAchieved = false;
@@ -437,11 +469,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   final List<_SavedSession> _savedSessions = [];
   static const int _maxSavedSessions = 30;
   static const String _savedSessionsPrefsKey = 'savedSessionsPayload';
+  bool _isLoadingSavedSessions = true;
   final List<_MistakeRecord> _mistakeQueue = [];
   static const int _maxMistakeQueue = 50;
   static const String _mistakeQueuePrefsKey = 'mistakeQueuePayload';
+  bool _isLoadingMistakeQueue = true;
   final Map<String, _PausedQuizSession> _pausedQuizSessions = {};
   static const String _pausedQuizSessionPrefsKey = 'pausedQuizSessionsPayload';
+  bool _isLoadingPausedQuizSessions = true;
   final List<_QuizActivityRecord> _quizActivityRecords = [];
   static const int _maxQuizActivityRecords = 120;
   static const int _quizActivityRetentionDays = 45;
@@ -495,6 +530,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   InterstitialAd? _menuInterstitialAd;
 
   BannerAd? _bannerAd;
+  bool _isBannerAdLoaded = false;
 
   Map<String, List<String>> get keyAreas => pnleKeyAreas;
 
@@ -586,10 +622,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   bool get _hasSavedTestsData => _savedSessions.isNotEmpty;
 
-    int get _dailySessionTarget =>
+  int get _dailySessionTarget =>
       _examConfigService.getExamConfig(_activeExamId)?.dailySessionTarget ?? 4;
 
   bool get _canClaimStreakRewardToday =>
+      !_isLoadingDailyTaskRewards &&
       completedSessions >= _dailySessionTarget &&
       _lastStreakRewardClaimDate != _getTodayDateString();
 
@@ -731,13 +768,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (!_seedPoolReady) return;
 
     final categories = _categoriesForEligibility();
-    final totalBuckets = categories.length * 4; // random, focus, challenge, timed
+    final totalBuckets =
+        categories.length * 4; // random, focus, challenge, timed
 
     try {
       final deficits =
           await _seedPoolService.getDeficits(threshold: 29, targetSize: 30);
       final missingBuckets = deficits.values.where((value) => value > 0).length;
-      final readyBuckets = (totalBuckets - missingBuckets).clamp(0, totalBuckets);
+      final readyBuckets =
+          (totalBuckets - missingBuckets).clamp(0, totalBuckets);
       final complete = missingBuckets == 0;
 
       if (!mounted) {
@@ -921,6 +960,30 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return DateTime.now().add(Duration(milliseconds: _serverTimeOffsetMs));
   }
 
+  DateTime _currentClockTime() {
+    return _serverNow();
+  }
+
+  DateTime _startOfDay(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  String _dateKeyFor(DateTime value) {
+    return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+  }
+
+  DateTime _currentDayStart() {
+    return _startOfDay(_currentClockTime());
+  }
+
+  bool _isSameCalendarDay(DateTime left, DateTime right) {
+    return _startOfDay(left).isAtSameMomentAs(_startOfDay(right));
+  }
+
+  bool _isBeforeCurrentDay(DateTime value) {
+    return _currentDayStart().isAfter(_startOfDay(value));
+  }
+
   bool _requireOnlineForProgressAction(String actionName) {
     if (_isOnline) return true;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -933,6 +996,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       ),
     );
     return false;
+  }
+
+  void _showOfflineProgressSavedMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '$message Saved on this device and will sync when you reconnect.',
+          style: GoogleFonts.outfit(),
+        ),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   // =========================
@@ -989,12 +1065,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   void _promptCourseTargetIfNeeded() {
-    if (!_showFirstTimeFlow || showOnboarding || _isCoursePickerOpen || !mounted) {
+    if (!_showFirstTimeFlow ||
+        showOnboarding ||
+        _isCoursePickerOpen ||
+        !mounted) {
       return;
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_showFirstTimeFlow || showOnboarding || _isCoursePickerOpen || !mounted) {
+      if (!_showFirstTimeFlow ||
+          showOnboarding ||
+          _isCoursePickerOpen ||
+          !mounted) {
         return;
       }
       _showSpecializationSelectionDialog();
@@ -1183,14 +1265,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _loadStreak() async {
     final prefs = await SharedPreferences.getInstance();
-    _lastStreakRewardClaimDate = prefs.getString('lastStreakRewardClaimDate');
+    _lastStreakRewardClaimDate =
+        _normalizeClaimDate(prefs.getString('lastStreakRewardClaimDate'));
     final lastDate = prefs.getString('lastQuizDate');
     final streak = prefs.getInt('currentStreak') ?? 0;
 
     if (lastDate != null) {
       final lastQuizDateTime = DateTime.parse(lastDate);
-      final now = DateTime.now();
-      final difference = now.difference(lastQuizDateTime).inDays;
+      final difference =
+          _currentDayStart().difference(_startOfDay(lastQuizDateTime)).inDays;
 
       if (difference == 0) {
         // Same day, keep higher streak
@@ -1437,6 +1520,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       });
     } catch (e) {
       debugPrint('Error loading saved sessions: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingSavedSessions = false;
+        });
+      }
     }
   }
 
@@ -1476,6 +1565,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       });
     } catch (e) {
       debugPrint('Error loading mistake queue: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMistakeQueue = false;
+        });
+      }
     }
   }
 
@@ -1492,7 +1587,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _appendMistakesFromResult(Map<String, dynamic> results) {
+  Future<void> _appendMistakesFromResult(Map<String, dynamic> results) async {
     final raw = results['mistakes'];
     if (raw is! List) return;
 
@@ -1510,7 +1605,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _mistakeQueue.removeRange(_maxMistakeQueue, _mistakeQueue.length);
       }
     });
-    unawaited(_persistMistakeQueue());
+    await _persistMistakeQueue();
   }
 
   bool _shouldQueueMistakesFromResult(Map<String, dynamic> results) {
@@ -1534,13 +1629,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       final decoded = jsonDecode(payload);
       final loaded = <String, _PausedQuizSession>{};
+      var removedExpired = false;
 
       if (decoded is Map<String, dynamic>) {
         // Backward compatibility: older payload used a single paused session map.
         if (decoded.containsKey('questions')) {
           final parsed = _PausedQuizSession.fromJson(decoded);
           if (parsed != null) {
-            loaded[parsed.testMode] = parsed;
+            if (_isBeforeCurrentDay(parsed.pausedAt)) {
+              removedExpired = true;
+            } else {
+              loaded[parsed.testMode] = parsed;
+            }
           }
         } else {
           for (final entry in decoded.entries) {
@@ -1549,7 +1649,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             final parsed =
                 _PausedQuizSession.fromJson(Map<String, dynamic>.from(value));
             if (parsed != null) {
-              loaded[parsed.testMode] = parsed;
+              if (_isBeforeCurrentDay(parsed.pausedAt)) {
+                removedExpired = true;
+              } else {
+                loaded[parsed.testMode] = parsed;
+              }
             }
           }
         }
@@ -1559,8 +1663,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           final parsed =
               _PausedQuizSession.fromJson(Map<String, dynamic>.from(item));
           if (parsed != null) {
+            if (_isBeforeCurrentDay(parsed.pausedAt)) {
+              removedExpired = true;
+              continue;
+            }
             loaded[parsed.testMode] = parsed;
           }
+        }
+      }
+
+      if (removedExpired) {
+        if (loaded.isEmpty) {
+          await prefs.remove(_pausedQuizSessionPrefsKey);
+        } else {
+          await prefs.setString(
+            _pausedQuizSessionPrefsKey,
+            jsonEncode(loaded.values.map((s) => s.toJson()).toList()),
+          );
         }
       }
 
@@ -1574,7 +1693,45 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       });
     } catch (e) {
       debugPrint('Error loading paused session: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingPausedQuizSessions = false;
+        });
+      }
     }
+  }
+
+  bool _isPausedSessionExpired(_PausedQuizSession session) {
+    return _isBeforeCurrentDay(session.pausedAt);
+  }
+
+  Future<void> _purgeExpiredPausedSessionsIfNeeded() async {
+    if (_pausedQuizSessions.isEmpty) return;
+
+    final activeEntries = _pausedQuizSessions.entries
+        .where((entry) => !_isPausedSessionExpired(entry.value))
+        .toList();
+
+    if (activeEntries.length == _pausedQuizSessions.length) return;
+
+    final nextSessions = <String, _PausedQuizSession>{
+      for (final entry in activeEntries) entry.key: entry.value,
+    };
+
+    if (mounted) {
+      setState(() {
+        _pausedQuizSessions
+          ..clear()
+          ..addAll(nextSessions);
+      });
+    } else {
+      _pausedQuizSessions
+        ..clear()
+        ..addAll(nextSessions);
+    }
+
+    await _persistPausedQuizSession();
   }
 
   Future<void> _persistPausedQuizSession() async {
@@ -1597,7 +1754,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _savePausedSessionFromResult(Map<String, dynamic> result) async {
     if (_shouldQueueMistakesFromResult(result)) {
-      _appendMistakesFromResult(result);
+      await _appendMistakesFromResult(result);
     }
 
     final raw = result['resumeState'];
@@ -1605,11 +1762,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     final parsed = _PausedQuizSession.fromJson(Map<String, dynamic>.from(raw));
     if (parsed == null) return;
-    final modeKey = parsed.testMode;
+    final session = parsed.copyWith(pausedAt: _currentClockTime());
+    final modeKey = session.testMode;
 
     if (mounted) {
       setState(() {
-        _pausedQuizSessions[modeKey] = parsed;
+        _pausedQuizSessions[modeKey] = session;
         currentScreen = 0;
       });
     }
@@ -1780,8 +1938,26 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _getTodayDateString() {
-    final now = DateTime.now();
-    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    return _dateKeyFor(_currentClockTime());
+  }
+
+  String? _normalizeClaimDate(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) return value;
+    return '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}';
+  }
+
+  String? _preferTodayClaimDate(String? currentValue, String? localValue) {
+    final todayKey = _getTodayDateString();
+    final normalizedCurrent = _normalizeClaimDate(currentValue);
+    final normalizedLocal = _normalizeClaimDate(localValue);
+
+    if (normalizedLocal == todayKey) {
+      return normalizedLocal;
+    }
+
+    return normalizedCurrent ?? normalizedLocal;
   }
 
   // =========================================================================
@@ -1797,9 +1973,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       final prefs = await SharedPreferences.getInstance();
 
-      final today = DateTime.now();
-      final todayStr =
-          DateTime(today.year, today.month, today.day).toIso8601String();
+      final now = _currentClockTime();
+      final todayStr = _currentDayStart().toIso8601String();
       final storedFreeTestResetDate =
           prefs.getString('lastFreeTestResetDate') ?? todayStr;
 
@@ -1866,7 +2041,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         // Daily reset tracking (prevents re-reset after app data clear)
         'lastCategoryScoreResetDate': todayStr,
         // Sync timestamp
-        'lastSyncTime': DateTime.now().toIso8601String(),
+        'lastSyncTime': now.toIso8601String(),
       };
 
       await _rtdb
@@ -1883,8 +2058,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   /// Shared merge logic used by both device-RTDB and user-RTDB restore.
   /// Applies max-wins strategy for all fields.
   void _mergeRtdbProgressData(Map<dynamic, dynamic> data) {
-    final today = DateTime.now();
-    final todayOnly = DateTime(today.year, today.month, today.day);
+    final todayOnly = _currentDayStart();
 
     // --- Category scores (merge: take higher correct) ---
     final remoteCatScores = data['categoryScores'] as Map<dynamic, dynamic>?;
@@ -1935,9 +2109,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (remoteLastSessionDate != null) {
       final remoteDate = DateTime.tryParse(remoteLastSessionDate);
       if (remoteDate != null) {
-        final remoteDateOnly =
-            DateTime(remoteDate.year, remoteDate.month, remoteDate.day);
-        if (todayOnly.isAtSameMomentAs(remoteDateOnly)) {
+        if (_isSameCalendarDay(remoteDate, todayOnly)) {
           completedSessions = max(completedSessions, remoteCompletedSessions);
         }
       }
@@ -2020,14 +2192,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     // --- Free tests (same day only) ---
     final remoteRemaining =
-      (data['remainingFreeTests'] as num?)?.toInt() ?? _dailySessionTarget;
+        (data['remainingFreeTests'] as num?)?.toInt() ?? _dailySessionTarget;
     final remoteResetDate = data['lastFreeTestResetDate'] as String?;
     if (remoteResetDate != null) {
       final resetDate = DateTime.tryParse(remoteResetDate);
       if (resetDate != null) {
-        final resetDayOnly =
-            DateTime(resetDate.year, resetDate.month, resetDate.day);
-        if (todayOnly.isAtSameMomentAs(resetDayOnly)) {
+        if (_isSameCalendarDay(resetDate, todayOnly)) {
           remainingFreeTests = min(remainingFreeTests, remoteRemaining);
         } else {
           remainingFreeTests = _dailySessionTarget;
@@ -2049,7 +2219,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           DateTime.fromMillisecondsSinceEpoch(remoteRefillMs);
     }
 
-    final remoteStreakRewardDate = data['lastStreakRewardClaimDate'] as String?;
+    final remoteStreakRewardDate =
+        _normalizeClaimDate(data['lastStreakRewardClaimDate'] as String?);
     if (remoteStreakRewardDate != null && remoteStreakRewardDate.isNotEmpty) {
       _lastStreakRewardClaimDate = remoteStreakRewardDate;
     }
@@ -2080,32 +2251,38 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         (data['dailyTaskQuestionsAnswered'] as num?)?.toInt() ?? 0,
       );
 
-      final remoteEightDate =
-          data['lastEightSessionRewardClaimDate'] as String?;
+      final remoteEightDate = _normalizeClaimDate(
+        data['lastEightSessionRewardClaimDate'] as String?,
+      );
       if (remoteEightDate != null && remoteEightDate.isNotEmpty) {
         _lastEightSessionRewardClaimDate = remoteEightDate;
       }
-      final remoteHighScoreDate =
-          data['lastHighScoreRewardClaimDate'] as String?;
+      final remoteHighScoreDate = _normalizeClaimDate(
+        data['lastHighScoreRewardClaimDate'] as String?,
+      );
       if (remoteHighScoreDate != null && remoteHighScoreDate.isNotEmpty) {
         _lastHighScoreRewardClaimDate = remoteHighScoreDate;
       }
-      final remoteFocusDate = data['lastFocusRewardClaimDate'] as String?;
+      final remoteFocusDate =
+          _normalizeClaimDate(data['lastFocusRewardClaimDate'] as String?);
       if (remoteFocusDate != null && remoteFocusDate.isNotEmpty) {
         _lastFocusRewardClaimDate = remoteFocusDate;
       }
-      final remoteChallengeDate =
-          data['lastChallengeRewardClaimDate'] as String?;
+      final remoteChallengeDate = _normalizeClaimDate(
+        data['lastChallengeRewardClaimDate'] as String?,
+      );
       if (remoteChallengeDate != null && remoteChallengeDate.isNotEmpty) {
         _lastChallengeRewardClaimDate = remoteChallengeDate;
       }
-      final remoteTimedDate =
-          data['lastTimedExamRewardClaimDate'] as String?;
+      final remoteTimedDate = _normalizeClaimDate(
+        data['lastTimedExamRewardClaimDate'] as String?,
+      );
       if (remoteTimedDate != null && remoteTimedDate.isNotEmpty) {
         _lastTimedExamRewardClaimDate = remoteTimedDate;
       }
-      final remoteThirtyDate =
-          data['lastThirtyAnswersRewardClaimDate'] as String?;
+      final remoteThirtyDate = _normalizeClaimDate(
+        data['lastThirtyAnswersRewardClaimDate'] as String?,
+      );
       if (remoteThirtyDate != null && remoteThirtyDate.isNotEmpty) {
         _lastThirtyAnswersRewardClaimDate = remoteThirtyDate;
       }
@@ -2119,6 +2296,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         final parsed =
             _PausedQuizSession.fromJson(Map<String, dynamic>.from(item));
         if (parsed == null) continue;
+        if (_isBeforeCurrentDay(parsed.pausedAt)) continue;
         _pausedQuizSessions[parsed.testMode] = parsed;
       }
     }
@@ -2152,6 +2330,65 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       // Persist merged data to SharedPreferences so subsequent local loads work
       final prefs = await SharedPreferences.getInstance();
+      final todayKey = _getTodayDateString();
+      final localDailyTaskResetDate = prefs.getString('dailyTaskResetDate');
+      final hasLocalDailyTaskStateForToday =
+          localDailyTaskResetDate == todayKey;
+
+      if (hasLocalDailyTaskStateForToday) {
+        _dailyTaskSessionsCompleted = max(
+          _dailyTaskSessionsCompleted,
+          prefs.getInt('dailyTaskSessionsCompleted') ?? 0,
+        );
+        _dailyTaskHighScoreAchieved = _dailyTaskHighScoreAchieved ||
+            (prefs.getBool('dailyTaskHighScoreAchieved') ?? false);
+        _dailyTaskFocusCompleted = max(
+          _dailyTaskFocusCompleted,
+          prefs.getInt('dailyTaskFocusCompleted') ?? 0,
+        );
+        _dailyTaskChallengeCompleted = max(
+          _dailyTaskChallengeCompleted,
+          prefs.getInt('dailyTaskChallengeCompleted') ?? 0,
+        );
+        _dailyTaskTimedCompleted = max(
+          _dailyTaskTimedCompleted,
+          prefs.getInt('dailyTaskTimedCompleted') ?? 0,
+        );
+        _dailyTaskQuestionsAnswered = max(
+          _dailyTaskQuestionsAnswered,
+          prefs.getInt('dailyTaskQuestionsAnswered') ?? 0,
+        );
+      }
+
+      _lastStreakRewardClaimDate = _preferTodayClaimDate(
+        _lastStreakRewardClaimDate,
+        prefs.getString('lastStreakRewardClaimDate'),
+      );
+      _lastEightSessionRewardClaimDate = _preferTodayClaimDate(
+        _lastEightSessionRewardClaimDate,
+        prefs.getString('lastEightSessionRewardClaimDate'),
+      );
+      _lastHighScoreRewardClaimDate = _preferTodayClaimDate(
+        _lastHighScoreRewardClaimDate,
+        prefs.getString('lastHighScoreRewardClaimDate'),
+      );
+      _lastFocusRewardClaimDate = _preferTodayClaimDate(
+        _lastFocusRewardClaimDate,
+        prefs.getString('lastFocusRewardClaimDate'),
+      );
+      _lastChallengeRewardClaimDate = _preferTodayClaimDate(
+        _lastChallengeRewardClaimDate,
+        prefs.getString('lastChallengeRewardClaimDate'),
+      );
+      _lastTimedExamRewardClaimDate = _preferTodayClaimDate(
+        _lastTimedExamRewardClaimDate,
+        prefs.getString('lastTimedExamRewardClaimDate'),
+      );
+      _lastThirtyAnswersRewardClaimDate = _preferTodayClaimDate(
+        _lastThirtyAnswersRewardClaimDate,
+        prefs.getString('lastThirtyAnswersRewardClaimDate'),
+      );
+
       await prefs.setInt(
           'accumulatedQuizzesCompleted', accumulatedQuizzesCompleted);
       await prefs.setInt(
@@ -2170,13 +2407,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       await prefs.setString('user_nickname', _nickname);
       await prefs.setBool('mute_all_sounds', _muteAllSounds);
       await prefs.setInt('completedSessions', completedSessions);
-      final now = DateTime.now();
+      final now = _currentClockTime();
       final remoteLastSessionDate = data['lastSessionDate'] as String?;
       if (remoteLastSessionDate != null && remoteLastSessionDate.isNotEmpty) {
         await prefs.setString('lastSessionDate', remoteLastSessionDate);
       } else {
         await prefs.setString('lastSessionDate',
-            DateTime(now.year, now.month, now.day).toIso8601String());
+        _startOfDay(now).toIso8601String());
       }
       await prefs.setInt('remainingFreeTests', remainingFreeTests);
       await prefs.setInt('extraSessionAdChances', _extraSessionAdChances);
@@ -2191,10 +2428,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (_lastStreakRewardClaimDate != null) {
         await prefs.setString(
           'lastStreakRewardClaimDate',
-          _lastStreakRewardClaimDate!,
+          _normalizeClaimDate(_lastStreakRewardClaimDate!)!,
         );
       }
-      await prefs.setString('dailyTaskResetDate', _getTodayDateString());
+      await prefs.setString('dailyTaskResetDate', todayKey);
       await prefs.setInt(
           'dailyTaskSessionsCompleted', _dailyTaskSessionsCompleted);
       await prefs.setBool(
@@ -2202,44 +2439,44 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       await prefs.setInt('dailyTaskFocusCompleted', _dailyTaskFocusCompleted);
       await prefs.setInt(
           'dailyTaskChallengeCompleted', _dailyTaskChallengeCompleted);
-        await prefs.setInt('dailyTaskTimedCompleted', _dailyTaskTimedCompleted);
+      await prefs.setInt('dailyTaskTimedCompleted', _dailyTaskTimedCompleted);
       await prefs.setInt(
           'dailyTaskQuestionsAnswered', _dailyTaskQuestionsAnswered);
       if (_lastEightSessionRewardClaimDate != null) {
-        await prefs.setString('lastEightSessionRewardClaimDate',
-            _lastEightSessionRewardClaimDate!);
-      } else {
-        await prefs.remove('lastEightSessionRewardClaimDate');
+        await prefs.setString(
+          'lastEightSessionRewardClaimDate',
+          _normalizeClaimDate(_lastEightSessionRewardClaimDate!)!,
+        );
       }
       if (_lastHighScoreRewardClaimDate != null) {
         await prefs.setString(
-            'lastHighScoreRewardClaimDate', _lastHighScoreRewardClaimDate!);
-      } else {
-        await prefs.remove('lastHighScoreRewardClaimDate');
+          'lastHighScoreRewardClaimDate',
+          _normalizeClaimDate(_lastHighScoreRewardClaimDate!)!,
+        );
       }
       if (_lastFocusRewardClaimDate != null) {
         await prefs.setString(
-            'lastFocusRewardClaimDate', _lastFocusRewardClaimDate!);
-      } else {
-        await prefs.remove('lastFocusRewardClaimDate');
+          'lastFocusRewardClaimDate',
+          _normalizeClaimDate(_lastFocusRewardClaimDate!)!,
+        );
       }
       if (_lastChallengeRewardClaimDate != null) {
         await prefs.setString(
-            'lastChallengeRewardClaimDate', _lastChallengeRewardClaimDate!);
-      } else {
-        await prefs.remove('lastChallengeRewardClaimDate');
+          'lastChallengeRewardClaimDate',
+          _normalizeClaimDate(_lastChallengeRewardClaimDate!)!,
+        );
       }
       if (_lastTimedExamRewardClaimDate != null) {
-        await prefs.setString('lastTimedExamRewardClaimDate',
-            _lastTimedExamRewardClaimDate!);
-      } else {
-        await prefs.remove('lastTimedExamRewardClaimDate');
+        await prefs.setString(
+          'lastTimedExamRewardClaimDate',
+          _normalizeClaimDate(_lastTimedExamRewardClaimDate!)!,
+        );
       }
       if (_lastThirtyAnswersRewardClaimDate != null) {
-        await prefs.setString('lastThirtyAnswersRewardClaimDate',
-            _lastThirtyAnswersRewardClaimDate!);
-      } else {
-        await prefs.remove('lastThirtyAnswersRewardClaimDate');
+        await prefs.setString(
+          'lastThirtyAnswersRewardClaimDate',
+          _normalizeClaimDate(_lastThirtyAnswersRewardClaimDate!)!,
+        );
       }
       if (_pausedQuizSessions.isEmpty) {
         await prefs.remove(_pausedQuizSessionPrefsKey);
@@ -2264,7 +2501,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       } else {
         // If RTDB doesn't have it, set today so the daily reset doesn't fire
         await prefs.setString('lastCategoryScoreResetDate',
-            DateTime(now.year, now.month, now.day).toIso8601String());
+            _startOfDay(now).toIso8601String());
       }
 
       debugPrint('Restored all progress from RTDB');
@@ -2293,17 +2530,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           if (data == null) return;
 
           final lastResetDateStr = data['lastResetDate'] as String?;
-          final today = DateTime(
-              DateTime.now().year, DateTime.now().month, DateTime.now().day);
+          final today = _currentDayStart();
 
           if (lastResetDateStr != null) {
             final lastResetDate = DateTime.parse(lastResetDateStr);
-            final lastResetDay = DateTime(
-                lastResetDate.year, lastResetDate.month, lastResetDate.day);
 
             if (!mounted) return;
             setState(() {
-              if (today.isAfter(lastResetDay)) {
+              if (_isBeforeCurrentDay(lastResetDate)) {
                 // New day - reset to configured daily target
                 remainingFreeTests = _dailySessionTarget;
               } else {
@@ -2314,7 +2548,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             });
 
             // Update server date if new day
-            if (today.isAfter(lastResetDay)) {
+            if (_isBeforeCurrentDay(lastResetDate)) {
               await ref.update({
                 'remaining': _dailySessionTarget,
                 'lastResetDate': today.toIso8601String(),
@@ -2348,6 +2582,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('Error loading free tests from Realtime DB: $e');
       await _loadDailyFreeTestsLocal();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingDailyFreeTests = false;
+        });
+      }
     }
   }
 
@@ -2357,15 +2597,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _deviceId ??= await _deviceService.getDeviceId();
       if (_deviceId == null) return;
 
-      final today = DateTime(
-          DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      final today = _currentDayStart();
       final db = _rtdb;
       final ref = db.ref('devices/$_deviceId/freeTests');
 
       await ref.set({
         'remaining': _dailySessionTarget,
         'lastResetDate': today.toIso8601String(),
-        'createdAt': DateTime.now().toIso8601String(),
+        'createdAt': _currentClockTime().toIso8601String(),
       });
 
       if (!mounted) return;
@@ -2382,8 +2621,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
       final lastResetDateStr = prefs.getString('lastFreeTestResetDate');
-      final today = DateTime(
-          DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      final today = _currentDayStart();
 
       if (lastResetDateStr == null) {
         await prefs.setString('lastFreeTestResetDate', today.toIso8601String());
@@ -2393,12 +2631,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
 
       final lastResetDate = DateTime.parse(lastResetDateStr);
-      final lastResetDay =
-          DateTime(lastResetDate.year, lastResetDate.month, lastResetDate.day);
 
       if (!mounted) return;
       setState(() {
-        if (today.isAfter(lastResetDay)) {
+        if (_isBeforeCurrentDay(lastResetDate)) {
           remainingFreeTests = _dailySessionTarget;
         } else {
           remainingFreeTests =
@@ -2406,7 +2642,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         }
       });
 
-      if (today.isAfter(lastResetDay)) {
+      if (_isBeforeCurrentDay(lastResetDate)) {
         await prefs.setInt('remainingFreeTests', _dailySessionTarget);
         await prefs.setString('lastFreeTestResetDate', today.toIso8601String());
       }
@@ -2431,9 +2667,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (_deviceId == null) return;
 
       final prefs = await SharedPreferences.getInstance();
-      final now = DateTime.now();
-      final todayOnly =
-          DateTime(now.year, now.month, now.day).toIso8601String();
+        final todayOnly = _currentDayStart().toIso8601String();
       final lastResetDate =
           prefs.getString('lastFreeTestResetDate') ?? todayOnly;
       final db = _rtdb;
@@ -2527,8 +2761,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
       final lastSessionDateStr = prefs.getString('lastSessionDate');
-      final today = DateTime(
-          DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      final today = _currentDayStart();
 
       if (lastSessionDateStr == null) {
         // First time â€” only set date, don't reset completedSessions
@@ -2538,12 +2771,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
 
       final lastSessionDate = DateTime.parse(lastSessionDateStr);
-      final lastSessionDay = DateTime(
-          lastSessionDate.year, lastSessionDate.month, lastSessionDate.day);
 
       if (!mounted) return;
       setState(() {
-        if (today.isAfter(lastSessionDay)) {
+        if (_isBeforeCurrentDay(lastSessionDate)) {
           // New day - reset to 0
           completedSessions = 0;
         } else {
@@ -2554,7 +2785,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       });
 
       // Update the session date if it's a new day
-      if (today.isAfter(lastSessionDay)) {
+      if (_isBeforeCurrentDay(lastSessionDate)) {
         await prefs.setString('lastSessionDate', today.toIso8601String());
       }
     } catch (e) {
@@ -2593,152 +2824,38 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     await _syncAllProgressToRtdb();
   }
 
-  Future<void> _showStreakRewardClaimDialogIfEligible() async {
-    if (!mounted || completedSessions < _dailySessionTarget) return;
-    if (!_requireOnlineForProgressAction('claim your streak reward')) return;
-
-    final todayKey = _getTodayDateString();
-    if (_lastStreakRewardClaimDate == todayKey) {
-      return;
-    }
-
-    final claimed = await showDialog<bool>(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(26),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-            child: Container(
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    PnleTheme.bgTop.withValues(alpha: 0.96),
-                    PnleTheme.bgBottom.withValues(alpha: 0.93),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(26),
-                border: Border.all(
-                  color: PnleTheme.accent.withValues(alpha: 0.55),
-                  width: 1.6,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: PnleTheme.accent.withValues(alpha: 0.28),
-                    blurRadius: 18,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Streak Reward Unlocked',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 20,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'You completed all $_dailySessionTarget sessions today. Claim +1 free session now?',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white.withValues(alpha: 0.88),
-                      fontWeight: FontWeight.w500,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: Text(
-                          'Later',
-                          style: GoogleFonts.outfit(color: Colors.white70),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context, true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: PnleTheme.accent,
-                          foregroundColor: Colors.black,
-                        ),
-                        child: Text(
-                          'Claim +1',
-                          style:
-                              GoogleFonts.outfit(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    if (claimed != true || !mounted) return;
-
-    setState(() {
-      remainingFreeTests++;
-      _lastStreakRewardClaimDate = todayKey;
-    });
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('lastStreakRewardClaimDate', todayKey);
-    await _persistDailyFreeTests();
-    await _syncAllProgressToRtdb();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Streak reward claimed: +1 free session.',
-          style: GoogleFonts.outfit(),
-        ),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
   bool get _canClaimEightSessionRewardToday =>
+      !_isLoadingDailyTaskRewards &&
       _dailyTaskSessionsCompleted >= 8 &&
       _lastEightSessionRewardClaimDate != _getTodayDateString();
 
   bool get _canClaimHighScoreRewardToday =>
+      !_isLoadingDailyTaskRewards &&
       _dailyTaskHighScoreAchieved &&
       _lastHighScoreRewardClaimDate != _getTodayDateString();
 
   bool get _canClaimFocusRewardToday =>
+      !_isLoadingDailyTaskRewards &&
       _dailyTaskFocusCompleted >= 1 &&
       _lastFocusRewardClaimDate != _getTodayDateString();
 
   bool get _canClaimChallengeRewardToday =>
+      !_isLoadingDailyTaskRewards &&
       _dailyTaskChallengeCompleted >= 1 &&
       _lastChallengeRewardClaimDate != _getTodayDateString();
 
-    bool get _canClaimTimedExamRewardToday =>
+  bool get _canClaimTimedExamRewardToday =>
+      !_isLoadingDailyTaskRewards &&
       _dailyTaskTimedCompleted >= 1 &&
       _lastTimedExamRewardClaimDate != _getTodayDateString();
 
   bool get _canClaimThirtyAnswersRewardToday =>
+      !_isLoadingDailyTaskRewards &&
       _dailyTaskQuestionsAnswered >= 30 &&
       _lastThirtyAnswersRewardClaimDate != _getTodayDateString();
 
   int get _claimableSessionsCountNow {
+    if (_isLoadingDailyTaskRewards) return 0;
     var count = 0;
     count += _extraSessionAdChances;
     if (_canClaimStreakRewardToday) count++;
@@ -2752,66 +2869,125 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadDailyTaskRewardState() async {
-    final prefs = await SharedPreferences.getInstance();
-    final today = _getTodayDateString();
-    final savedDate = prefs.getString('dailyTaskResetDate') ?? today;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = _getTodayDateString();
+      final savedDate = prefs.getString('dailyTaskResetDate') ?? today;
+      final hasInMemoryDailyTaskStateForToday =
+          _dailyTaskSessionsCompleted > 0 ||
+          _dailyTaskHighScoreAchieved ||
+          _dailyTaskFocusCompleted > 0 ||
+          _dailyTaskChallengeCompleted > 0 ||
+          _dailyTaskTimedCompleted > 0 ||
+          _dailyTaskQuestionsAnswered > 0 ||
+          _lastStreakRewardClaimDate == today ||
+          _lastEightSessionRewardClaimDate == today ||
+          _lastHighScoreRewardClaimDate == today ||
+          _lastFocusRewardClaimDate == today ||
+          _lastChallengeRewardClaimDate == today ||
+          _lastTimedExamRewardClaimDate == today ||
+          _lastThirtyAnswersRewardClaimDate == today;
 
-    if (savedDate != today) {
-      await prefs.setString('dailyTaskResetDate', today);
-      await prefs.setInt('dailyTaskSessionsCompleted', 0);
-      await prefs.setBool('dailyTaskHighScoreAchieved', false);
-      await prefs.setInt('dailyTaskFocusCompleted', 0);
-      await prefs.setInt('dailyTaskChallengeCompleted', 0);
-      await prefs.setInt('dailyTaskTimedCompleted', 0);
-      await prefs.setInt('dailyTaskQuestionsAnswered', 0);
-      await prefs.remove('lastEightSessionRewardClaimDate');
-      await prefs.remove('lastHighScoreRewardClaimDate');
-      await prefs.remove('lastFocusRewardClaimDate');
-      await prefs.remove('lastChallengeRewardClaimDate');
-      await prefs.remove('lastTimedExamRewardClaimDate');
-      await prefs.remove('lastThirtyAnswersRewardClaimDate');
+      if (savedDate != today) {
+        if (hasInMemoryDailyTaskStateForToday) {
+          await _persistDailyTaskRewardState();
+          return;
+        }
+
+        await prefs.setString('dailyTaskResetDate', today);
+        await prefs.setInt('dailyTaskSessionsCompleted', 0);
+        await prefs.setBool('dailyTaskHighScoreAchieved', false);
+        await prefs.setInt('dailyTaskFocusCompleted', 0);
+        await prefs.setInt('dailyTaskChallengeCompleted', 0);
+        await prefs.setInt('dailyTaskTimedCompleted', 0);
+        await prefs.setInt('dailyTaskQuestionsAnswered', 0);
+        await prefs.remove('lastStreakRewardClaimDate');
+        await prefs.remove('lastEightSessionRewardClaimDate');
+        await prefs.remove('lastHighScoreRewardClaimDate');
+        await prefs.remove('lastFocusRewardClaimDate');
+        await prefs.remove('lastChallengeRewardClaimDate');
+        await prefs.remove('lastTimedExamRewardClaimDate');
+        await prefs.remove('lastThirtyAnswersRewardClaimDate');
+        if (!mounted) return;
+        setState(() {
+          _dailyTaskSessionsCompleted = 0;
+          _dailyTaskHighScoreAchieved = false;
+          _dailyTaskFocusCompleted = 0;
+          _dailyTaskChallengeCompleted = 0;
+          _dailyTaskTimedCompleted = 0;
+          _dailyTaskQuestionsAnswered = 0;
+          _lastStreakRewardClaimDate = null;
+          _lastEightSessionRewardClaimDate = null;
+          _lastHighScoreRewardClaimDate = null;
+          _lastFocusRewardClaimDate = null;
+          _lastChallengeRewardClaimDate = null;
+          _lastTimedExamRewardClaimDate = null;
+          _lastThirtyAnswersRewardClaimDate = null;
+        });
+        return;
+      }
+
       if (!mounted) return;
       setState(() {
-        _dailyTaskSessionsCompleted = 0;
-        _dailyTaskHighScoreAchieved = false;
-        _dailyTaskFocusCompleted = 0;
-        _dailyTaskChallengeCompleted = 0;
-        _dailyTaskTimedCompleted = 0;
-        _dailyTaskQuestionsAnswered = 0;
-        _lastEightSessionRewardClaimDate = null;
-        _lastHighScoreRewardClaimDate = null;
-        _lastFocusRewardClaimDate = null;
-        _lastChallengeRewardClaimDate = null;
-        _lastTimedExamRewardClaimDate = null;
-        _lastThirtyAnswersRewardClaimDate = null;
+        _dailyTaskSessionsCompleted = max(
+          _dailyTaskSessionsCompleted,
+          prefs.getInt('dailyTaskSessionsCompleted') ?? 0,
+        );
+        _dailyTaskHighScoreAchieved =
+            _dailyTaskHighScoreAchieved ||
+            (prefs.getBool('dailyTaskHighScoreAchieved') ?? false);
+        _dailyTaskFocusCompleted = max(
+          _dailyTaskFocusCompleted,
+          prefs.getInt('dailyTaskFocusCompleted') ?? 0,
+        );
+        _dailyTaskChallengeCompleted = max(
+          _dailyTaskChallengeCompleted,
+          prefs.getInt('dailyTaskChallengeCompleted') ?? 0,
+        );
+        _dailyTaskTimedCompleted = max(
+          _dailyTaskTimedCompleted,
+          prefs.getInt('dailyTaskTimedCompleted') ?? 0,
+        );
+        _dailyTaskQuestionsAnswered = max(
+          _dailyTaskQuestionsAnswered,
+          prefs.getInt('dailyTaskQuestionsAnswered') ?? 0,
+        );
+        _lastStreakRewardClaimDate = _preferTodayClaimDate(
+          _lastStreakRewardClaimDate,
+          prefs.getString('lastStreakRewardClaimDate'),
+        );
+        _lastEightSessionRewardClaimDate = _preferTodayClaimDate(
+          _lastEightSessionRewardClaimDate,
+          prefs.getString('lastEightSessionRewardClaimDate'),
+        );
+        _lastHighScoreRewardClaimDate = _preferTodayClaimDate(
+          _lastHighScoreRewardClaimDate,
+          prefs.getString('lastHighScoreRewardClaimDate'),
+        );
+        _lastFocusRewardClaimDate = _preferTodayClaimDate(
+          _lastFocusRewardClaimDate,
+          prefs.getString('lastFocusRewardClaimDate'),
+        );
+        _lastChallengeRewardClaimDate = _preferTodayClaimDate(
+          _lastChallengeRewardClaimDate,
+          prefs.getString('lastChallengeRewardClaimDate'),
+        );
+        _lastTimedExamRewardClaimDate = _preferTodayClaimDate(
+          _lastTimedExamRewardClaimDate,
+          prefs.getString('lastTimedExamRewardClaimDate'),
+        );
+        _lastThirtyAnswersRewardClaimDate = _preferTodayClaimDate(
+          _lastThirtyAnswersRewardClaimDate,
+          prefs.getString('lastThirtyAnswersRewardClaimDate'),
+        );
       });
-      return;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingDailyTaskRewards = false;
+        });
+      }
     }
-
-    if (!mounted) return;
-    setState(() {
-      _dailyTaskSessionsCompleted =
-          prefs.getInt('dailyTaskSessionsCompleted') ?? 0;
-      _dailyTaskHighScoreAchieved =
-          prefs.getBool('dailyTaskHighScoreAchieved') ?? false;
-      _dailyTaskFocusCompleted = prefs.getInt('dailyTaskFocusCompleted') ?? 0;
-      _dailyTaskChallengeCompleted =
-          prefs.getInt('dailyTaskChallengeCompleted') ?? 0;
-        _dailyTaskTimedCompleted = prefs.getInt('dailyTaskTimedCompleted') ?? 0;
-      _dailyTaskQuestionsAnswered =
-          prefs.getInt('dailyTaskQuestionsAnswered') ?? 0;
-      _lastEightSessionRewardClaimDate =
-          prefs.getString('lastEightSessionRewardClaimDate');
-      _lastHighScoreRewardClaimDate =
-          prefs.getString('lastHighScoreRewardClaimDate');
-      _lastFocusRewardClaimDate = prefs.getString('lastFocusRewardClaimDate');
-      _lastChallengeRewardClaimDate =
-          prefs.getString('lastChallengeRewardClaimDate');
-        _lastTimedExamRewardClaimDate =
-          prefs.getString('lastTimedExamRewardClaimDate');
-      _lastThirtyAnswersRewardClaimDate =
-          prefs.getString('lastThirtyAnswersRewardClaimDate');
-    });
   }
 
   Future<void> _persistDailyTaskRewardState() async {
@@ -2827,161 +3003,253 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     await prefs.setInt('dailyTaskTimedCompleted', _dailyTaskTimedCompleted);
     await prefs.setInt(
         'dailyTaskQuestionsAnswered', _dailyTaskQuestionsAnswered);
+
+    if (_lastStreakRewardClaimDate == null) {
+      await prefs.remove('lastStreakRewardClaimDate');
+    } else {
+      await prefs.setString(
+        'lastStreakRewardClaimDate',
+        _normalizeClaimDate(_lastStreakRewardClaimDate)!,
+      );
+    }
+
     if (_lastEightSessionRewardClaimDate == null) {
       await prefs.remove('lastEightSessionRewardClaimDate');
     } else {
       await prefs.setString(
-          'lastEightSessionRewardClaimDate', _lastEightSessionRewardClaimDate!);
+        'lastEightSessionRewardClaimDate',
+        _normalizeClaimDate(_lastEightSessionRewardClaimDate)!,
+      );
     }
+
     if (_lastHighScoreRewardClaimDate == null) {
       await prefs.remove('lastHighScoreRewardClaimDate');
     } else {
       await prefs.setString(
-          'lastHighScoreRewardClaimDate', _lastHighScoreRewardClaimDate!);
+        'lastHighScoreRewardClaimDate',
+        _normalizeClaimDate(_lastHighScoreRewardClaimDate)!,
+      );
     }
+
     if (_lastFocusRewardClaimDate == null) {
       await prefs.remove('lastFocusRewardClaimDate');
     } else {
       await prefs.setString(
-          'lastFocusRewardClaimDate', _lastFocusRewardClaimDate!);
+        'lastFocusRewardClaimDate',
+        _normalizeClaimDate(_lastFocusRewardClaimDate)!,
+      );
     }
+
     if (_lastChallengeRewardClaimDate == null) {
       await prefs.remove('lastChallengeRewardClaimDate');
     } else {
       await prefs.setString(
-          'lastChallengeRewardClaimDate', _lastChallengeRewardClaimDate!);
+        'lastChallengeRewardClaimDate',
+        _normalizeClaimDate(_lastChallengeRewardClaimDate)!,
+      );
     }
+
     if (_lastTimedExamRewardClaimDate == null) {
       await prefs.remove('lastTimedExamRewardClaimDate');
     } else {
       await prefs.setString(
-          'lastTimedExamRewardClaimDate', _lastTimedExamRewardClaimDate!);
+        'lastTimedExamRewardClaimDate',
+        _normalizeClaimDate(_lastTimedExamRewardClaimDate)!,
+      );
     }
+
     if (_lastThirtyAnswersRewardClaimDate == null) {
       await prefs.remove('lastThirtyAnswersRewardClaimDate');
     } else {
-      await prefs.setString('lastThirtyAnswersRewardClaimDate',
-          _lastThirtyAnswersRewardClaimDate!);
+      await prefs.setString(
+        'lastThirtyAnswersRewardClaimDate',
+        _normalizeClaimDate(_lastThirtyAnswersRewardClaimDate)!,
+      );
     }
-    unawaited(_syncAllProgressToRtdb());
+
+    if (_isOnline) {
+      unawaited(_syncAllProgressToRtdb());
+    }
+  }
+
+  Future<void> _persistClaimedDailyRewardDate(
+    String storageKey,
+    String todayKey,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('dailyTaskResetDate', todayKey);
+    await prefs.setString(storageKey, todayKey);
   }
 
   Future<void> _claimFourSessionTaskReward() async {
     if (!_canClaimStreakRewardToday) return;
-    if (!_requireOnlineForProgressAction(
-      'claim your $_dailySessionTarget-session reward',
-    )) {
-      return;
-    }
 
     final todayKey = _getTodayDateString();
+    final claimedWhileOnline = _isOnline;
     setState(() {
       remainingFreeTests++;
       _lastStreakRewardClaimDate = todayKey;
     });
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('lastStreakRewardClaimDate', todayKey);
     await _persistDailyFreeTests();
-    await _syncAllProgressToRtdb();
+    await _persistDailyTaskRewardState();
+    if (claimedWhileOnline) {
+      await _syncAllProgressToRtdb();
+    } else {
+      _showOfflineProgressSavedMessage(
+        '$_dailySessionTarget-session reward claimed: +1 free session.',
+      );
+    }
   }
 
   Future<void> _claimEightSessionTaskReward() async {
     if (!_canClaimEightSessionRewardToday) return;
-    if (!_requireOnlineForProgressAction('claim your 8-session reward')) return;
 
     final todayKey = _getTodayDateString();
+    final claimedWhileOnline = _isOnline;
     setState(() {
       remainingFreeTests++;
       _lastEightSessionRewardClaimDate = todayKey;
     });
 
+    await _persistClaimedDailyRewardDate(
+      'lastEightSessionRewardClaimDate',
+      todayKey,
+    );
     await _persistDailyFreeTests();
     await _persistDailyTaskRewardState();
-    await _syncAllProgressToRtdb();
+    if (claimedWhileOnline) {
+      await _syncAllProgressToRtdb();
+    } else {
+      _showOfflineProgressSavedMessage(
+        '8-session reward claimed: +1 free session.',
+      );
+    }
   }
 
   Future<void> _claimHighScoreTaskReward() async {
     if (!_canClaimHighScoreRewardToday) return;
-    if (!_requireOnlineForProgressAction('claim your high-score reward'))
-      return;
 
     final todayKey = _getTodayDateString();
+    final claimedWhileOnline = _isOnline;
     setState(() {
       remainingFreeTests++;
       _lastHighScoreRewardClaimDate = todayKey;
     });
 
+    await _persistClaimedDailyRewardDate(
+      'lastHighScoreRewardClaimDate',
+      todayKey,
+    );
     await _persistDailyFreeTests();
     await _persistDailyTaskRewardState();
-    await _syncAllProgressToRtdb();
+    if (claimedWhileOnline) {
+      await _syncAllProgressToRtdb();
+    } else {
+      _showOfflineProgressSavedMessage(
+        'High-score reward claimed: +1 free session.',
+      );
+    }
   }
 
   Future<void> _claimFocusTaskReward() async {
     if (!_canClaimFocusRewardToday) return;
-    if (!_requireOnlineForProgressAction('claim your focus-mode reward'))
-      return;
 
     final todayKey = _getTodayDateString();
+    final claimedWhileOnline = _isOnline;
     setState(() {
       remainingFreeTests++;
       _lastFocusRewardClaimDate = todayKey;
     });
 
+    await _persistClaimedDailyRewardDate(
+      'lastFocusRewardClaimDate',
+      todayKey,
+    );
     await _persistDailyFreeTests();
     await _persistDailyTaskRewardState();
-    await _syncAllProgressToRtdb();
+    if (claimedWhileOnline) {
+      await _syncAllProgressToRtdb();
+    } else {
+      _showOfflineProgressSavedMessage(
+        'Focus reward claimed: +1 free session.',
+      );
+    }
   }
 
   Future<void> _claimChallengeTaskReward() async {
     if (!_canClaimChallengeRewardToday) return;
-    if (!_requireOnlineForProgressAction('claim your challenge-mode reward')) {
-      return;
-    }
 
     final todayKey = _getTodayDateString();
+    final claimedWhileOnline = _isOnline;
     setState(() {
       remainingFreeTests++;
       _lastChallengeRewardClaimDate = todayKey;
     });
 
+    await _persistClaimedDailyRewardDate(
+      'lastChallengeRewardClaimDate',
+      todayKey,
+    );
     await _persistDailyFreeTests();
     await _persistDailyTaskRewardState();
-    await _syncAllProgressToRtdb();
+    if (claimedWhileOnline) {
+      await _syncAllProgressToRtdb();
+    } else {
+      _showOfflineProgressSavedMessage(
+        'Challenge reward claimed: +1 free session.',
+      );
+    }
   }
 
   Future<void> _claimTimedExamTaskReward() async {
     if (!_canClaimTimedExamRewardToday) return;
-    if (!_requireOnlineForProgressAction('claim your timed-exam reward')) {
-      return;
-    }
 
     final todayKey = _getTodayDateString();
+    final claimedWhileOnline = _isOnline;
     setState(() {
       remainingFreeTests++;
       _lastTimedExamRewardClaimDate = todayKey;
     });
 
+    await _persistClaimedDailyRewardDate(
+      'lastTimedExamRewardClaimDate',
+      todayKey,
+    );
     await _persistDailyFreeTests();
     await _persistDailyTaskRewardState();
-    await _syncAllProgressToRtdb();
+    if (claimedWhileOnline) {
+      await _syncAllProgressToRtdb();
+    } else {
+      _showOfflineProgressSavedMessage(
+        'Timed exam reward claimed: +1 free session.',
+      );
+    }
   }
 
   Future<void> _claimThirtyAnswersTaskReward() async {
     if (!_canClaimThirtyAnswersRewardToday) return;
-    if (!_requireOnlineForProgressAction('claim your answer-count reward')) {
-      return;
-    }
 
     final todayKey = _getTodayDateString();
+    final claimedWhileOnline = _isOnline;
     setState(() {
       remainingFreeTests++;
       _lastThirtyAnswersRewardClaimDate = todayKey;
     });
 
+    await _persistClaimedDailyRewardDate(
+      'lastThirtyAnswersRewardClaimDate',
+      todayKey,
+    );
     await _persistDailyFreeTests();
     await _persistDailyTaskRewardState();
-    await _syncAllProgressToRtdb();
+    if (claimedWhileOnline) {
+      await _syncAllProgressToRtdb();
+    } else {
+      _showOfflineProgressSavedMessage(
+        'Answer-count reward claimed: +1 free session.',
+      );
+    }
   }
 
   Future<void> _saveEligibilityPreference(String value) async {
@@ -2996,7 +3264,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _ensurePnleCategoryScores();
     });
 
-    // Sync to RTDB (survives reinstall)
     _syncAllProgressToRtdb();
   }
 
@@ -3068,10 +3335,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       request: const AdRequest(),
       listener: BannerAdListener(
         onAdLoaded: (_) {
-          setState(() {});
+          if (!mounted) return;
+          setState(() {
+            _isBannerAdLoaded = true;
+          });
         },
         onAdFailedToLoad: (ad, error) {
           ad.dispose();
+          _bannerAd = null;
+          if (mounted) {
+            setState(() {
+              _isBannerAdLoaded = false;
+            });
+          }
           debugPrint(
             'Menu banner ad failed to load (${error.code}: ${error.message})',
           );
@@ -3124,14 +3400,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Future<void> _resetDailyCategoryScoresIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
     final lastResetStr = prefs.getString('lastCategoryScoreResetDate');
-    final today = DateTime.now();
-    final todayOnly = DateTime(today.year, today.month, today.day);
+    final todayOnly = _currentDayStart();
 
     if (lastResetStr != null) {
       final lastReset = DateTime.parse(lastResetStr);
-      final lastResetOnly =
-          DateTime(lastReset.year, lastReset.month, lastReset.day);
-      if (todayOnly.isAtSameMomentAs(lastResetOnly)) {
+      if (_isSameCalendarDay(lastReset, todayOnly)) {
         return; // Already reset today
       }
     }
@@ -3146,38 +3419,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             'weight': categoryScores[key]!['weight'],
           };
         }
-        _dailyTaskSessionsCompleted = 0;
-        _dailyTaskHighScoreAchieved = false;
-        _dailyTaskFocusCompleted = 0;
-        _dailyTaskChallengeCompleted = 0;
-        _dailyTaskTimedCompleted = 0;
-        _dailyTaskQuestionsAnswered = 0;
-        _lastEightSessionRewardClaimDate = null;
-        _lastHighScoreRewardClaimDate = null;
-        _lastFocusRewardClaimDate = null;
-        _lastChallengeRewardClaimDate = null;
-        _lastTimedExamRewardClaimDate = null;
-        _lastThirtyAnswersRewardClaimDate = null;
-        _pausedQuizSessions.clear();
       });
     }
     await prefs.setString(
         'lastCategoryScoreResetDate', todayOnly.toIso8601String());
     await prefs.setString('categoryScores', jsonEncode(categoryScores));
-    await prefs.setString('dailyTaskResetDate', _getTodayDateString());
-    await prefs.setInt('dailyTaskSessionsCompleted', 0);
-    await prefs.setBool('dailyTaskHighScoreAchieved', false);
-    await prefs.setInt('dailyTaskFocusCompleted', 0);
-    await prefs.setInt('dailyTaskChallengeCompleted', 0);
-    await prefs.setInt('dailyTaskTimedCompleted', 0);
-    await prefs.setInt('dailyTaskQuestionsAnswered', 0);
-    await prefs.remove('lastEightSessionRewardClaimDate');
-    await prefs.remove('lastHighScoreRewardClaimDate');
-    await prefs.remove('lastFocusRewardClaimDate');
-    await prefs.remove('lastChallengeRewardClaimDate');
-    await prefs.remove('lastTimedExamRewardClaimDate');
-    await prefs.remove('lastThirtyAnswersRewardClaimDate');
-    await prefs.remove(_pausedQuizSessionPrefsKey);
   }
 
   Future<void> _watchRewardedAdForExtraQuiz() async {
@@ -3266,8 +3512,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _primeFreeDeepSeekCaches() async {
-    if (hasAdFreeAccess || hasGraceAccess || _isPrimingFreeDeepSeekCache)
+    if (hasAdFreeAccess || hasGraceAccess || _isPrimingFreeDeepSeekCache) {
       return;
+    }
     if (!_hasUnlockedAdvancedModes) return;
 
     final weakestCategory = _getWeakestCategory();
@@ -3719,15 +3966,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     // Use state variables if not passed as parameters
     final useFocusMode = isFocusMode || _isFocusMode;
     final category = focusCategory ?? _focusCategory;
-    final useTimedMode =
-      !useFocusMode && _activeGenerationMode == 'timedExam';
+    final useTimedMode = !useFocusMode && _activeGenerationMode == 'timedExam';
 
     final prompt = useFocusMode && category != null
-      ? _buildFocusPrompt(category)
-      : (useTimedMode ? _buildTimedModePrompt() : _buildPrompt());
+        ? _buildFocusPrompt(category)
+        : (useTimedMode ? _buildTimedModePrompt() : _buildPrompt());
     final deepSeekPrompt = useFocusMode && category != null
-      ? _buildFastFocusPrompt(category)
-      : (useTimedMode ? _buildFastTimedModePrompt() : _buildFastPrompt());
+        ? _buildFastFocusPrompt(category)
+        : (useTimedMode ? _buildFastTimedModePrompt() : _buildFastPrompt());
 
     // Build category map for Focus Mode if applicable
     Map<int, String>? categoryMap;
@@ -3777,7 +4023,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (useGemini) {
-      debugPrint('[SeedPool] Falling back to live generation (Gemini-first flow).');
+      debugPrint(
+          '[SeedPool] Falling back to live generation (Gemini-first flow).');
       if (GEMINI_API_KEY.trim().isEmpty) {
         return false;
       }
@@ -4257,11 +4504,27 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         await _savePausedSessionFromResult(results);
         return;
       }
-      _updateTestResults(results);
+      await _updateTestResults(results);
     }
   }
 
   Future<void> _resumePausedSession(_PausedQuizSession session) async {
+    if (_isPausedSessionExpired(session)) {
+      await _clearPausedQuizSession(session.testMode);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'That paused session expired at midnight and was cleared.',
+              style: GoogleFonts.outfit(),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     final creditsBeforeResume = remainingFreeTests;
     final result = await Navigator.push(
       context,
@@ -4297,7 +4560,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     if (result is Map<String, dynamic>) {
       final nextAction = result['nextAction'];
-      _updateTestResults(result);
+      await _updateTestResults(result);
       if (nextAction == 'menu') {
         setState(() {
           currentScreen = session.testMode == 'reviewMistakes' ? 0 : 2;
@@ -4307,6 +4570,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showContinueSessionsDialog() async {
+    if (_isLoadingPausedQuizSessions) return;
+
+    await _purgeExpiredPausedSessionsIfNeeded();
+    if (!mounted) return;
     if (_pausedQuizSessions.isEmpty) return;
 
     await showDialog<void>(
@@ -4340,50 +4607,74 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 6),
               Text(
-                'Choose an unfinished mode to resume.',
+                _isLoadingPausedQuizSessions
+                    ? 'Retrieving your unfinished sessions...'
+                    : 'Choose an unfinished mode to resume.',
                 style: GoogleFonts.outfit(
                   color: Colors.white.withValues(alpha: 0.75),
                   fontSize: 12,
                 ),
               ),
               const SizedBox(height: 14),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 260),
-                child: ListView(
-                  shrinkWrap: true,
-                  children: _pausedQuizSessions.entries.map((entry) {
-                    final mode = entry.key;
-                    final session = entry.value;
-                    final progress =
-                        '${session.currentIndex + 1}/${session.questions.length}';
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.play_circle_fill_rounded,
-                        color: PnleTheme.accent,
-                      ),
-                      title: Text(
-                        _modeLabel(mode),
-                        style: GoogleFonts.outfit(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
+              if (_isLoadingPausedQuizSessions)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 28),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        const CircularProgressIndicator(
+                          color: PnleTheme.accent,
                         ),
-                      ),
-                      subtitle: Text(
-                        'Progress: $progress',
-                        style: GoogleFonts.outfit(
-                          color: Colors.white.withValues(alpha: 0.7),
-                          fontSize: 12,
+                        const SizedBox(height: 14),
+                        Text(
+                          'Retrieving your unfinished sessions...',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withValues(alpha: 0.75),
+                            fontSize: 13,
+                          ),
                         ),
-                      ),
-                      onTap: () async {
-                        Navigator.pop(context);
-                        await _resumePausedSession(session);
-                      },
-                    );
-                  }).toList(),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 260),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: _pausedQuizSessions.entries.map((entry) {
+                      final mode = entry.key;
+                      final session = entry.value;
+                      final progress =
+                          '${session.currentIndex + 1}/${session.questions.length}';
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(
+                          Icons.play_circle_fill_rounded,
+                          color: PnleTheme.accent,
+                        ),
+                        title: Text(
+                          _modeLabel(mode),
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Progress: $progress',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 12,
+                          ),
+                        ),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await _resumePausedSession(session);
+                        },
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
@@ -4481,14 +4772,36 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 8),
               Text(
-                '${_mistakeQueue.length} missed questions saved',
+                _isLoadingMistakeQueue
+                    ? 'Retrieving saved mistakes...'
+                    : '${_mistakeQueue.length} missed questions saved',
                 style: GoogleFonts.outfit(
                   color: Colors.white.withValues(alpha: 0.75),
                   fontSize: 13,
                 ),
               ),
               const SizedBox(height: 16),
-              if (_mistakeQueue.isEmpty)
+              if (_isLoadingMistakeQueue)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 28),
+                  child: Column(
+                    children: [
+                      const CircularProgressIndicator(
+                        color: PnleTheme.accent,
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Retrieving saved mistakes...',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (_mistakeQueue.isEmpty)
                 Text(
                   'No mistakes saved yet. Finish quizzes to build your review queue.',
                   textAlign: TextAlign.center,
@@ -4686,6 +4999,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     required String mode,
     required Future<void> Function() onStartNew,
   }) async {
+    await _purgeExpiredPausedSessionsIfNeeded();
+    if (!mounted) return;
     final existing = _pausedQuizSessions[mode];
     if (existing == null) {
       await onStartNew();
@@ -4834,6 +5149,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _addSavedSession(cachedQuestions, null, sourceMode: 'challenge');
       unawaited(_primeChallengeCacheIfEligible(force: true));
 
+      if (!mounted) return;
+
       final results = await Navigator.push(
         context,
         MaterialPageRoute(
@@ -4853,13 +5170,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           await _savePausedSessionFromResult(results);
           return;
         }
-        _updateTestResults(results);
+        await _updateTestResults(results);
       }
       return;
     }
 
     // Show simple loading dialog
     debugPrint('[SeedPool] challenge falling back to live generation.');
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -4999,7 +5317,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             await _savePausedSessionFromResult(results);
             return;
           }
-          _updateTestResults(results);
+          await _updateTestResults(results);
         }
 
         unawaited(_primeChallengeCacheIfEligible(force: true));
@@ -5099,7 +5417,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (priorityCategory != null) {
-      final gap = (priorityTarget - priorityPercent).clamp(0, 100).toStringAsFixed(1);
+      final gap =
+          (priorityTarget - priorityPercent).clamp(0, 100).toStringAsFixed(1);
       final keyAreasToReview =
           _recommendedKeyAreasForCategory(priorityCategory).join(', ');
       final keyAreaLine = keyAreasToReview.isEmpty
@@ -5154,9 +5473,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         total += record.categoryTotal[category] ?? 0;
       }
 
-      final percent = total > 0
-          ? (correct / total) * 100
-          : _categoryPercent(category);
+      final percent =
+          total > 0 ? (correct / total) * 100 : _categoryPercent(category);
 
       if (percent < lowestPercent) {
         lowestPercent = percent;
@@ -5275,9 +5593,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     final elapsed = (elapsedRaw is num ? elapsedRaw.toInt() : 0).clamp(1, 7200);
-    final sessionAccuracy = sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
+    final sessionAccuracy =
+        sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
     final secondsPerQuestion = sessionTotal > 0 ? elapsed / sessionTotal : 0.0;
-    final questionsPerMinute = elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
+    final questionsPerMinute =
+        elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
 
     int timedOutCount = 0;
     if (mistakesRaw is List) {
@@ -5364,7 +5684,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.11),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -5684,7 +6005,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     final effectiveModeLabel = modeLabel ??
         (activeIsFocusMode
-        ? 'FOCUS MODE${activeFocusCategory != null ? ' • $activeFocusCategory' : ''}'
+            ? 'FOCUS MODE${activeFocusCategory != null ? ' • $activeFocusCategory' : ''}'
             : 'RANDOM QUIZ');
 
     _isStartingGeneratedSession = false;
@@ -5783,7 +6104,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   }
 
                   final nextAction = results['nextAction'];
-                  _updateTestResults(results);
+                  await _updateTestResults(results);
                   if (nextAction == 'playAgain') {
                     if (effectiveTestMode == 'timedExam') {
                       _startTimedExamMode();
@@ -5831,7 +6152,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   });
                 } else if (results != null && mounted) {
                   // Normal completion - update results
-                  _updateTestResults(results);
+                  await _updateTestResults(results);
                 }
               }
 
@@ -5995,7 +6316,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                 ),
                               ),
                               Text(
-                                '${_savedSessions.length}/$_maxSavedSessions tests saved',
+                                _isLoadingSavedSessions
+                                    ? 'Retrieving saved tests...'
+                                    : '${_savedSessions.length}/$_maxSavedSessions tests saved',
                                 style: GoogleFonts.outfit(
                                   color: Colors.white.withValues(alpha: 0.6),
                                   fontSize: 13,
@@ -6068,7 +6391,36 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 20),
                     // Content
-                    if (_savedSessions.isEmpty)
+                    if (_isLoadingSavedSessions)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 32),
+                        child: Column(
+                          children: [
+                            const CircularProgressIndicator(
+                              color: PnleTheme.accent,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Retrieving saved tests...',
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.7),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Please wait while local saved tests are loaded.',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (_savedSessions.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 32),
                         child: Column(
@@ -6188,7 +6540,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                         return;
                                       }
 
-                                      _updateTestResults(result);
+                                      await _updateTestResults(result);
 
                                       if (result['nextAction'] == 'playAgain') {
                                         final reshuffledQuestions = session
@@ -6391,14 +6743,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _updateTestResults(
+  Future<void> _updateTestResults(
     dynamic results, {
     bool showInsightsDialog = false,
-  }) {
+  }) async {
     if (results is! Map<String, dynamic>) return;
 
     if (_shouldQueueMistakesFromResult(results)) {
-      _appendMistakesFromResult(results);
+      await _appendMistakesFromResult(results);
     }
 
     final resultMode = results['testMode'] as String?;
@@ -6407,7 +6759,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     if (resultMode != null &&
         {'randomQuiz', 'focusMode', 'challenge', 'timedExam'}
-          .contains(resultMode) &&
+            .contains(resultMode) &&
         dynamicCorrectCount is Map &&
         dynamicTotalCount is Map) {
       final sessionTotal = dynamicTotalCount.values
@@ -6493,12 +6845,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           ? (sessionCorrect / sessionQuestions) * 100
           : 0.0;
       final sessionCategoryCorrect = <String, int>{
-        for (final entry in correctCount.entries)
-          entry.key: entry.value,
+        for (final entry in correctCount.entries) entry.key: entry.value,
       };
       final sessionCategoryTotal = <String, int>{
-        for (final entry in totalCount.entries)
-          entry.key: entry.value,
+        for (final entry in totalCount.entries) entry.key: entry.value,
       };
 
       _quizActivityRecords.insert(
@@ -6542,20 +6892,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _showReadinessFeedbackDialog(Map<String, dynamic> results) async {
+  Future<void> _showReadinessFeedbackDialog(
+      Map<String, dynamic> results) async {
     if (!mounted) return;
 
     final categories = _categoriesForEligibility();
     final readiness = _readinessLabel();
     final readinessColor = _readinessColor();
     final weakestCategory = _getWeakestCategory();
-    final tipCategory = weakestCategory.isNotEmpty ? weakestCategory : 'Mental Ability';
+    final tipCategory =
+        weakestCategory.isNotEmpty ? weakestCategory : 'Mental Ability';
     final competitiveness = _estimatedCompetitivenessBand();
     final competitivenessColor = competitiveness['color'] as Color;
     final insights = _sessionInsights(results);
     final sessionAccuracy = (insights['sessionAccuracy'] as num).toDouble();
-    final secondsPerQuestion = (insights['secondsPerQuestion'] as num).toDouble();
-    final questionsPerMinute = (insights['questionsPerMinute'] as num).toDouble();
+    final secondsPerQuestion =
+        (insights['secondsPerQuestion'] as num).toDouble();
+    final questionsPerMinute =
+        (insights['questionsPerMinute'] as num).toDouble();
     final timedOutCount = (insights['timedOutCount'] as int);
     final speedLabel = insights['speedLabel'] as String;
     final focusLabel = insights['focusLabel'] as String;
@@ -6594,7 +6948,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                        'Target Course: ${eligibility.toUpperCase()}',
+                'Target Course: ${eligibility.toUpperCase()}',
                 style: GoogleFonts.outfit(
                   color: PnleTheme.accent,
                   fontWeight: FontWeight.w700,
@@ -6670,12 +7024,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     Container(
                                       height: compact ? 6 : 8,
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(999),
+                                        color: Colors.white
+                                            .withValues(alpha: 0.12),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                       ),
                                     ),
                                     FractionallySizedBox(
-                                      widthFactor: (score / 100).clamp(0.0, 1.0),
+                                      widthFactor:
+                                          (score / 100).clamp(0.0, 1.0),
                                       child: Container(
                                         height: compact ? 6 : 8,
                                         decoration: BoxDecoration(
@@ -6690,7 +7047,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                                     Color(0xFFFF6B6B),
                                                   ],
                                           ),
-                                          borderRadius: BorderRadius.circular(999),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
                                         ),
                                       ),
                                     ),
@@ -6701,8 +7059,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                       child: Container(
                                         width: 2,
                                         decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.9),
-                                          borderRadius: BorderRadius.circular(999),
+                                          color: Colors.white
+                                              .withValues(alpha: 0.9),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
                                         ),
                                       ),
                                     ),
@@ -6868,6 +7228,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _remainingSessionsTodayText() {
+    if (_isLoadingDailyFreeTests) {
+      return 'Retrieving sessions...';
+    }
     return '$remainingFreeTests ${remainingFreeTests == 1 ? 'session' : 'sessions'} left today';
   }
 
@@ -6881,39 +7244,39 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         barrierColor: Colors.black87,
         builder: (_) => StatefulBuilder(
           builder: (context, setDialogState) {
-              Future<bool> ensureOnlineForDialogAction(String actionName) async {
-                if (_isOnline) return true;
-                await showDialog<void>(
-                  context: context,
-                  barrierColor: Colors.black87,
-                  builder: (_) => AlertDialog(
-                    backgroundColor: PnleTheme.bgTop,
-                    title: Text(
-                      'Internet Required',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+            Future<bool> ensureOnlineForDialogAction(String actionName) async {
+              if (_isOnline) return true;
+              await showDialog<void>(
+                context: context,
+                barrierColor: Colors.black87,
+                builder: (_) => AlertDialog(
+                  backgroundColor: PnleTheme.bgTop,
+                  title: Text(
+                    'Internet Required',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
                     ),
-                    content: Text(
-                      'Please reconnect to the internet to $actionName.',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white.withValues(alpha: 0.88),
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(
-                          'OK',
-                          style: GoogleFonts.outfit(color: PnleTheme.accent),
-                        ),
-                      ),
-                    ],
                   ),
-                );
-                return false;
-              }
+                  content: Text(
+                    'Please reconnect to the internet to $actionName.',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white.withValues(alpha: 0.88),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'OK',
+                        style: GoogleFonts.outfit(color: PnleTheme.accent),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+              return false;
+            }
 
             Future<void> refreshDialog({bool forcePersist = false}) async {
               if (isDialogRefreshing) return;
@@ -6937,7 +7300,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               unawaited(refreshDialog());
             });
 
-            final canWatchAd = _isOnline && _extraSessionAdChances > 0;
+            final rewardsLoading =
+                _isLoadingDailyTaskRewards || _isLoadingDailyFreeTests;
+            final canWatchAd =
+                !rewardsLoading && _isOnline && _extraSessionAdChances > 0;
 
             return Dialog(
               backgroundColor: Colors.transparent,
@@ -6951,7 +7317,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: const Color(0xFFFFD76B), width: 1.5),
+                  border:
+                      Border.all(color: const Color(0xFFFFD76B), width: 1.5),
                   boxShadow: [
                     BoxShadow(
                       color: const Color(0xFFFFD76B).withValues(alpha: 0.28),
@@ -7011,22 +7378,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                 _sessionTaskTile(
                                   icon: Icons.local_fire_department_rounded,
                                   title:
-                                    'Complete $_dailySessionTarget sessions today',
+                                      'Complete $_dailySessionTarget sessions today',
                                   subtitle:
-                                    '$completedSessions/$_dailySessionTarget completed',
-                                  actionLabel: _canClaimStreakRewardToday
-                                      ? 'Claim'
-                                      : 'Claimed',
-                                  enabled: _canClaimStreakRewardToday,
-                                  claimed: !_canClaimStreakRewardToday &&
+                                      '$completedSessions/$_dailySessionTarget completed',
+                                  actionLabel: rewardsLoading
+                                      ? '...'
+                                      : _canClaimStreakRewardToday
+                                          ? 'Claim'
+                                          : 'Claimed',
+                                  enabled: !rewardsLoading &&
+                                      _canClaimStreakRewardToday,
+                                  claimed: !rewardsLoading &&
+                                      !_canClaimStreakRewardToday &&
                                       _lastStreakRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
-                                    if (!await ensureOnlineForDialogAction(
-                                      'claim this free session',
-                                    )) {
-                                      return;
-                                    }
                                     await _claimFourSessionTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7037,22 +7403,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   title: 'Complete 8 sessions today',
                                   subtitle:
                                       '$_dailyTaskSessionsCompleted/8 completed',
-                                  actionLabel: _canClaimEightSessionRewardToday
-                                      ? 'Claim'
-                                      : (_lastEightSessionRewardClaimDate ==
-                                              _getTodayDateString()
-                                          ? 'Claimed'
-                                          : 'Locked'),
-                                  enabled: _canClaimEightSessionRewardToday,
-                                  claimed: !_canClaimEightSessionRewardToday &&
+                                  actionLabel: rewardsLoading
+                                      ? '...'
+                                      : _canClaimEightSessionRewardToday
+                                          ? 'Claim'
+                                          : (_lastEightSessionRewardClaimDate ==
+                                                  _getTodayDateString()
+                                              ? 'Claimed'
+                                              : 'Locked'),
+                                  enabled: !rewardsLoading &&
+                                      _canClaimEightSessionRewardToday,
+                                  claimed: !rewardsLoading &&
+                                      !_canClaimEightSessionRewardToday &&
                                       _lastEightSessionRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
-                                    if (!await ensureOnlineForDialogAction(
-                                      'claim this free session',
-                                    )) {
-                                      return;
-                                    }
                                     await _claimEightSessionTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7063,22 +7428,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   title: 'Finish 1 Focus Mode session',
                                   subtitle:
                                       '$_dailyTaskFocusCompleted/1 completed',
-                                  actionLabel: _canClaimFocusRewardToday
-                                      ? 'Claim'
-                                      : (_lastFocusRewardClaimDate ==
-                                              _getTodayDateString()
-                                          ? 'Claimed'
-                                          : 'Locked'),
-                                  enabled: _canClaimFocusRewardToday,
-                                  claimed: !_canClaimFocusRewardToday &&
+                                  actionLabel: rewardsLoading
+                                      ? '...'
+                                      : _canClaimFocusRewardToday
+                                          ? 'Claim'
+                                          : (_lastFocusRewardClaimDate ==
+                                                  _getTodayDateString()
+                                              ? 'Claimed'
+                                              : 'Locked'),
+                                  enabled: !rewardsLoading &&
+                                      _canClaimFocusRewardToday,
+                                  claimed: !rewardsLoading &&
+                                      !_canClaimFocusRewardToday &&
                                       _lastFocusRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
-                                    if (!await ensureOnlineForDialogAction(
-                                      'claim this free session',
-                                    )) {
-                                      return;
-                                    }
                                     await _claimFocusTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7089,22 +7453,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   title: 'Finish 1 Challenge Mode session',
                                   subtitle:
                                       '$_dailyTaskChallengeCompleted/1 completed',
-                                  actionLabel: _canClaimChallengeRewardToday
-                                      ? 'Claim'
-                                      : (_lastChallengeRewardClaimDate ==
-                                              _getTodayDateString()
-                                          ? 'Claimed'
-                                          : 'Locked'),
-                                  enabled: _canClaimChallengeRewardToday,
-                                  claimed: !_canClaimChallengeRewardToday &&
+                                  actionLabel: rewardsLoading
+                                      ? '...'
+                                      : _canClaimChallengeRewardToday
+                                          ? 'Claim'
+                                          : (_lastChallengeRewardClaimDate ==
+                                                  _getTodayDateString()
+                                              ? 'Claimed'
+                                              : 'Locked'),
+                                  enabled: !rewardsLoading &&
+                                      _canClaimChallengeRewardToday,
+                                  claimed: !rewardsLoading &&
+                                      !_canClaimChallengeRewardToday &&
                                       _lastChallengeRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
-                                    if (!await ensureOnlineForDialogAction(
-                                      'claim this free session',
-                                    )) {
-                                      return;
-                                    }
                                     await _claimChallengeTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7115,22 +7478,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   title: 'Finish 1 Timed Exam session',
                                   subtitle:
                                       '$_dailyTaskTimedCompleted/1 completed',
-                                  actionLabel: _canClaimTimedExamRewardToday
-                                      ? 'Claim'
-                                      : (_lastTimedExamRewardClaimDate ==
-                                              _getTodayDateString()
-                                          ? 'Claimed'
-                                          : 'Locked'),
-                                  enabled: _canClaimTimedExamRewardToday,
-                                  claimed: !_canClaimTimedExamRewardToday &&
+                                  actionLabel: rewardsLoading
+                                      ? '...'
+                                      : _canClaimTimedExamRewardToday
+                                          ? 'Claim'
+                                          : (_lastTimedExamRewardClaimDate ==
+                                                  _getTodayDateString()
+                                              ? 'Claimed'
+                                              : 'Locked'),
+                                  enabled: !rewardsLoading &&
+                                      _canClaimTimedExamRewardToday,
+                                  claimed: !rewardsLoading &&
+                                      !_canClaimTimedExamRewardToday &&
                                       _lastTimedExamRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
-                                    if (!await ensureOnlineForDialogAction(
-                                      'claim this free session',
-                                    )) {
-                                      return;
-                                    }
                                     await _claimTimedExamTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7141,22 +7503,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   title: 'Answer 30 questions today',
                                   subtitle:
                                       '$_dailyTaskQuestionsAnswered/30 answered',
-                                  actionLabel: _canClaimThirtyAnswersRewardToday
-                                      ? 'Claim'
-                                      : (_lastThirtyAnswersRewardClaimDate ==
-                                              _getTodayDateString()
-                                          ? 'Claimed'
-                                          : 'Locked'),
-                                  enabled: _canClaimThirtyAnswersRewardToday,
-                                  claimed: !_canClaimThirtyAnswersRewardToday &&
+                                  actionLabel: rewardsLoading
+                                      ? '...'
+                                      : _canClaimThirtyAnswersRewardToday
+                                          ? 'Claim'
+                                          : (_lastThirtyAnswersRewardClaimDate ==
+                                                  _getTodayDateString()
+                                              ? 'Claimed'
+                                              : 'Locked'),
+                                  enabled: !rewardsLoading &&
+                                      _canClaimThirtyAnswersRewardToday,
+                                  claimed: !rewardsLoading &&
+                                      !_canClaimThirtyAnswersRewardToday &&
                                       _lastThirtyAnswersRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
-                                    if (!await ensureOnlineForDialogAction(
-                                      'claim this free session',
-                                    )) {
-                                      return;
-                                    }
                                     await _claimThirtyAnswersTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7164,26 +7525,26 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                 const SizedBox(height: 10),
                                 _sessionTaskTile(
                                   icon: Icons.workspace_premium_rounded,
-                                  title: 'Score 95%+ in Random/Focus/Challenge/Timed',
+                                  title:
+                                      'Score 95%+ in Random/Focus/Challenge/Timed',
                                   subtitle: _dailyTaskHighScoreAchieved
                                       ? 'Qualified today'
-                                      : 'Not yet qualified today',
-                                  actionLabel: _canClaimHighScoreRewardToday
-                                      ? 'Claim'
-                                      : (_lastHighScoreRewardClaimDate ==
-                                              _getTodayDateString()
-                                          ? 'Claimed'
-                                          : 'Locked'),
-                                  enabled: _canClaimHighScoreRewardToday,
-                                  claimed: !_canClaimHighScoreRewardToday &&
+                                      : 'Need 95% or higher',
+                                  actionLabel: rewardsLoading
+                                      ? '...'
+                                      : _canClaimHighScoreRewardToday
+                                          ? 'Claim'
+                                          : (_lastHighScoreRewardClaimDate ==
+                                                  _getTodayDateString()
+                                              ? 'Claimed'
+                                              : 'Locked'),
+                                  enabled: !rewardsLoading &&
+                                      _canClaimHighScoreRewardToday,
+                                  claimed: !rewardsLoading &&
+                                      !_canClaimHighScoreRewardToday &&
                                       _lastHighScoreRewardClaimDate ==
                                           _getTodayDateString(),
                                   onAction: () async {
-                                    if (!await ensureOnlineForDialogAction(
-                                      'claim this free session',
-                                    )) {
-                                      return;
-                                    }
                                     await _claimHighScoreTaskReward();
                                     await refreshDialog(forcePersist: true);
                                   },
@@ -7359,7 +7720,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             ),
           ),
           // Banner Ad (only for free users) - positioned at bottom above nav bar
-          if (!hasAdFreeAccess && !hasGraceAccess && _bannerAd != null)
+          if (!hasAdFreeAccess &&
+              !hasGraceAccess &&
+              _isBannerAdLoaded &&
+              _bannerAd != null)
             Container(
               alignment: Alignment.center,
               width: _bannerAd!.size.width.toDouble(),
@@ -7468,146 +7832,147 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                  // Header
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: const BoxDecoration(),
-                    child: Column(
-                      children: [
-                        Text(
-                          'What course are you aiming for?',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.outfit(
-                            color: PnleTheme.accent,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 20,
-                            letterSpacing: 0.5,
-                            decoration: TextDecoration.none,
-                          ),
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: const BoxDecoration(),
+                  child: Column(
+                    children: [
+                      Text(
+                        'What course are you aiming for?',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          color: PnleTheme.accent,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 20,
+                          letterSpacing: 0.5,
+                          decoration: TextDecoration.none,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                ),
 
-                  // Scrollable list
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: specializations.length,
-                      itemBuilder: (context, index) {
-                        final spec = specializations[index];
-                        String displayName = spec;
-                        String description = '';
-                        IconData icon = Icons.book_rounded;
+                // Scrollable list
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: specializations.length,
+                    itemBuilder: (context, index) {
+                      final spec = specializations[index];
+                      String displayName = spec;
+                      String description = '';
+                      IconData icon = Icons.book_rounded;
 
-                        // Course-based targets for USTET readiness mode
-                        switch (spec) {
-                          case 'Nursing':
-                            description = 'Science-heavy and highly competitive';
-                            icon = Icons.local_hospital_rounded;
-                            break;
-                          case 'Engineering':
-                            description = 'Math-focused admission track';
-                            icon = Icons.engineering_rounded;
-                            break;
-                          case 'Business':
-                            description = 'Balanced math and communication';
-                            icon = Icons.business_center_rounded;
-                            break;
-                          case 'Arts':
-                            description = 'Language and reasoning priority';
-                            icon = Icons.palette_rounded;
-                            break;
-                          case 'Science':
-                            description = 'Science depth with strong math support';
-                            icon = Icons.science_rounded;
-                            break;
-                        }
+                      // Course-based targets for USTET readiness mode
+                      switch (spec) {
+                        case 'Nursing':
+                          description = 'Science-heavy and highly competitive';
+                          icon = Icons.local_hospital_rounded;
+                          break;
+                        case 'Engineering':
+                          description = 'Math-focused admission track';
+                          icon = Icons.engineering_rounded;
+                          break;
+                        case 'Business':
+                          description = 'Balanced math and communication';
+                          icon = Icons.business_center_rounded;
+                          break;
+                        case 'Arts':
+                          description = 'Language and reasoning priority';
+                          icon = Icons.palette_rounded;
+                          break;
+                        case 'Science':
+                          description =
+                              'Science depth with strong math support';
+                          icon = Icons.science_rounded;
+                          break;
+                      }
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () async {
-                                Navigator.of(context).pop();
-                                await _handleSpecializationSelection(spec);
-                              },
-                              borderRadius: BorderRadius.circular(14),
-                              child: Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.white.withValues(alpha: 0.08),
-                                      Colors.white.withValues(alpha: 0.03),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color:
-                                        PnleTheme.accent.withValues(alpha: 0.2),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: PnleTheme.accent
-                                            .withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Icon(
-                                        icon,
-                                        color: PnleTheme.accent,
-                                        size: 22,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            displayName,
-                                            style: GoogleFonts.outfit(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            description,
-                                            style: GoogleFonts.outfit(
-                                              color: Colors.white
-                                                  .withValues(alpha: 0.6),
-                                              fontWeight: FontWeight.w400,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Icon(
-                                      Icons.arrow_forward_ios_rounded,
-                                      color: PnleTheme.accent
-                                          .withValues(alpha: 0.5),
-                                      size: 16,
-                                    ),
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () async {
+                              Navigator.of(context).pop();
+                              await _handleSpecializationSelection(spec);
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.white.withValues(alpha: 0.08),
+                                    Colors.white.withValues(alpha: 0.03),
                                   ],
                                 ),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color:
+                                      PnleTheme.accent.withValues(alpha: 0.2),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: PnleTheme.accent
+                                          .withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(
+                                      icon,
+                                      color: PnleTheme.accent,
+                                      size: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          displayName,
+                                          style: GoogleFonts.outfit(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          description,
+                                          style: GoogleFonts.outfit(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.6),
+                                            fontWeight: FontWeight.w400,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    color:
+                                        PnleTheme.accent.withValues(alpha: 0.5),
+                                    size: 16,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
-                ],
+                ),
+              ],
             ),
           ),
         ),
@@ -7743,7 +8108,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Widget _buildStudyHubCard() {
     final hasPaused = _pausedQuizSessions.isNotEmpty;
     String pausedProgress = 'No paused session';
-    if (hasPaused && _pausedQuizSessions.length == 1) {
+    if (_isLoadingPausedQuizSessions) {
+      pausedProgress = 'Retrieving unfinished sessions...';
+    } else if (hasPaused && _pausedQuizSessions.length == 1) {
       final single = _pausedQuizSessions.values.first;
       pausedProgress =
           '${_modeLabel(single.testMode)} • ${single.currentIndex + 1}/${single.questions.length}';
@@ -7752,6 +8119,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       pausedProgress = '$count unfinished modes available';
     }
     final mistakeCount = _mistakeQueue.length;
+    final mistakesSubtitle = _isLoadingMistakeQueue
+        ? 'Retrieving saved mistakes...'
+        : '$mistakeCount saved for review';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -7824,14 +8194,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             icon: Icons.play_circle_fill_rounded,
             label: 'Continue Session',
             subtitle: pausedProgress,
-            onTap: hasPaused ? _showContinueSessionsDialog : null,
+            onTap: !_isLoadingPausedQuizSessions && hasPaused
+                ? _showContinueSessionsDialog
+                : null,
           ),
           const SizedBox(height: 10),
           _buildStudyHubAction(
             icon: Icons.fact_check_rounded,
             label: 'Review Mistakes',
-            subtitle: '$mistakeCount saved for review',
-            onTap: mistakeCount > 0 ? _showReviewMistakesDialog : null,
+            subtitle: mistakesSubtitle,
+            onTap: !_isLoadingMistakeQueue && mistakeCount > 0
+                ? _showReviewMistakesDialog
+                : null,
           ),
           const SizedBox(height: 10),
           _buildStudyHubAction(
@@ -7932,7 +8306,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final totalQuizzesTaken = accumulatedQuizzesCompleted;
     final totalQuestionsAnswered = accumulatedQuestionsAnswered;
     final bestScore = totalAvg;
-    final canTakeQuiz = remainingFreeTests > 0;
+    final isLoadingSessionAccess = _isLoadingDailyFreeTests;
+    final canTakeQuiz = !isLoadingSessionAccess && remainingFreeTests > 0;
     final isFocusModeLocked =
         !_hasUnlockedAdvancedModes || effectiveFocusCategory.isEmpty;
     final isChallengeModeLocked = !_hasUnlockedAdvancedModes;
@@ -8072,10 +8447,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         child: Text(
                           !_poolWarmupChecked
                               ? 'Checking offline question pool status...'
-                                : (_poolWarmupComplete
+                              : (_poolWarmupComplete
                                   ? (_isOnline
-                                    ? 'Offline pool warmed up: local question sets are ready for Random Quiz, Focus Mode, and Timed Exam. Challenge Mode may still use online generation.'
-                                    : 'Offline pool warmed up. Random Quiz, Focus Mode, and Timed Exam can start from local question sets while syncing waits for internet.')
+                                      ? 'Offline pool warmed up: local question sets are ready for Random Quiz, Focus Mode, and Timed Exam. Challenge Mode may still use online generation.'
+                                      : 'Offline pool warmed up. Random Quiz, Focus Mode, and Timed Exam can start from local question sets while syncing waits for internet.')
                                   : 'Offline pool warm-up in progress: $_poolWarmupReadyBuckets/$totalWarmupBuckets buckets ready.'),
                           style: GoogleFonts.outfit(
                             color: Colors.white,
@@ -8112,8 +8487,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ],
                   ),
                   borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: PnleTheme.accent.withValues(alpha: 0.52)),
+                  border: Border.all(
+                      color: PnleTheme.accent.withValues(alpha: 0.52)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -8226,7 +8601,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     children: [
                       InkWell(
                         borderRadius: BorderRadius.circular(16),
-                        onTap: _showMoreSessionsDialog,
+                        onTap: _isLoadingDailyTaskRewards ||
+                                _isLoadingDailyFreeTests
+                            ? null
+                            : _showMoreSessionsDialog,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 12),
@@ -8251,7 +8629,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                       ),
                                     ),
                                     Text(
-                                      'Daily tasks and claimable rewards',
+                                      _isLoadingDailyTaskRewards ||
+                                              _isLoadingDailyFreeTests
+                                          ? 'Retrieving today\'s rewards...'
+                                          : 'Daily tasks and claimable rewards',
                                       style: GoogleFonts.outfit(
                                         color: const Color(0xFF6D4B11),
                                         fontWeight: FontWeight.w600,
@@ -8353,7 +8734,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       }
                     : () => _showMoreSessionsDialog(),
                 isPrimary: true,
-                badge: canTakeQuiz ? null : 'NO CREDITS',
+                badge: isLoadingSessionAccess
+                    ? '...'
+                    : (canTakeQuiz ? null : 'NO CREDITS'),
                 isLocked: false,
               ),
               const SizedBox(height: 12),
@@ -8399,7 +8782,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ? null
                         : () => _showMoreSessionsDialog(),
                 badge: !canTakeQuiz
-                    ? 'NO CREDITS'
+                    ? (isLoadingSessionAccess ? '...' : 'NO CREDITS')
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
@@ -8411,15 +8794,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               _quizModeCard(
                 icon: Icons.flash_on_rounded,
                 title: 'Quick Practice',
-                description: '5 questions • Perfect for breaks',
+                description: _isLoadingSavedSessions
+                    ? 'Retrieving saved tests...'
+                    : '5 questions • Perfect for breaks',
                 gradient: _modeFadeGradientWithColors(
                   PnleTheme.bgTop,
                   PnleTheme.glowB,
                   strength: 0.8,
                 ),
-                onTap: _hasSavedTestsData ? () => _startQuickPractice() : null,
-                badge: _hasSavedTestsData ? null : 'LOCKED',
-                isLocked: !_hasSavedTestsData,
+                onTap: _isLoadingSavedSessions
+                    ? null
+                    : (_hasSavedTestsData ? () => _startQuickPractice() : null),
+                badge: _isLoadingSavedSessions
+                    ? '...'
+                    : (_hasSavedTestsData ? null : 'LOCKED'),
+                isLocked: !_isLoadingSavedSessions && !_hasSavedTestsData,
               ),
               const SizedBox(height: 12),
 
@@ -8428,7 +8817,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 icon: Icons.emoji_events_rounded,
                 title: 'Challenge Mode',
                 description:
-                  'Advanced mixed-difficulty simulation • Does not count toward daily session objective',
+                    'Advanced mixed-difficulty simulation • Does not count toward daily session objective',
                 gradient: _modeFadeGradientWithColors(
                   PnleTheme.accent,
                   PnleTheme.accentDeep,
@@ -8443,7 +8832,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ? () => _showMoreSessionsDialog()
                         : null),
                 badge: !canTakeQuiz
-                    ? 'NO CREDITS'
+                    ? (isLoadingSessionAccess ? '...' : 'NO CREDITS')
                     : (_hasUnlockedAdvancedModes
                         ? null
                         : '$_lifetimeRandomQuizzesCompleted/$_advancedModeUnlockRequirement'),
@@ -8456,7 +8845,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 icon: Icons.timer_rounded,
                 title: 'Timed Exam',
                 description:
-                  'Exam pressure mode • strict timer with auto-next on timeout',
+                    'Exam pressure mode • strict timer with auto-next on timeout',
                 gradient: _modeFadeGradientWithColors(
                   PnleTheme.glowB,
                   PnleTheme.bgTop,
@@ -8470,29 +8859,35 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         );
                       }
                     : () => _showMoreSessionsDialog(),
-                badge: canTakeQuiz ? null : 'NO CREDITS',
+                badge: isLoadingSessionAccess
+                    ? '...'
+                    : (canTakeQuiz ? null : 'NO CREDITS'),
                 isLocked: false,
               ),
               const SizedBox(height: 12),
 
               // 5. Load Saved Test
-              if (_savedSessions.isNotEmpty)
+              if (_isLoadingSavedSessions || _savedSessions.isNotEmpty)
                 _quizModeCard(
                   icon: Icons.history_rounded,
                   title: 'Load Saved Test',
-                  description:
-                      '${_savedSessions.length} saved ${_savedSessions.length == 1 ? 'test' : 'tests'} available',
+                  description: _isLoadingSavedSessions
+                      ? 'Retrieving saved tests...'
+                      : '${_savedSessions.length} saved ${_savedSessions.length == 1 ? 'test' : 'tests'} available',
                   gradient: _modeFadeGradientWithColors(
                     PnleTheme.bgBottom,
                     PnleTheme.glowB,
                     strength: 0.74,
                   ),
-                  onTap: _showSavedTestsDialog,
-                  badge: '${_savedSessions.length}',
+                  onTap: _isLoadingSavedSessions ? null : _showSavedTestsDialog,
+                  badge: _isLoadingSavedSessions
+                      ? '...'
+                      : '${_savedSessions.length}',
                   isLocked: false,
                 ),
 
-              if (_savedSessions.isNotEmpty) const SizedBox(height: 24),
+              if (_isLoadingSavedSessions || _savedSessions.isNotEmpty)
+                const SizedBox(height: 24),
               const SizedBox(height: 24),
             ],
           ),
@@ -8622,8 +9017,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color:
-                                        Colors.white.withValues(alpha: 0.92),
+                                    color: Colors.white.withValues(alpha: 0.92),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
@@ -8945,21 +9339,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       activity[day]!['percentSum'] =
           (activity[day]!['percentSum'] ?? 0) + record.scorePercent;
 
-        final dayCategoryCorrect =
+      final dayCategoryCorrect =
           activity[day]!['categoryCorrect'] as Map<String, int>;
-        final dayCategoryTotal =
+      final dayCategoryTotal =
           activity[day]!['categoryTotal'] as Map<String, int>;
-        for (final category in record.categoryTotal.keys) {
-        dayCategoryCorrect[category] =
-          (dayCategoryCorrect[category] ?? 0) +
+      for (final category in record.categoryTotal.keys) {
+        dayCategoryCorrect[category] = (dayCategoryCorrect[category] ?? 0) +
             (record.categoryCorrect[category] ?? 0);
         dayCategoryTotal[category] =
-          (dayCategoryTotal[category] ?? 0) + record.categoryTotal[category]!;
-        }
+            (dayCategoryTotal[category] ?? 0) + record.categoryTotal[category]!;
+      }
     }
 
     final todayData = activity[today];
-    final fallbackSessions = max(completedSessions, _dailyTaskSessionsCompleted);
+    final fallbackSessions =
+        max(completedSessions, _dailyTaskSessionsCompleted);
     if (todayData != null &&
         ((todayData['quizzes'] ?? 0) == 0 ||
             (todayData['quizzes'] as int? ?? 0) < fallbackSessions) &&
@@ -8998,7 +9392,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             'questions': entry.value['questions'] ?? 0,
             'correct': entry.value['correct'] ?? 0,
             'percentSum': entry.value['percentSum'] ?? 0,
-            'categoryCorrect': entry.value['categoryCorrect'] ?? <String, int>{},
+            'categoryCorrect':
+                entry.value['categoryCorrect'] ?? <String, int>{},
             'categoryTotal': entry.value['categoryTotal'] ?? <String, int>{},
           },
         )
@@ -9148,8 +9543,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       width: 1,
                       color: Colors.white.withValues(alpha: 0.2),
                     ),
-                    _build10DayStatItem('$goalPassDays', 'Goal-Pass Days',
-                        Icons.flag_rounded),
+                    _build10DayStatItem(
+                        '$goalPassDays', 'Goal-Pass Days', Icons.flag_rounded),
                   ],
                 ),
               ),
@@ -9268,7 +9663,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             ? '${correct.clamp(0, questions)}/$questions correct'
                             : '${dayOverallAvg.toStringAsFixed(0)}% average so far';
                         statusText =
-                          'Incomplete: $quizzes/$dailyTarget sessions. Need $missingSessions more to evaluate readiness. Accuracy: $accuracyData.';
+                            'Incomplete: $quizzes/$dailyTarget sessions. Need $missingSessions more to evaluate readiness. Accuracy: $accuracyData.';
                         statusColor = const Color(0xFFFFA726);
                       } else {
                         final dayOverallAvg = _calculateDayOverallAverage(day);
@@ -9340,7 +9735,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // Helper method to build feature items
   Widget _buildReadinessLineChart(List<Map<String, dynamic>> tenDayActivity) {
     final points = tenDayActivity
-        .map((day) => _calculateDayCourseReadinessPercent(day).clamp(0.0, 100.0))
+        .map(
+            (day) => _calculateDayCourseReadinessPercent(day).clamp(0.0, 100.0))
         .toList();
 
     final labels = tenDayActivity
@@ -9751,50 +10147,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return totalWeightedScore * 100;
   }
 
-  String _getTotalAverageText() {
-    // Calculate cumulative raw count across all sessions
-    int totalCorrect = 0;
-    int totalQuestions = 0;
-
-    final categories = _categoriesForEligibility();
-    for (final cat in categories) {
-      final data = categoryScores[cat];
-      if (data == null) continue;
-      totalCorrect += data['correct'] as int;
-      totalQuestions += data['total'] as int;
-    }
-
-    // Get weighted overall average across USTET categories.
-    final weightedAvg = _calculateTotalAverage();
-    final dailyTarget = _dailySessionTarget;
-
-    // Show cumulative format with session indicator
-    final cumulativeText = totalQuestions > 0
-      ? '$totalCorrect/$totalQuestions | Session $completedSessions/$dailyTarget'
-      : '0/0 | Session 0/$dailyTarget';
-
-    if (completedSessions < dailyTarget) {
-      return '$cumulativeText\n${weightedAvg.toStringAsFixed(1)}% (Weighted) - Incomplete';
-    } else if (weightedAvg >= 65) {
-      return '$cumulativeText\n${weightedAvg.toStringAsFixed(1)}% (Weighted) - PASSED';
-    } else {
-      return '$cumulativeText\n${weightedAvg.toStringAsFixed(1)}% (Weighted) - FAILED';
-    }
-  }
-
-  Color _getTotalAverageColor() {
-    final avg = _calculateTotalAverage();
-    final dailyTarget = _dailySessionTarget;
-
-    if (completedSessions < dailyTarget) {
-      return Colors.amber;
-    } else if (avg >= 65) {
-      return Colors.green;
-    } else {
-      return PnleTheme.danger.withValues(alpha: 0.82);
-    }
-  }
-
   Widget _glassContainer({
     required Widget child,
     EdgeInsetsGeometry? padding,
@@ -10002,44 +10354,6 @@ void _showLimitReachedDialog() {
                         ),
                         child: ElevatedButton(
                           onPressed: () async {
-                            if (!_isOnline) {
-                              showDialog<void>(
-                                context: dialogContext,
-                                barrierColor: Colors.black87,
-                                builder: (_) => AlertDialog(
-                                  backgroundColor: PnleTheme.bgTop,
-                                  title: Text(
-                                    'Internet Required',
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  content: Text(
-                                    'Please reconnect to the internet before creating a test.',
-                                    style: GoogleFonts.outfit(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.88),
-                                    ),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(dialogContext),
-                                      child: Text(
-                                        'OK',
-                                        style: GoogleFonts.outfit(
-                                          color: PnleTheme.accent,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              return;
-                            }
-
                             if (remainingFreeTests <= 0) {
                               await showDialog<void>(
                                 context: dialogContext,
@@ -10153,7 +10467,7 @@ void _showLimitReachedDialog() {
                               if (!mounted) return;
                               _showGenerationDialog(
                                 modeLabel: isFocusMode
-                                ? 'FOCUS MODE${focusCategory != null ? ' • $focusCategory' : ''}'
+                                    ? 'FOCUS MODE${focusCategory != null ? ' • $focusCategory' : ''}'
                                     : 'RANDOM QUIZ',
                               );
                             });
@@ -10537,7 +10851,8 @@ class _ReadinessLinePainter extends CustomPainter {
 
     for (int i = 0; i < points.length; i++) {
       final x = stepX * i;
-      final y = size.height - (points[i].clamp(0.0, 100.0) / 100.0) * size.height;
+      final y =
+          size.height - (points[i].clamp(0.0, 100.0) / 100.0) * size.height;
       final point = Offset(x, y);
       dotOffsets.add(point);
       if (i == 0) {
@@ -10623,4 +10938,3 @@ class _ReadinessLinePainter extends CustomPainter {
     return false;
   }
 }
-

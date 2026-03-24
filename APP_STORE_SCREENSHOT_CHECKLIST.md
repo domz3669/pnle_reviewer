@@ -37,6 +37,11 @@ Final Upload Captions
 5. Save sessions and continue unfinished tests anytime.
 6. Get optional AI Coach Note explanations after you answer.
 
+Caption Guardrails
+- Keep captions descriptive, not promotional. Avoid words like premium, subscription, best, guaranteed, official, or unlimited.
+- Do not imply that Challenge Mode or Coach Note works offline.
+- Do not mention email reporting, human review, or live tutoring unless the current build visibly supports it.
+
 Quality Rules
 - Use production-like data (no placeholders, no debug text).
 - Avoid any old subscription or premium wording.
