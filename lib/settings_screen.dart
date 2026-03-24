@@ -435,10 +435,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: 'Privacy Policy',
         content: SingleChildScrollView(
           child: Text(
-            'USTET Reviewer 2027 stores quiz progress, scores, and usage data to provide learning analytics and personalized recommendations.\n\n'
-            'Your progress data is backed up through Firebase to keep your data safe across sessions.\n\n'
-            'We do not sell your personal data. Third-party services used by the app may include Firebase and Google Mobile Ads.\n\n'
-            'For Google Play release: replace this in-app summary with your final published Privacy Policy link and approved legal text.',
+            'USTET Reviewer 2027 stores quiz progress, scores, nickname, and session usage data so your study history and readiness insights can persist across sessions.\n\n'
+            'The app uses Firebase to back up progress and Google Mobile Ads for ad delivery. Coach Note explanations use online generative AI services when you request them from a quiz.\n\n'
+            'Offline quiz play can continue with local seeded question sets, while syncing, rewards, and AI explanations wait until internet access returns.\n\n'
+            'We do not sell your personal data. Publish a full external privacy policy in App Store Connect and keep this summary aligned with it.',
             style:
                 GoogleFonts.outfit(color: Colors.white.withValues(alpha: 0.8)),
           ),
@@ -468,7 +468,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'A comprehensive exam preparation app with rich question sets and detailed explanations.',
+                'A native USTET review app with local quiz modes, progress tracking, and optional AI-generated coaching notes.',
                 style: GoogleFonts.outfit(
                     color: Colors.white.withValues(alpha: 0.8)),
               ),

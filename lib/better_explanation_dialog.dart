@@ -140,7 +140,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Deep Coaching',
+                          'AI Deep Coaching',
                           style: GoogleFonts.outfit(
                             fontSize: r.fontSize(22),
                             fontWeight: FontWeight.bold,
@@ -197,7 +197,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Preparing deeper coaching notes...',
+                      'Preparing deeper AI coaching notes...',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(16),
@@ -207,7 +207,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Please wait while your review coach prepares insights',
+                      'These coaching notes are generated online and may vary by question.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(13),

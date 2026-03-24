@@ -5846,10 +5846,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   bool _consumeFreeSessionAllowance() {
-    if (!_requireOnlineForProgressAction('start this session')) {
-      return false;
-    }
-
     final now = DateTime.now();
     if (_lastSessionConsumeAt != null &&
         now.difference(_lastSessionConsumeAt!) <
@@ -5875,7 +5871,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     });
     _lastSessionConsumeAt = now;
     unawaited(_persistDailyFreeTests());
-    unawaited(_syncAllProgressToRtdb());
+    if (_isOnline) {
+      unawaited(_syncAllProgressToRtdb());
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Offline session started. Your local session credit was saved and will sync when internet reconnects.',
+            style: GoogleFonts.outfit(),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
 
     // Decrement zero-ad sessions for Random Quiz / Focus Mode
     if (_zeroAdSessionsRemaining > 0) {
@@ -8019,7 +8027,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Offline: quiz starts and rewards are paused until internet reconnects.',
+                          'Offline: locally seeded quiz sessions still work. Rewards, syncing, and online explanations resume after reconnecting.',
                           style: GoogleFonts.outfit(
                             color: Colors.white,
                             fontSize: 12,
@@ -8064,10 +8072,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         child: Text(
                           !_poolWarmupChecked
                               ? 'Checking offline question pool status...'
-                              : (_poolWarmupComplete
+                                : (_poolWarmupComplete
                                   ? (_isOnline
-                                      ? 'Offline pool warmed up: all mode buckets are fully ready (Random, Focus, Challenge, Timed).'
-                                      : 'Offline pool warmed up for all modes, but internet is still required to start sessions and sync progress.')
+                                    ? 'Offline pool warmed up: local question sets are ready for Random Quiz, Focus Mode, and Timed Exam. Challenge Mode may still use online generation.'
+                                    : 'Offline pool warmed up. Random Quiz, Focus Mode, and Timed Exam can start from local question sets while syncing waits for internet.')
                                   : 'Offline pool warm-up in progress: $_poolWarmupReadyBuckets/$totalWarmupBuckets buckets ready.'),
                           style: GoogleFonts.outfit(
                             color: Colors.white,

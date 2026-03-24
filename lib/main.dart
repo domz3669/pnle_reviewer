@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,7 +6,6 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'menu_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-import 'config/pnle_theme.dart';
 import 'services/sound_service.dart';
 
 void main() async {
@@ -82,133 +80,12 @@ class _SplashScreenState extends State<SplashScreen> {
     // Show splash screen for 5 seconds
     await Future.delayed(const Duration(seconds: 5));
 
-    // Check internet connection
-    bool hasInternet = await _hasInternetConnection();
-
     if (!mounted) return;
-
-    if (hasInternet) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const MenuScreen()),
-      );
-    } else {
-      _showNoInternetDialog();
-    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const MenuScreen()),
+    );
   }
-
-  Future<bool> _hasInternetConnection() async {
-    try {
-      final result = await InternetAddress.lookup('google.com');
-      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  void _showNoInternetDialog() {
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    barrierColor: Colors.black87,
-    builder: (context) {
-      return Dialog(
-        backgroundColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [
-                PnleTheme.bgTop,
-                PnleTheme.bgBottom,
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: PnleTheme.accent.withOpacity(0.3),
-              width: 2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.5),
-                blurRadius: 20,
-                spreadRadius: 5,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: PnleTheme.accent.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.wifi_off,
-                  size: 60,
-                  color: PnleTheme.accent,
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'No Internet Connection',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'This app requires an internet connection to start.\n\n'
-                'Please check your Wi-Fi or mobile data, then restart the app.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.8),
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: PnleTheme.accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  onPressed: () {
-                    exit(0);
-                  },
-                  child: const Text(
-                    'EXIT APP',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
 
   @override
   Widget build(BuildContext context) {
@@ -255,7 +132,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Checking internet connection...',
+                    'Preparing your review dashboard...',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white,

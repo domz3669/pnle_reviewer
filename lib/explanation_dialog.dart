@@ -180,7 +180,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'Preparing your coaching notes...',
+                      'Preparing your AI coaching notes...',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(16),
@@ -190,7 +190,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Please wait while your review coach prepares insights',
+                      'These coaching notes are generated online and may vary by question.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(13),
