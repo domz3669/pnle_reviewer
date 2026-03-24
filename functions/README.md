@@ -1,6 +1,6 @@
 # CSE Reviewer Cloud Functions
 
-Cloud Functions for the CSE Reviewer app, including daily leaderboard snapshot generation.
+Cloud Functions for the CSE Reviewer app, including daily leaderboard snapshot generation and question report intake.
 
 ## Setup
 
@@ -145,6 +145,100 @@ Use the emulator UI at `http://localhost:4000` to trigger the function manually.
 - **Execution Time:** ~2-5 seconds for typical user base
 - **Scalability:** Optimized with batch writes and indexed queries
 - **Cost:** Minimal - uses scheduled Pub/Sub trigger (free tier eligible)
+
+### `reportQuestion`
+
+**Trigger:** HTTPS
+
+**What it does:**
+
+1. Accepts `POST` requests from the app's `Report Inaccuracy` action
+2. Validates that a non-empty `question` field exists
+3. Stores the report in Firestore under `contentReports/{autoId}`
+4. Returns `201` with `{ ok: true, reportId }` on success
+
+**Expected request body:**
+
+```json
+{
+   "question": "Question text here",
+   "category": "Mathematics",
+   "questionNumber": 12,
+   "timestamp": "2026-03-24T10:00:00.000Z",
+   "testMode": "timedExam"
+}
+```
+
+**Stored Firestore document:**
+
+```text
+contentReports/{reportId}
+   question
+   category
+   questionNumber
+   testMode
+   clientTimestamp
+   submittedAt
+   status = "pending"
+   source = "mobile-app"
+```
+
+## Deploying The Report Webhook
+
+1. Install dependencies:
+
+```bash
+cd functions
+npm install
+```
+
+2. Deploy functions:
+
+```bash
+firebase deploy --only functions
+```
+
+3. After deploy, copy the HTTPS trigger URL for `reportQuestion` from the Firebase CLI output or Firebase Console.
+
+The URL format is typically:
+
+```text
+https://REGION-PROJECT_ID.cloudfunctions.net/reportQuestion
+```
+
+or for newer Hosting-style URLs:
+
+```text
+https://reportquestion-HASH-REGION.a.run.app
+```
+
+4. Set that exact URL as `REPORT_CONTENT_WEBHOOK_URL`:
+    - locally in your shell/user environment
+    - in Codemagic's `Secure` environment group
+
+## Verifying The Report Webhook
+
+After deployment, test it with a manual request:
+
+```bash
+curl -X POST "https://REGION-PROJECT_ID.cloudfunctions.net/reportQuestion" \
+   -H "Content-Type: application/json" \
+   -d '{
+      "question": "Sample question text",
+      "category": "Science",
+      "questionNumber": 3,
+      "timestamp": "2026-03-24T10:00:00.000Z",
+      "testMode": "randomQuiz"
+   }'
+```
+
+Expected response:
+
+```json
+{"ok":true,"reportId":"..."}
+```
+
+Then confirm a document appears in Firestore under `contentReports`.
 
 ## Future Enhancements
 

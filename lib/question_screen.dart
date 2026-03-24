@@ -20,6 +20,8 @@ import 'services/review_service.dart';
 import 'services/gemini_service.dart';
 import 'services/gpt_service.dart';
 
+const String _reportingAppName = 'USTET Reviewer 2027';
+
 class QuestionScreen extends StatefulWidget {
   final List<Question> questions;
   final bool hasAdFreeAccess;
@@ -44,6 +46,27 @@ class QuestionScreen extends StatefulWidget {
 
   @override
   State<QuestionScreen> createState() => _QuestionScreenState();
+}
+
+class _ReportSubmissionDialogState {
+  final bool isLoading;
+  final bool sentSuccessfully;
+  final String title;
+  final String detail;
+
+  const _ReportSubmissionDialogState({
+    required this.isLoading,
+    required this.sentSuccessfully,
+    required this.title,
+    required this.detail,
+  });
+
+  const _ReportSubmissionDialogState.loading()
+      : isLoading = true,
+        sentSuccessfully = false,
+        title = 'Sending your report...',
+        detail =
+            'Please wait while we submit this question to the review queue and save a local backup.';
 }
 
 class _QuestionScreenState extends State<QuestionScreen>
@@ -78,6 +101,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   // Interstitial Ad
   InterstitialAd? _interstitialAd;
   bool _isInterstitialAdLoaded = false;
+  bool _isSubmittingReport = false;
 
   // Interstitial Ad for explain-limit unlock
   InterstitialAd? _explainInterstitialAd;
@@ -640,8 +664,206 @@ class _QuestionScreenState extends State<QuestionScreen>
   // REPORT CONTENT
   // =========================
   void _reportContent() async {
+    if (_isSubmittingReport || !mounted) return;
+
+    _isSubmittingReport = true;
     final question = currentQuestion.question;
     final reportWebhookUrl = REPORT_CONTENT_WEBHOOK_URL.trim();
+    final dialogState = ValueNotifier<_ReportSubmissionDialogState>(
+      const _ReportSubmissionDialogState.loading(),
+    );
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black87,
+      builder: (_) => ValueListenableBuilder<_ReportSubmissionDialogState>(
+        valueListenable: dialogState,
+        builder: (dialogContext, state, _) {
+          final statusColor = state.isLoading
+              ? PnleTheme.accent
+              : (state.sentSuccessfully
+                  ? PnleTheme.success
+                  : PnleTheme.warning);
+          final statusIcon = state.isLoading
+              ? null
+              : (state.sentSuccessfully
+                  ? Icons.task_alt_rounded
+                  : Icons.save_outlined);
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: statusColor.withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 28,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.16),
+                          shape: BoxShape.circle,
+                        ),
+                        child: state.isLoading
+                            ? SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.6,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    statusColor,
+                                  ),
+                                ),
+                              )
+                            : Icon(
+                                statusIcon,
+                                color: statusColor,
+                                size: 28,
+                              ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              state.isLoading
+                                  ? 'Submitting Report'
+                                  : 'Report Submitted',
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              state.title,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white.withValues(alpha: 0.92),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Question reported',
+                    style: GoogleFonts.outfit(
+                      color: PnleTheme.accent,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    child: Text(
+                      question,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontStyle: FontStyle.italic,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    state.detail,
+                    style: GoogleFonts.outfit(
+                      color: Colors.white.withValues(alpha: 0.76),
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: state.isLoading
+                        ? Text(
+                            'Sending...',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withValues(alpha: 0.7),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          )
+                        : FilledButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: state.sentSuccessfully
+                                  ? PnleTheme.accent
+                                  : statusColor,
+                              foregroundColor: state.sentSuccessfully
+                                  ? PnleTheme.bgBottom
+                                  : Colors.black,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: Text(
+                              'OK',
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(() {
+      dialogState.dispose();
+      _isSubmittingReport = false;
+    });
 
     // Try to send report via backend webhook
     bool sentSuccessfully = false;
@@ -652,6 +874,7 @@ class _QuestionScreenState extends State<QuestionScreen>
               Uri.parse(reportWebhookUrl),
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({
+                'appName': _reportingAppName,
                 'question': question,
                 'category': currentQuestion.category,
                 'questionNumber': currentQuestion.number,
@@ -675,6 +898,7 @@ class _QuestionScreenState extends State<QuestionScreen>
       final reports = prefs.getStringList('pendingReports') ?? [];
 
       final reportEntry = {
+        'appName': _reportingAppName,
         'question': question,
         'category': currentQuestion.category,
         'timestamp': DateTime.now().toIso8601String(),
@@ -689,48 +913,24 @@ class _QuestionScreenState extends State<QuestionScreen>
       debugPrint('Error storing local report: $e');
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      _isSubmittingReport = false;
+      return;
+    }
 
-    showDialog(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (_) => AlertDialog(
-        title: const Text('Report Submitted'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              sentSuccessfully
-                  ? 'Your report has been sent to the review queue.'
-                  : 'Your report has been saved on this device.',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            const Text('Question reported:'),
-            const SizedBox(height: 8),
-            Text(
-              question,
-              style: const TextStyle(fontStyle: FontStyle.italic),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              sentSuccessfully
-                  ? 'Thank you for flagging the issue. We will review it.'
-                  : (reportWebhookUrl.isEmpty
-                      ? 'The report service is not configured in this build yet, so the report was stored locally only.'
-                      : 'The report service is currently unavailable, so the report was stored locally as a backup.'),
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
+    final statusTitle = sentSuccessfully
+        ? 'Your report was added to the review queue.'
+        : 'Your report was saved on this device.';
+    final statusDetail = sentSuccessfully
+        ? 'Thank you for flagging the issue. We will review it from the moderator queue.'
+        : (reportWebhookUrl.isEmpty
+            ? 'This build does not have the report service configured yet, so the report was stored locally only.'
+            : 'The report service is temporarily unavailable, so the report was stored locally as a backup.');
+    dialogState.value = _ReportSubmissionDialogState(
+      isLoading: false,
+      sentSuccessfully: sentSuccessfully,
+      title: statusTitle,
+      detail: statusDetail,
     );
   }
 
