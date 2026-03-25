@@ -39,6 +39,16 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles
 
+      - name: Print iOS signing diagnostics
+        script: |
+          echo "Codemagic workflow bundle ID: $BUNDLE_ID"
+          echo "Provisioning profiles on disk:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
+          echo "Certificates on disk:"
+          ls -la ~/Library/MobileDevice/Certificates || true
+          echo "Effective Xcode PRODUCT_BUNDLE_IDENTIFIER:"
+          xcodebuild -workspace ios/$XCODE_WORKSPACE -scheme $XCODE_SCHEME -showBuildSettings | grep PRODUCT_BUNDLE_IDENTIFIER || true
+
       - name: Flutter pub get
         script: |
           flutter pub get
