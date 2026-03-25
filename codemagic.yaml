@@ -1,6 +1,6 @@
 workflows:
   ios-testflight:
-    name: iOS TestFlight (USTET Reviewer 2027)
+    name: iOS TestFlight (UPCAT Reviewer 2027)
     max_build_duration: 120
     instance_type: mac_mini_m1
     integrations:
@@ -13,13 +13,11 @@ workflows:
         - Secure
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.domz.ustetreviewer2027
+        bundle_identifier: com.niotron.domingotambasacan.upcataireviewer2027
       vars:
-        BUNDLE_ID: "com.domz.ustetreviewer2027"
+        BUNDLE_ID: "com.niotron.domingotambasacan.upcataireviewer2027"
         XCODE_WORKSPACE: "Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        FLUTTER_BUILD_NAME: "1.0.0"
-        FLUTTER_BUILD_NUMBER: "$PROJECT_BUILD_NUMBER"
     triggering:
       events:
         - push
@@ -51,6 +49,13 @@ workflows:
           pod install
           cd ..
 
+      - name: Resolve Flutter build version
+        script: |
+          FLUTTER_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          FLUTTER_BUILD_NAME="${FLUTTER_VERSION%%+*}"
+          echo "Resolved Flutter build name: ${FLUTTER_BUILD_NAME}"
+          echo "FLUTTER_BUILD_NAME=${FLUTTER_BUILD_NAME}" >> "$CM_ENV"
+
       - name: Build IPA for TestFlight
         script: |
           if [ -z "$GPT_API_KEY" ] || [ -z "$GEMINI_API_KEY" ] || [ -z "$DEEPSEEK_API_KEY" ] || [ -z "$REPORT_CONTENT_WEBHOOK_URL" ]; then
@@ -61,7 +66,7 @@ workflows:
 
           flutter build ipa --release \
             --build-name="$FLUTTER_BUILD_NAME" \
-            --build-number="${FLUTTER_BUILD_NUMBER:-1}" \
+            --build-number="${PROJECT_BUILD_NUMBER:-1}" \
             --dart-define=GPT_API_KEY="${GPT_API_KEY}" \
             --dart-define=GEMINI_API_KEY="${GEMINI_API_KEY}" \
             --dart-define=DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY}" \
