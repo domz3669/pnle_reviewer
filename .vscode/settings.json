@@ -14,7 +14,7 @@
         "Tee-Object": true,
         "Test-Path": true,
         "Get-Item": true,
-        "firebase": true,
+        "/^powershell -ExecutionPolicy Bypass -File \\.\\scripts\\generate_seed_pool\.disabled\.ps1$/": {
         "npx firebase": true,
         "/^cmd\\.exe /c \"cd c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\cse_reviewer && npx firebase deploy --only firestore:rules\"$/": {
             "approve": true,
@@ -89,6 +89,33 @@
         "/^powershell -ExecutionPolicy Bypass -File \\.\\\\scripts\\\\generate_seed_pool\\.ps1$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "4270..4315": true,
+        "4290..4296": true,
+        "git -C .": true,
+        "npm run build": true,
+        "npm uninstall": true,
+        "Push-Location": true,
+        "Pop-Location": true,
+        "Get-UniqueQuestions": true,
+        "ConvertTo-Json": true,
+        "/^\\$json = Get-Content -Raw \"assets/seed/initial_question_pool\\.json\" \\| ConvertFrom-Json; foreach \\(\\$mode in \\$json\\.modes\\) \\{ foreach \\(\\$category in \\$mode\\.categories\\) \\{ \"\\{0\\}\\|\\{1\\}\\|\\{2\\}\" -f \\$mode\\.mode, \\$category\\.category, @\\(\\$category\\.questions\\)\\.Count \\} \\} \\| Out-String$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        ".\\scripts\\generate_seed_pool.disabled.ps1": true,
+        ".\\scripts\\refresh_baseline_seed_pool.disabled.ps1": true,
+        ".\\scripts\\specialize_focus_seed_pool.disabled.ps1": true,
+        ".\\scripts\\specialize_challenge_seed_pool.disabled.ps1": true,
+        ".\\scripts\\specialize_timed_seed_pool.disabled.ps1": true,
+        ".\\scripts\\extend_seed_pool_to_960.disabled.ps1": true,
+        ".\\scripts\\validate_seed_pool.ps1": true,
+        ".": true,
+        "/^Set-Location 'c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\upcat_reviewer_2'; powershell -ExecutionPolicy Bypass -File \\.\\scripts\\normalize_seed_pool_text\.disabled\.ps1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Out-Null": true,
+        ".\\scripts\\prune_low_quality_seed_pool.disabled.ps1": true
     }
 }
