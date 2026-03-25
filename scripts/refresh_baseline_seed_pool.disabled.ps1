@@ -5,6 +5,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+throw @'
+This legacy seed refresh script has been disabled.
+
+Reason:
+- assets/seed/initial_question_pool.json is now a curated source of truth.
+- Running this script would overwrite the curated pool with older baseline content.
+
+If you need to update the seed pool, edit the curated asset directly or create a new reviewed workflow that writes to a different output file.
+'@
+
+. "$PSScriptRoot\upcat_seed_banks.ps1"
+
+$readingComprehensionBaseline = @(Get-UpcatReadingComprehensionBank | Select-Object -First 20)
+
 function New-BaselineQuestion {
   param(
     [int]$Number,
@@ -48,29 +62,8 @@ function New-BaselineQuestion {
 }
 
 $baselineBank = @{
-  'Mental Ability' = @(
-    @{ q = 'Identify the next term: 11, 15, 19, 23, ?'; c = '27'; d = @('26', '28', '29'); e = 'The pattern adds 4 each time, so the next term is 27.' },
-    @{ q = 'Find the missing number in 2, 6, 18, 54, ?'; c = '162'; d = @('108', '144', '216'); e = 'Each term is multiplied by 3, so the next term is 162.' },
-    @{ q = 'BIRD is most closely related to which word?'; c = 'NEST'; d = @('STONE', 'WHEEL', 'CLOUD'); e = 'A bird is closely associated with a nest.' },
-    @{ q = 'Which item does not belong: violin, drum, flute, cabbage?'; c = 'cabbage'; d = @('violin', 'drum', 'flute'); e = 'The first three are musical instruments, while cabbage is a vegetable.' },
-    @{ q = 'Move every letter of RUG forward by 2. What code results?'; c = 'TWI'; d = @('SVH', 'TXJ', 'UWK'); e = 'Move each letter forward by 2: R to T, U to W, G to I.' },
-    @{ q = 'Paolo walks 4 m east, 5 m north, then 4 m west. Where is he from the starting point?'; c = 'North'; d = @('South', 'East', 'West'); e = 'The east and west movements cancel, leaving him 5 m north of the start.' },
-    @{ q = 'In a race, Mira finished behind Jon but ahead of Liza. Who finished first among the three?'; c = 'Jon'; d = @('Mira', 'Liza', 'Cannot be determined'); e = 'If Mira is behind Jon and ahead of Liza, Jon finished first.' },
-    @{ q = 'All triangles are polygons. Which statement must be true?'; c = 'All triangles are polygons.'; d = @('All polygons are triangles.', 'Some triangles are circles.', 'No polygons are triangles.'); e = 'The only guaranteed statement is the original class relationship.' },
-    @{ q = 'Which pair has the same relationship as seed : plant?'; c = 'egg : bird'; d = @('leaf : root', 'book : shelf', 'rain : cloud'); e = 'A seed develops into a plant just as an egg develops into a bird.' },
-    @{ q = 'Order these from earliest to latest: 1) bake bread 2) mix dough 3) eat bread 4) put dough in oven'; c = '2-4-1-3'; d = @('2-1-4-3', '1-2-4-3', '4-2-1-3'); e = 'You first mix dough, then bake it, then the bread is ready, and finally it is eaten.' },
-    @{ q = 'What number follows 30, 26, 22, 18, ?'; c = '14'; d = @('12', '13', '16'); e = 'The pattern subtracts 4 each time, so the next term is 14.' },
-    @{ q = 'Complete the pattern: 1, 4, 10, 19, ?'; c = '31'; d = @('28', '30', '33'); e = 'The differences are 3, 6, and 9, so the next difference is 12, giving 31.' },
-    @{ q = 'CHAIR is most closely related to which word?'; c = 'TABLE'; d = @('RIVER', 'SHADOW', 'PENCIL'); e = 'Chair and table are closely associated pieces of furniture.' },
-    @{ q = 'Which word does not belong: January, April, July, Guitar?'; c = 'Guitar'; d = @('January', 'April', 'July'); e = 'The first three are months, while guitar is a musical instrument.' },
-    @{ q = 'Shift each letter of LAMP back by 1. Which code appears?'; c = 'KZLO'; d = @('KALO', 'JZKN', 'LZNO'); e = 'Move each letter back by one: L to K, A to Z, M to L, P to O.' },
-    @{ q = 'A student faces west, turns right, then turns right again. Which direction is the student facing?'; c = 'East'; d = @('North', 'South', 'West'); e = 'From west, a right turn points north, and another right turn points east.' },
-    @{ q = 'Ella scored higher than Bea, and Bea scored higher than Cara. Who scored lowest?'; c = 'Cara'; d = @('Ella', 'Bea', 'Cannot be determined'); e = 'If Ella > Bea > Cara, then Cara scored the lowest.' },
-    @{ q = 'Some teachers are writers. Which statement must be true?'; c = 'Some writers are teachers.'; d = @('All writers are teachers.', 'No teachers are writers.', 'All teachers are writers.'); e = 'If some teachers are writers, then some writers are teachers.' },
-    @{ q = 'Which pair shows the same relationship as pencil : write?'; c = 'knife : cut'; d = @('shoe : road', 'clock : wall', 'bag : zipper'); e = 'A pencil is used to write, just as a knife is used to cut.' },
-    @{ q = 'Arrange these from smallest to largest: 1) lake 2) pond 3) puddle 4) sea'; c = '3-2-1-4'; d = @('2-3-1-4', '3-1-2-4', '1-2-3-4'); e = 'A puddle is smallest, followed by a pond, then a lake, then a sea.' }
-  )
-  'English' = @(
+  'Reading Comprehension' = @($readingComprehensionBaseline | ForEach-Object { @{ q = $_.q; c = $_.c; d = $_.d; e = $_.e } })
+  'Language Proficiency' = @(
     @{ q = 'Choose the correct verb: The basket of apples ___ on the counter.'; c = 'is'; d = @('are', 'were', 'have'); e = 'The subject is basket, which is singular, so the correct verb is is.' },
     @{ q = 'Pick the best word: The speaker gave a very ____ explanation of the rule.'; c = 'clear'; d = @('clearly', 'clarity', 'clearness'); e = 'Clear is the correct adjective to describe explanation.' },
     @{ q = 'Read the sentence and answer: The room grew silent as the principal opened the envelope. What can be inferred?'; c = 'People were waiting for important news.'; d = @('The room was empty.', 'The principal lost the envelope.', 'Everyone had already left.'); e = 'People usually become silent when waiting for an important announcement.' },

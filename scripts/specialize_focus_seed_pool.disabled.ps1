@@ -5,6 +5,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+throw @'
+This legacy focus-mode seed specialization script has been disabled.
+
+Reason:
+- assets/seed/initial_question_pool.json is now a curated source of truth.
+- Running this script would overwrite the curated pool with older generated focus-mode content.
+
+If you need to update the seed pool, edit the curated asset directly or create a new reviewed workflow that writes to a different output file.
+'@
+
+. "$PSScriptRoot\upcat_seed_banks.ps1"
+
+$readingComprehensionFocus = @(Get-UpcatReadingComprehensionBank)
+
 function Format-FocusPrompt {
   param([string]$Question)
 
@@ -62,39 +76,8 @@ function New-FocusQuestion {
 }
 
 $focusBank = @{
-  'Mental Ability' = @(
-    @{ q='Diagnostic set: identify the rule. 4, 8, 12, 16, ?'; c='20'; d=@('18','22','24'); e='This sequence uses a constant addition rule of +4.' },
-    @{ q='Diagnostic set: identify the rule. 81, 27, 9, ?'; c='3'; d=@('6','1','12'); e='This sequence uses repeated division by 3.' },
-    @{ q='Diagnostic set: odd-one-out among dog, cat, eagle, horse'; c='eagle'; d=@('dog','cat','horse'); e='The task checks classification: eagle is a bird while the others are mammals.' },
-    @{ q='Diagnostic set: book is to reading as piano is to'; c='music'; d=@('wood','bench','keys'); e='The item checks simple analogy by matching object to purpose.' },
-    @{ q='Diagnostic set: if BAD becomes CBE, then MAP becomes'; c='NBQ'; d=@('MBQ','NCQ','NAP'); e='The code adds one to each letter, so M-A-P becomes N-B-Q.' },
-    @{ q='Diagnostic set: north, east, south, ?'; c='west'; d=@('north','left','right'); e='The item checks ordered directions in clockwise sequence.' },
-    @{ q='Diagnostic set: all pencils are tools. Which conclusion is valid?'; c='Some tools may be pencils.'; d=@('All tools are pencils.','No pencils are tools.','Every tool is made of wood.'); e='This tests cautious logical inference from a class statement.' },
-    @{ q='Diagnostic set: next pair after A1, C3, E5 is'; c='G7'; d=@('F6','G6','H7'); e='The letters and numbers both increase by two.' },
-    @{ q='Diagnostic set: choose the strongest pattern, 2, 5, 8, 11, ?'; c='14'; d=@('13','15','16'); e='The sequence checks recognition of a constant +3 rule.' },
-    @{ q='Diagnostic set: who is youngest if Lea is older than Mia and Mia is older than Nia?'; c='Nia'; d=@('Lea','Mia','Cannot be known'); e='This checks ranking and ordering from chained comparisons.' },
-    @{ q='Focus on coding: TREE with +1 code becomes'; c='USFF'; d=@('TRFD','UTFF','USFE'); e='Each letter advances one step forward.' },
-    @{ q='Focus on coding: HOME with +2 code becomes'; c='JQOG'; d=@('IQNF','JPNG','KQOF'); e='Each letter advances two places: H to J, O to Q, M to O, E to G.' },
-    @{ q='Focus on direction: face east then turn left. Final direction?'; c='north'; d=@('south','west','east'); e='A left turn from east points north.' },
-    @{ q='Focus on direction: face south then turn right. Final direction?'; c='west'; d=@('east','north','south'); e='A right turn from south points west.' },
-    @{ q='Focus on analogy: nest is to bird as den is to'; c='bear'; d=@('leaf','tree','fish'); e='A nest is a bird dwelling, just as a den is a bear dwelling.' },
-    @{ q='Focus on analogy: key is to lock as password is to'; c='account'; d=@('screen','paper','mouse'); e='Both unlock access to something.' },
-    @{ q='Focus on classification: which does not belong, mango, banana, carrot, apple'; c='carrot'; d=@('mango','banana','apple'); e='The item checks grouping: carrot is a vegetable while the others are fruits.' },
-    @{ q='Focus on classification: which does not belong, triangle, square, circle, rectangle'; c='circle'; d=@('triangle','square','rectangle'); e='The item checks polygon recognition; circle has no sides.' },
-    @{ q='Focus on logic: all roses are flowers. Which statement must be true?'; c='Some flowers can be roses.'; d=@('All flowers are roses.','No roses are flowers.','All roses are trees.'); e='This checks whether the learner distinguishes necessary from reversible statements.' },
-    @{ q='Focus on logic: some players are singers. Which statement follows?'; c='Some singers are players.'; d=@('All singers are players.','No player is a singer.','All players are singers.'); e='The statement can be restated by switching the group order.' },
-    @{ q='Pattern focus: 1, 4, 9, 16, ?'; c='25'; d=@('20','24','36'); e='This tests recognition of perfect squares.' },
-    @{ q='Pattern focus: 3, 6, 12, 24, ?'; c='48'; d=@('36','42','54'); e='This tests repeated doubling.' },
-    @{ q='Ranking focus: Ana finished ahead of Ben, and Ben ahead of Cara. Who is first?'; c='Ana'; d=@('Ben','Cara','Cannot be known'); e='The ordering clue places Ana at the top.' },
-    @{ q='Ranking focus: D is taller than C, C taller than B, and B taller than A. Who is second tallest?'; c='C'; d=@('D','B','A'); e='The ranking order is D, C, B, A.' },
-    @{ q='Mixed diagnostic: next letter after D, G, J is'; c='M'; d=@('K','L','N'); e='The letters increase by three positions.' },
-    @{ q='Mixed diagnostic: next number after 50, 45, 40 is'; c='35'; d=@('34','36','30'); e='The sequence decreases by 5.' },
-    @{ q='Mixed diagnostic: brother is to sister as uncle is to'; c='aunt'; d=@('cousin','niece','grandmother'); e='The item checks male-female relationship matching.' },
-    @{ q='Mixed diagnostic: glove is to hand as sock is to'; c='foot'; d=@('shoe','toe','leg'); e='The relationship is item to body part covered.' },
-    @{ q='Mixed diagnostic: if mark is 5th from the left in a line of 11, he is __ from the right'; c='7th'; d=@('5th','6th','8th'); e='From the right, the position is 11 - 5 + 1 = 7.' },
-    @{ q='Mixed diagnostic: which should come next, Monday, Wednesday, Friday, ?'; c='Sunday'; d=@('Saturday','Thursday','Tuesday'); e='The pattern skips one day each time.' }
-  )
-  'English' = @(
+  'Reading Comprehension' = @($readingComprehensionFocus | ForEach-Object { @{ q = "$(($_.q -replace '^Passage:\s*', '')) Focus RC"; c = $_.c; d = $_.d; e = $_.e } })
+  'Language Proficiency' = @(
     @{ q='Diagnostic grammar: choose the correct verb. Each of the books ___ on the shelf.'; c='is'; d=@('are','were','have'); e='The head word each is singular, so the correct verb is is.' },
     @{ q='Diagnostic grammar: choose the correct pronoun. The adviser thanked Paolo and ___.'; c='me'; d=@('I','mine','myself'); e='The pronoun is the object of thanked, so me is correct.' },
     @{ q='Diagnostic vocabulary: synonym of cautious'; c='careful'; d=@('noisy','rapid','joyful'); e='Careful is the closest synonym of cautious.' },

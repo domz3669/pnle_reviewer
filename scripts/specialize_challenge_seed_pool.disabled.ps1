@@ -5,6 +5,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+throw @'
+This legacy challenge-mode seed specialization script has been disabled.
+
+Reason:
+- assets/seed/initial_question_pool.json is now a curated source of truth.
+- Running this script would overwrite the curated pool with older generated challenge-mode content.
+
+If you need to update the seed pool, edit the curated asset directly or create a new reviewed workflow that writes to a different output file.
+'@
+
+. "$PSScriptRoot\upcat_seed_banks.ps1"
+
+$readingComprehensionChallenge = @(Get-UpcatReadingComprehensionBank)
+
 function New-ChallengeQuestion {
   param(
     [int]$Number,
@@ -48,39 +62,8 @@ function New-ChallengeQuestion {
 }
 
 $challengeBank = @{
-  'Mental Ability' = @(
-    @{ q = 'In a code, 4@3 means 4 x 3 + 4 and 3#2 means 3 + 2^2. What is 4@3 - 3#2?'; c = '9'; d = @('8', '10', '11'); e = '4@3 = 16 and 3#2 = 7, so the difference is 9.' },
-    @{ q = 'A sequence follows the rule +2, x2, +2, x2 repeatedly. If it starts at 3, what is the fifth term?'; c = '24'; d = @('12', '20', '26'); e = 'The sequence is 3, 5, 10, 12, 24, so the fifth term is 24.' },
-    @{ q = 'What number should replace the question mark in 6, 11, 21, 41, ?'; c = '81'; d = @('61', '71', '91'); e = 'Each term is doubled then 1 is subtracted: 6 to 11, 11 to 21, 21 to 41, so the next is 81.' },
-    @{ q = 'If all glibs are trons, some trons are plims, and no plim is a drat, which statement must be true?'; c = 'No glib that is a plim is a drat.'; d = @('All trons are glibs.', 'Some drats are trons.', 'No tron is a plim.'); e = 'Any glib that is also a plim cannot be a drat because no plim is a drat.' },
-    @{ q = 'Five students line up for a photo. Nia is left of Omar but right of Pia. Quin is right of Omar. Rex is between Omar and Quin. Who is in the middle?'; c = 'Omar'; d = @('Nia', 'Pia', 'Rex'); e = 'The order is Pia, Nia, Omar, Rex, Quin, so Omar is in the middle.' },
-    @{ q = 'What comes next: AZ, BY, CX, DW, ?'; c = 'EV'; d = @('EU', 'FV', 'EX'); e = 'The first letter moves forward while the second moves backward: A-Z, B-Y, C-X, D-W, E-V.' },
-    @{ q = 'A cube has all its faces painted, then it is cut into 27 equal smaller cubes. How many small cubes have exactly two painted faces?'; c = '12'; d = @('8', '6', '24'); e = 'The edge cubes excluding corners each have exactly two painted faces. There are 12 such cubes.' },
-    @{ q = 'If yesterday was two days before Thursday, what day is three days after tomorrow?'; c = 'Sunday'; d = @('Saturday', 'Friday', 'Monday'); e = 'Two days before Thursday is Tuesday, so yesterday was Tuesday and today is Wednesday. Tomorrow is Thursday, and three days after Thursday is Sunday.' },
-    @{ q = 'A meeting is scheduled three days after the day before Monday. On what day is the meeting?'; c = 'Wednesday'; d = @('Tuesday', 'Thursday', 'Friday'); e = 'The day before Monday is Sunday. Three days after Sunday is Wednesday.' },
-    @{ q = 'Which number replaces the question mark: 2, 6, 12, 20, 30, ?'; c = '42'; d = @('36', '40', '44'); e = 'The differences are 4, 6, 8, 10, so the next difference is 12 and the next term is 42.' },
-    @{ q = 'If SOUTH is written as TQWUI, how is NORTH written in the same code?'; c = 'OPSUI'; d = @('OPTVI', 'OPSVH', 'OPRUI'); e = 'Each letter is moved one step forward: N to O, O to P, R to S, T to U, H to I.' },
-    @{ q = 'A clock is 15 minutes slow at 2:00 p.m. and loses 5 more minutes every hour. What time will it show when the real time is 5:00 p.m.?'; c = '4:30 p.m.'; d = @('4:35 p.m.', '4:40 p.m.', '4:45 p.m.'); e = 'It is already 15 minutes slow and loses 15 more minutes over 3 hours, so it will be 30 minutes slow and show 4:30 p.m.' },
-    @{ q = 'Three statements are given: 1) Some artists are teachers. 2) All teachers are readers. 3) No reader is careless. Which conclusion must follow?'; c = 'Some artists are not careless.'; d = @('All artists are readers.', 'No artist is a teacher.', 'All readers are artists.'); e = 'Some artists are teachers, all teachers are readers, and no reader is careless, so those artists who are teachers are not careless.' },
-    @{ q = 'Which option best completes the analogy: map : location :: formula : ?'; c = 'solution'; d = @('scientist', 'equation', 'symbol'); e = 'A map guides a person to a location, just as a formula guides a person toward a solution.' },
-    @{ q = 'The pattern of letters is ACE, BDF, CEG, DFH, ?'; c = 'EGI'; d = @('EHI', 'FGI', 'EFI'); e = 'Each group shifts one letter forward in all positions: ACE, BDF, CEG, DFH, EGI.' },
-    @{ q = 'If 5 workers finish a job in 12 days, how many workers are needed to finish the same job in 4 days, assuming equal rates?'; c = '15'; d = @('10', '12', '20'); e = 'Workers and days are inversely proportional, so 5 x 12 = 60 worker days. Dividing by 4 days gives 15 workers.' },
-    @{ q = 'Which figure relation matches: square is to cube as circle is to ?'; c = 'sphere'; d = @('cone', 'cylinder', 'disk'); e = 'A cube is the three dimensional analogue of a square, and a sphere is the three dimensional analogue of a circle.' },
-    @{ q = 'Mia is older than Jo but younger than Kai. Lou is younger than Jo. Who is second oldest?'; c = 'Mia'; d = @('Kai', 'Jo', 'Lou'); e = 'The order is Kai, Mia, Jo, Lou, so Mia is second oldest.' },
-    @{ q = 'What is the next term: 1, 2, 6, 24, 120, ?'; c = '720'; d = @('240', '600', '840'); e = 'Each term is multiplied by the next integer: x2, x3, x4, x5, so the next is x6 to get 720.' },
-    @{ q = 'If every emerald is a gem and every gem is valuable, which statement is logically valid?'; c = 'Every emerald is valuable.'; d = @('Every valuable thing is a gem.', 'Some gems are not valuable.', 'No emerald is a gem.'); e = 'The property valuable passes through the chain from emerald to gem to valuable.' },
-    @{ q = 'A train leaves at 8:15 a.m. and arrives at 11:45 a.m. It stops for 25 minutes total. How long is the actual travel time?'; c = '3 hours 5 minutes'; d = @('3 hours 20 minutes', '3 hours 30 minutes', '3 hours 10 minutes'); e = 'The full interval is 3 hours 30 minutes. Removing the 25 minute stop leaves 3 hours 5 minutes.' },
-    @{ q = 'Which number is missing: 4, 9, 19, 39, ?'; c = '79'; d = @('59', '69', '89'); e = 'Each term is doubled then 1 is added: 4 to 9, 9 to 19, 19 to 39, so the next is 79.' },
-    @{ q = 'If all pencils are tools and some tools are imported, which statement is definitely true?'; c = 'Some imported items may be tools.'; d = @('All pencils are imported.', 'No tools are imported.', 'Some pencils are not tools.'); e = 'The only cautious valid statement is that imported items may overlap with tools, because some tools are imported.' },
-    @{ q = 'Which word does not belong: theorem, proof, corollary, cucumber'; c = 'cucumber'; d = @('theorem', 'proof', 'corollary'); e = 'The first three are mathematical terms, while cucumber is not.' },
-    @{ q = 'A person walks 8 m east, 6 m north, 8 m west, and 2 m south. How far is the person from the starting point?'; c = '4 m'; d = @('2 m', '6 m', '8 m'); e = 'The east and west movements cancel, leaving a net 4 m north displacement.' },
-    @{ q = 'Two statements are true: 1) If it rains, the field is wet. 2) If the field is wet, practice is canceled. If practice was not canceled, what must be true?'; c = 'The field was not wet.'; d = @('It definitely rained.', 'The field was dry because of heat.', 'The players did not arrive.'); e = 'Using the contrapositive of statement 2, if practice was not canceled then the field was not wet.' },
-    @{ q = 'Which option best continues the ordered pairs: (1,2), (2,6), (3,12), (4,20), ?'; c = '(5,30)'; d = @('(5,24)', '(6,30)', '(5,25)'); e = 'The second coordinate follows n(n+1), so for 5 it is 5 x 6 = 30.' },
-    @{ q = 'A bag contains 5 red, 4 blue, and 3 green balls. Without looking, what is the minimum number of balls to draw to guarantee two of the same color?'; c = '4'; d = @('3', '5', '6'); e = 'In the worst case you draw one of each color in 3 draws. The fourth draw must match one of them.' },
-    @{ q = 'If CAT is coded as 3120 using letter positions and DOG is coded the same way, what is DOG?'; c = '4157'; d = @('4715', '4158', '4167'); e = 'D is 4, O is 15, and G is 7, so DOG is 4157.' },
-    @{ q = 'Which option best completes the pattern: J, H, I, G, H, F, ?'; c = 'G'; d = @('E', 'F', 'H'); e = 'The pattern alternates subtract 2, add 1. From F, adding 1 gives G.' }
-  )
-  'English' = @(
+  'Reading Comprehension' = @($readingComprehensionChallenge | ForEach-Object { @{ q = "$(($_.q -replace '^Passage:\s*', '')) Challenge RC"; c = $_.c; d = $_.d; e = $_.e } })
+  'Language Proficiency' = @(
     @{ q = 'Read the sentence: Because the data set was incomplete, the conclusion remained tentative. The word tentative most nearly means'; c = 'not fully certain'; d = @('strongly opposed', 'carefully hidden', 'widely praised'); e = 'Tentative means provisional or not yet fully certain.' },
     @{ q = 'Which sentence contains correct parallel structure?'; c = 'The scholar liked reading, annotating, and comparing texts.'; d = @('The scholar liked reading, to annotate, and comparison of texts.', 'The scholar liked to read, annotating, and texts compared.', 'The scholar liked reading, annotation, and to compare texts.'); e = 'All three items in the correct answer use the same grammatical form.' },
     @{ q = 'Choose the best revision: The report was brief, yet it was complete, and it was persuasive too.'; c = 'The report was brief yet complete and persuasive.'; d = @('The report was brief, and complete, and persuasive too.', 'The report being brief was complete and persuasive too.', 'Brief, the report was, complete, and persuasive.'); e = 'The revision removes redundancy while preserving the meaning.' },

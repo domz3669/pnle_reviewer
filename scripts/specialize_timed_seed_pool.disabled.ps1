@@ -5,6 +5,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+throw @'
+This legacy timed-mode seed specialization script has been disabled.
+
+Reason:
+- assets/seed/initial_question_pool.json is now a curated source of truth.
+- Running this script would overwrite the curated pool with older generated timed-mode content.
+
+If you need to update the seed pool, edit the curated asset directly or create a new reviewed workflow that writes to a different output file.
+'@
+
+. "$PSScriptRoot\upcat_seed_banks.ps1"
+
+$readingComprehensionTimed = @(Get-UpcatReadingComprehensionBank)
+
 function New-TimedQuestion {
   param(
     [int]$Number,
@@ -47,39 +61,8 @@ function New-TimedQuestion {
 }
 
 $timedBank = @{
-  'Mental Ability' = @(
-    @{ q='14, 17, 20, __'; c='23'; d=@('22','24','25'); e='Add 3 each time, so the next term is 23.' },
-    @{ q='3, 6, 12, __'; c='24'; d=@('18','20','21'); e='Each term doubles, so the next term is 24.' },
-    @{ q='Odd one out: lion, tiger, whale, leopard'; c='whale'; d=@('lion','tiger','leopard'); e='Whale is aquatic, while the others are land predators.' },
-    @{ q='Book is to read as fork is to'; c='eat'; d=@('cook','wash','cut'); e='A book is used to read, and a fork is used to eat.' },
-    @{ q='If CAT becomes DBU, then DOG becomes'; c='EPH'; d=@('EOG','FOH','EOH'); e='Each letter moves forward by one place: D to E, O to P, G to H.' },
-    @{ q='Mia walks north then turns right. She now faces'; c='East'; d=@('West','South','North'); e='A right turn from north points east.' },
-    @{ q='All apples are fruits. Which must be true?'; c='All apples are fruits.'; d=@('All fruits are apples.','Some apples are vegetables.','No fruit is an apple.'); e='The statement restates the given fact and must be true.' },
-    @{ q='Next letter: C, E, G, ?'; c='I'; d=@('H','J','K'); e='The letters move forward by two places each time.' },
-    @{ q='Find the non-day: Monday, Tuesday, March, Friday'; c='March'; d=@('Monday','Tuesday','Friday'); e='March is a month, while the others are days.' },
-    @{ q='A is older than B. B is older than C. Youngest?'; c='C'; d=@('A','B','Cannot be known'); e='If A > B > C in age, then C is the youngest.' },
-    @{ q='Continue the pattern: 5, 10, 15, __'; c='20'; d=@('18','21','25'); e='Add 5 each time, so the next term is 20.' },
-    @{ q='Pencil is to write as brush is to'; c='paint'; d=@('erase','mix','draw'); e='A pencil is used to write and a brush is used to paint.' },
-    @{ q='If PEN becomes QFO, then MAP becomes'; c='NBQ'; d=@('NAP','MBQ','NCQ'); e='Each letter moves one step forward: M to N, A to B, P to Q.' },
-    @{ q='Facing east, turn left. Now facing'; c='North'; d=@('South','West','East'); e='A left turn from east points north.' },
-    @{ q='2, 4, 8, 16, __'; c='32'; d=@('24','30','34'); e='Each term doubles.' },
-    @{ q='Odd one out: rose, lily, mango, tulip'; c='mango'; d=@('rose','lily','tulip'); e='Mango is a fruit tree, while the others are flowers.' },
-    @{ q='Hand is to glove as foot is to'; c='shoe'; d=@('sock','toe','step'); e='A glove covers a hand, and a shoe covers a foot.' },
-    @{ q='Next letter pair: A1, B2, C3, ?'; c='D4'; d=@('D3','E4','E5'); e='Both the letter and number increase by one.' },
-    @{ q='Which is farthest east: left, right, west, east'; c='east'; d=@('left','right','west'); e='East is the eastern direction.' },
-    @{ q='All squares are rectangles. Which is true?'; c='Some rectangles can be squares.'; d=@('All rectangles are squares.','No square is a rectangle.','All squares are circles.'); e='Squares are a special kind of rectangle.' },
-    @{ q='10, 8, 6, __'; c='4'; d=@('3','5','2'); e='Subtract 2 each time.' },
-    @{ q='Cup is to drink as plate is to'; c='food'; d=@('wash','table','serve'); e='A cup holds drink, and a plate holds food.' },
-    @{ q='If SUN becomes TVO, then CAR becomes'; c='DBS'; d=@('DCR','EBS','CBS'); e='Each letter shifts forward by one place.' },
-    @{ q='Turn right from south. You face'; c='West'; d=@('East','North','South'); e='A right turn from south points west.' },
-    @{ q='Which number does not belong: 2, 4, 6, 9'; c='9'; d=@('2','4','6'); e='9 is odd, while the others are even.' },
-    @{ q='Brother is to sister as king is to'; c='queen'; d=@('prince','princess','throne'); e='Brother and sister are male-female counterparts, as king and queen are.' },
-    @{ q='1, 3, 5, 7, __'; c='9'; d=@('8','10','11'); e='These are consecutive odd numbers.' },
-    @{ q='Odd one out: pen, pencil, notebook, eraser'; c='notebook'; d=@('pen','pencil','eraser'); e='Notebook is not a writing instrument.' },
-    @{ q='If TREE becomes USFF, then BOOK becomes'; c='CPPL'; d=@('BPPM','CPPK','DQQL'); e='Each letter shifts one place forward.' },
-    @{ q='Who is first if Ana is ahead of Ben and Ben is ahead of Cara?'; c='Ana'; d=@('Ben','Cara','Cannot be known'); e='Ana is ahead of both Ben and Cara.' }
-  )
-  'English' = @(
+  'Reading Comprehension' = @($readingComprehensionTimed | ForEach-Object { @{ q = "$(($_.q -replace '^Passage:\s*', '')) Timed RC"; c = $_.c; d = $_.d; e = $_.e } })
+  'Language Proficiency' = @(
     @{ q='Synonym of rapid'; c='fast'; d=@('rough','late','narrow'); e='Rapid means fast.' },
     @{ q='Antonym of ancient'; c='modern'; d=@('silent','fragile','remote'); e='Ancient means old, so modern is the opposite.' },
     @{ q='Which sentence is correct?'; c='Each student has a notebook.'; d=@('Each student have a notebook.','Each students has a notebook.','Each student are with a notebook.'); e='The singular subject each student takes has.' },
@@ -184,8 +167,8 @@ foreach ($entry in $timedBank.GetEnumerator()) {
 }
 
 $dataset = Get-Content -Raw $OutFile | ConvertFrom-Json
-$timedMode = $dataset.modes | Where-Object { $_.mode -eq 'timedMode' } | Select-Object -First 1
-if (-not $timedMode) { throw 'timedMode not found in dataset.' }
+$timedMode = $dataset.modes | Where-Object { $_.mode -eq 'timedExam' } | Select-Object -First 1
+if (-not $timedMode) { throw 'timedExam not found in dataset.' }
 
 foreach ($categoryBlock in $timedMode.categories) {
   $categoryName = [string]$categoryBlock.category

@@ -5,16 +5,26 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$modes = @('randomQuiz', 'focusMode', 'challenge', 'timedMode')
-$categories = @('Mental Ability', 'English', 'Mathematics', 'Science')
+throw @'
+This legacy seed-generation script has been disabled.
+
+Reason:
+- assets/seed/initial_question_pool.json is now a curated source of truth.
+- Running this script would overwrite the curated pool with older generated content.
+
+If you need to update the seed pool, edit the curated asset directly or create a new reviewed workflow that writes to a different output file.
+'@
+
+$modes = @('randomQuiz', 'focusMode', 'challenge', 'timedExam')
+$categories = @('Language Proficiency', 'Reading Comprehension', 'Mathematics', 'Science')
 $questionsPerCategory = 30
 
 $keyAreas = @{
-  'Mental Ability' = @(
-    'abstract pattern completion','figure series progression','number series increasing','number series decreasing','alternating number series','letter series progression','alphanumeric series','analogy word-based','analogy number-based','analogy figure-based','classification words','classification numbers','classification figures','odd one out words','odd one out numbers','odd one out figures','logical reasoning statements','syllogism basic','syllogism conclusion validity','coding letter shift','coding number pattern','coding mixed symbols','decoding patterns','directional reasoning simple','directional reasoning complex','spatial rotation','mirror images figures','paper folding prediction','matrix reasoning 2x2','matrix reasoning 3x3','sequence ordering events','ranking and ordering','venn diagram reasoning','cause and effect reasoning','assumption identification','conclusion drawing','statement evaluation','input-output pattern','symbol substitution','spatial relation mapping'
+  'Language Proficiency' = @(
+    'context clues','multiple meaning words','synonyms in context','antonyms in context','word roots','prefixes and suffixes','idiomatic expressions','figurative language meaning','academic vocabulary','tone based word choice','register formal and informal','precision of word usage','subject verb agreement','verb tense consistency','correct verb forms','pronoun antecedent agreement','pronoun reference clarity','modifiers and placement','parallel structure','prepositions usage','articles usage','comparison forms','active and passive voice','sentence fragments','run on sentences','capitalization rules','punctuation usage','logical connectors','cause and effect relationships','contrast relationships','sequence and time order','condition and result','purpose and reason','tone and mood consistency','grammar fit within sentence','idea completion and coherence','topic sentence identification','supporting detail relevance','logical sentence order','transitional words usage'
   )
-  'English' = @(
-    'reading main idea','reading supporting details','reading inference','reading tone','reading author purpose','vocabulary context clues','vocabulary synonym precision','vocabulary antonym precision','subject-verb agreement','verb tense consistency','pronoun reference','modifier placement','parallel structure','sentence completion','error identification grammar','error identification punctuation','capitalization rules','spelling recognition','paragraph organization','coherence and cohesion','transition logic','topic sentence identification','irrelevant sentence detection','sentence improvement','word usage precision','idiomatic expression use','figurative language inference','active and passive voice','direct and indirect speech','editing and revision choices','clause relationship analysis','tone consistency in paragraph','reference clarity','sentence combination strategy','reasoning from short passage','evidence-based conclusion','argument support evaluation','contextual meaning shift','logic of paragraph order','conciseness and clarity'
+  'Reading Comprehension' = @(
+    'central idea identification','author purpose identification','best title selection','overall message understanding','passage summary selection','explicit detail identification','fact versus opinion','supporting example recognition','evidence based questions','detail accuracy checking','logical inference making','implied idea recognition','conclusion drawing','predicting outcomes','meaning beyond text','reasoning from clues','word meaning from context','context clue usage','meaning shift in passage','figurative word meaning','author attitude identification','emotional tone recognition','mood of passage','positive negative neutral tone','word choice effect','bias detection','cause and effect structure','comparison and contrast structure','problem and solution structure','sequence of events','chronological order','paragraph function identification','signal words identification'
   )
   'Mathematics' = @(
     'integer operations','order of operations','fractions operations','decimal operations','percent increase and decrease','ratio and proportion','direct variation','inverse variation','mean median mode','linear equations','word problems linear models','inequalities','systems of equations','exponent laws','radical expressions','polynomial operations','factoring trinomials','quadratic equations','angles and lines','triangle properties','triangle similarity','quadrilateral properties','circle properties','perimeter and area','surface area and volume','coordinate distance and midpoint','slope and line equation','data interpretation tables','data interpretation graphs','probability basics','divisibility rules','lcm and gcf','arithmetic sequence','geometric sequence','work-rate problems','distance-speed-time','mixture problems','age problems','simple interest','estimation and rounding'
@@ -39,11 +49,6 @@ $modeDirectives = @{
     Label = 'Challenge Mode'
     Difficulty = 'hard-to-very-hard'
     Style = 'multi-step reasoning'
-  }
-  'timedMode' = @{
-    Label = 'Timed Mode'
-    Difficulty = 'medium'
-    Style = 'concise and speed-answerable'
   }
   'timedExam' = @{
     Label = 'Timed Mode'
@@ -87,11 +92,11 @@ function New-Question {
   $style = $directive.Style
 
   $stemTemplates = @(
-    "In a $label USTET $Category item ($difficulty), which option best addresses this case: ${PrimaryTopic}?",
-    "Choose the strongest answer for this $label $Category scenario focused on ${PrimaryTopic} ($style).",
-    "Select the most accurate response for a $difficulty USTET $Category item on ${PrimaryTopic} in $label.",
-    "For this $label $Category prompt, identify the best answer that demonstrates ${PrimaryTopic}.",
-    "Which option is most defensible in a $style $Category question centered on ${PrimaryTopic} ($label)?"
+    "${PrimaryTopic}: choose the best UPCAT-style answer for this $label $Category item.",
+    "${PrimaryTopic} in focus: which option best fits this $label $Category question?",
+    "UPCAT $Category check on ${PrimaryTopic}: select the strongest response.",
+    "For ${PrimaryTopic}, identify the most accurate answer in this $label $Category prompt.",
+    "${PrimaryTopic} review: which choice is most defensible for this $style $Category item?"
   )
 
   $question = $stemTemplates[$TemplateIndex % $stemTemplates.Count]
@@ -187,7 +192,7 @@ function Build-Dataset {
   }
 
   return [ordered]@{
-    exam = 'USTET'
+    exam = 'UPCAT'
     total_questions = ($modes.Count * $categories.Count * $questionsPerCategory)
     modes = $modeBlocks
   }
@@ -196,15 +201,14 @@ function Build-Dataset {
 function Test-Dataset {
   param([hashtable]$Dataset)
 
-  if ($Dataset.exam -ne 'USTET') {
-    throw 'Validation failed: exam must be USTET.'
+  if ($Dataset.exam -ne 'UPCAT') {
+    throw 'Validation failed: exam must be UPCAT.'
   }
 
   if ($Dataset.modes.Count -ne 4) {
     throw "Validation failed: expected 4 modes, found $($Dataset.modes.Count)."
   }
 
-  $globalQuestions = New-Object System.Collections.Generic.HashSet[string]
   $totalCount = 0
 
   foreach ($modeBlock in $Dataset.modes) {
@@ -217,6 +221,7 @@ function Test-Dataset {
     foreach ($categoryBlock in $modeBlock.categories) {
       $categoryName = [string]$categoryBlock.category
       $questions = @($categoryBlock.questions)
+      $bucketQuestions = New-Object System.Collections.Generic.HashSet[string]
 
       if ($questions.Count -ne $questionsPerCategory) {
         throw "Validation failed: mode '$modeName' category '$categoryName' must have $questionsPerCategory questions, found $($questions.Count)."
@@ -243,7 +248,7 @@ function Test-Dataset {
         }
 
         $fingerprint = "$($q.question.Trim().ToLowerInvariant())||$($q.choices -join '|')"
-        if (-not $globalQuestions.Add($fingerprint)) {
+        if (-not $bucketQuestions.Add($fingerprint)) {
           throw "Validation failed: duplicate question detected in mode '$modeName' category '$categoryName' question #$($q.number)."
         }
       }
