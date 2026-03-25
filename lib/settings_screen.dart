@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'config/pnle_theme.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -30,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _nicknameController;
   late bool _muteAllSounds;
   late bool _notificationsEnabled;
+  String _appVersionLabel = 'Version';
 
   @override
   void initState() {
@@ -37,6 +39,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _nicknameController = TextEditingController(text: widget.nickname);
     _muteAllSounds = widget.muteAllSounds;
     _notificationsEnabled = widget.notificationsEnabled;
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    final versionLabel =
+        'Version ${packageInfo.version} (Build ${packageInfo.buildNumber})';
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _appVersionLabel = versionLabel;
+    });
   }
 
   @override
@@ -330,7 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildHelpItem('How does the daily system work?',
                   'Complete 4 quiz sessions daily to track your progress.'),
               _buildHelpItem('How are scores calculated?',
-                  'Scores are computed per category from your quiz results, then compared against your selected USTET course targets in Daily and 10-Days screens.'),
+                  'Scores use UPCAT weighting: Language Proficiency 20%, Reading Comprehension 30%, Mathematics 25%, Science 25%.'),
               _buildHelpItem('When do streaks reset?',
                   'Missing a day resets your daily streak counter.'),
             ],
@@ -435,7 +452,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: 'Privacy Policy',
         content: SingleChildScrollView(
           child: Text(
-            'USTET Reviewer 2027 stores quiz progress, scores, nickname, and session usage data so your study history and readiness insights can persist across sessions.\n\n'
+            'UPCAT Reviewer 2027 stores quiz progress, scores, nickname, and session usage data so your study history and readiness insights can persist across sessions.\n\n'
             'The app uses Firebase to back up progress and Google Mobile Ads for ad delivery. Coach Note explanations use online generative AI services when you request them from a quiz.\n\n'
             'Offline quiz play can continue with local seeded question sets, while syncing, rewards, and AI explanations wait until internet access returns.\n\n'
             'We do not sell your personal data. Publish a full external privacy policy in App Store Connect and keep this summary aligned with it.',
@@ -453,14 +470,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       barrierColor: Colors.black87,
       builder: (context) => _buildGradientDialog(
         context: context,
-        title: 'About USTET Reviewer 2027',
+        title: 'About UPCAT Reviewer 2027',
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Version 1.0.0',
+                _appVersionLabel,
                 style: GoogleFonts.outfit(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -468,7 +485,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'A native USTET review app with local quiz modes, progress tracking, and optional AI-generated coaching notes.',
+                'A native UPCAT review app with local quiz modes, progress tracking, and optional AI-generated coaching notes.',
                 style: GoogleFonts.outfit(
                     color: Colors.white.withValues(alpha: 0.8)),
               ),
