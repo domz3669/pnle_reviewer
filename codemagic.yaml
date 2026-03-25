@@ -72,8 +72,11 @@ workflows:
         script: |
           FLUTTER_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
           FLUTTER_BUILD_NAME="${FLUTTER_VERSION%%+*}"
+          FLUTTER_BUILD_NUMBER="${FLUTTER_VERSION##*+}"
           echo "Resolved Flutter build name: ${FLUTTER_BUILD_NAME}"
+          echo "Resolved Flutter build number: ${FLUTTER_BUILD_NUMBER}"
           echo "FLUTTER_BUILD_NAME=${FLUTTER_BUILD_NAME}" >> "$CM_ENV"
+          echo "FLUTTER_BUILD_NUMBER=${FLUTTER_BUILD_NUMBER}" >> "$CM_ENV"
 
       - name: Build IPA for TestFlight
         script: |
@@ -85,7 +88,7 @@ workflows:
 
           flutter build ipa --release \
             --build-name="$FLUTTER_BUILD_NAME" \
-            --build-number="${PROJECT_BUILD_NUMBER:-1}" \
+            --build-number="$FLUTTER_BUILD_NUMBER" \
             --dart-define=GPT_API_KEY="${GPT_API_KEY}" \
             --dart-define=GEMINI_API_KEY="${GEMINI_API_KEY}" \
             --dart-define=DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY}" \

@@ -14,7 +14,7 @@
         "Tee-Object": true,
         "Test-Path": true,
         "Get-Item": true,
-        "/^powershell -ExecutionPolicy Bypass -File \\.\\scripts\\generate_seed_pool\.disabled\.ps1$/": {
+        "/^powershell -ExecutionPolicy Bypass -File \\.\\scripts\\generate_seed_pool\\.disabled\\.ps1$/": true,
         "npx firebase": true,
         "/^cmd\\.exe /c \"cd c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\cse_reviewer && npx firebase deploy --only firestore:rules\"$/": {
             "approve": true,
@@ -111,7 +111,7 @@
         ".\\scripts\\extend_seed_pool_to_960.disabled.ps1": true,
         ".\\scripts\\validate_seed_pool.ps1": true,
         ".": true,
-        "/^Set-Location 'c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\upcat_reviewer_2'; powershell -ExecutionPolicy Bypass -File \\.\\scripts\\normalize_seed_pool_text\.disabled\.ps1$/": {
+        "/^Set-Location 'c:\\\\Users\\\\domz\\\\Documents\\\\FlutterApps\\\\upcat_reviewer_2'; powershell -ExecutionPolicy Bypass -File \\.\\scripts\\normalize_seed_pool_text\\.disabled\\.ps1$/": {
             "approve": true,
             "matchCommandLine": true
         },
