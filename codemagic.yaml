@@ -49,9 +49,18 @@ workflows:
           echo "Effective Xcode PRODUCT_BUNDLE_IDENTIFIER:"
           xcodebuild -workspace ios/$XCODE_WORKSPACE -scheme $XCODE_SCHEME -showBuildSettings | grep PRODUCT_BUNDLE_IDENTIFIER || true
 
+      - name: Regenerate Flutter iOS generated files
+        script: |
+          rm -f ios/Flutter/Generated.xcconfig ios/Flutter/flutter_export_environment.sh
+
       - name: Flutter pub get
         script: |
           flutter pub get
+
+      - name: Print regenerated Flutter iOS config
+        script: |
+          echo "Regenerated ios/Flutter/Generated.xcconfig:"
+          sed -n '1,12p' ios/Flutter/Generated.xcconfig || true
 
       - name: Install CocoaPods
         script: |
