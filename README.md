@@ -1,6 +1,6 @@
 # ACET Reviewer 2027
 
-Repository: https://github.com/domz3669/ustet_reviewer.git
+Repository: https://github.com/domz3669/acet_reviewer_2027.git
 
 A new Flutter project.
 
@@ -19,6 +19,32 @@ flutter run \
 ```
 
 Codemagic/TestFlight builds must also provide `REPORT_CONTENT_WEBHOOK_URL` in the `Secure` environment group.
+
+## Codemagic iOS TestFlight
+
+This repository already includes a Codemagic workflow in `codemagic.yaml` for iOS TestFlight builds.
+
+Current workflow details:
+
+- Workflow name: `ios-testflight`
+- Trigger branch: `main`
+- Apple Developer Portal integration: `Codemagic`
+- App Store Connect publishing: enabled for TestFlight only
+- Bundle identifier: `com.niotron.domingotambasacan.acetreviewer2027`
+
+Required Codemagic setup:
+
+1. Connect the GitHub repository `domz3669/acet_reviewer_2027` in Codemagic.
+2. Configure the App Store Connect integration named `Codemagic`.
+3. Upload the iOS distribution certificate and provisioning profile in Codemagic code signing.
+4. Create or update the environment group `Secure` with these variables:
+	- `GPT_API_KEY`
+	- `GEMINI_API_KEY`
+	- `DEEPSEEK_API_KEY`
+	- `REPORT_CONTENT_WEBHOOK_URL`
+5. Push to `main` to trigger the workflow.
+
+The workflow builds an IPA and submits it to TestFlight automatically.
 
 ## Getting Started
 
