@@ -84,6 +84,15 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  Future<void> _openMenuScreen() async {
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const MenuScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -126,11 +135,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
     }
 
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const MenuScreen()),
-    );
+    await _openMenuScreen();
   }
 
   @override
