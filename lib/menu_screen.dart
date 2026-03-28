@@ -2018,6 +2018,44 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return normalizedCurrent ?? normalizedLocal;
   }
 
+  String _encodeRtdbKey(String key) {
+    return Uri.encodeComponent(key);
+  }
+
+  String _decodeRtdbKey(String key) {
+    try {
+      return Uri.decodeComponent(key);
+    } catch (_) {
+      return key;
+    }
+  }
+
+  dynamic _sanitizeForRtdb(dynamic value) {
+    if (value is Map) {
+      return <String, dynamic>{
+        for (final entry in value.entries)
+          _encodeRtdbKey(entry.key.toString()): _sanitizeForRtdb(entry.value),
+      };
+    }
+    if (value is List) {
+      return value.map(_sanitizeForRtdb).toList();
+    }
+    return value;
+  }
+
+  dynamic _decodeFromRtdb(dynamic value) {
+    if (value is Map) {
+      return <String, dynamic>{
+        for (final entry in value.entries)
+          _decodeRtdbKey(entry.key.toString()): _decodeFromRtdb(entry.value),
+      };
+    }
+    if (value is List) {
+      return value.map(_decodeFromRtdb).toList();
+    }
+    return value;
+  }
+
   // =========================================================================
   // RTDB COMPREHENSIVE STATE SYNC (survives reinstall / data clear)
   // =========================================================================
@@ -2105,9 +2143,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'lastSyncTime': now.toIso8601String(),
       };
 
+      final sanitizedProgressData = _sanitizeForRtdb(progressData);
+
       await _rtdb
           .ref('devices/$_deviceId/progress')
-          .set(progressData)
+          .set(sanitizedProgressData)
           .timeout(const Duration(seconds: 8));
 
       debugPrint('Synced all progress to RTDB (device)');
@@ -2383,8 +2423,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         return;
       }
 
-      final data = snapshot.value as Map<dynamic, dynamic>?;
-      if (data == null) return;
+      final rawData = snapshot.value as Map<dynamic, dynamic>?;
+      if (rawData == null) return;
+      final decodedData = _decodeFromRtdb(rawData);
+      if (decodedData is! Map) return;
+      final data = Map<dynamic, dynamic>.from(decodedData);
       if (!mounted) return;
 
       // Use shared merge logic
