@@ -719,7 +719,7 @@
               "question": "What is the simple interest on ₱1,500 at 6% per year for 1 years?",
               "choices": [
                 "₱90",
-                "₱90",
+                "₱60",
                 "₱15",
                 "₱180"
               ],
@@ -3042,7 +3042,7 @@
                 "5/10",
                 "1/2",
                 "5/5",
-                "5/10"
+                "2/5"
               ],
               "answer": "A",
               "explanation": "There are 5 favorable outcomes out of 10 total marbles.",
@@ -3166,7 +3166,7 @@
               "question": "What is the simple interest on ₱1,500 at 6% per year for 1 years?",
               "choices": [
                 "₱90",
-                "₱90",
+                "₱60",
                 "₱15",
                 "₱180"
               ],

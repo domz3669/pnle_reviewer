@@ -1022,26 +1022,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     final isComplete = prefs.getBool('onboarding_complete') ?? false;
     if (!isComplete) {
-      showDialog(
+      setState(() => showOnboarding = true);
+      await showDialog<void>(
         context: context,
         barrierDismissible: false,
         barrierColor: Colors.black87,
-        builder: (dialogContext) => OnboardingScreen(
-          onComplete: (nickname) async {
-            await _saveNickname(nickname);
-            if (!mounted) return;
-            if (dialogContext.mounted) {
-              Navigator.pop(dialogContext);
-            }
-            setState(() {
-              showOnboarding = false;
-            });
-            _promptCourseTargetIfNeeded();
-          },
-        ),
+        builder: (_) => const OnboardingScreen(),
       );
       if (!mounted) return;
-      setState(() => showOnboarding = true);
+      final nickname =
+          _normalizeNickname(prefs.getString('user_nickname') ?? '');
+      if (nickname.isNotEmpty) {
+        await _saveNickname(nickname);
+      }
+      setState(() => showOnboarding = false);
+      _promptCourseTargetIfNeeded();
     }
   }
 
