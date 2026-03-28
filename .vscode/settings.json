@@ -116,6 +116,20 @@
             "matchCommandLine": true
         },
         "Out-Null": true,
-        ".\\scripts\\prune_low_quality_seed_pool.disabled.ps1": true
-    }
+        ".\\scripts\\prune_low_quality_seed_pool.disabled.ps1": true,
+        "/^python -c \"import json,sys; from openpyxl import load_workbook; wb=load_workbook\\(r'assets/Abstract Reasoning/Odd one out/oouAnswers\\.xlsx', data_only=True\\); ws=wb\\.active; rows=\\[\\]; headers=\\[c\\.value for c in next\\(ws\\.iter_rows\\(min_row=1,max_row=1\\)\\)\\];\nfor r in ws\\.iter_rows\\(min_row=2, values_only=True\\):\n    if all\\(v is None for v in r\\):\n        continue\n    rows\\.append\\(dict\\(zip\\(headers,r\\)\\)\\)\nprint\\(json\\.dumps\\(\\{'sheet':ws\\.title,'headers':headers,'rows':rows\\}, ensure_ascii=False\\)\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python -c \"import openpyxl; print\\('openpyxl-ok'\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "1..38": true,
+        "/^powershell -ExecutionPolicy Bypass -File \"scripts/convert_visual_abstract_excel_to_json\\.ps1\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    },
+    "chat.agent.maxRequests": 100
 }

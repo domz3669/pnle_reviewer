@@ -1,40 +1,44 @@
-# USTET Reviewer 2027 - Store Descriptions
+# ACET Reviewer 2027 - Store Descriptions
 
 ## iOS App Store Description
-USTET Reviewer 2027 is a native exam-prep app built for students preparing for the UST Entrance Test. Train daily with realistic multiple-choice drills, track your readiness over time, and target weak areas with focused practice modes designed for mobile study.
+ACET Reviewer 2027 helps students prepare for the Ateneo College Entrance Test with structured daily practice and clear progress tracking.
 
-What you can do:
-- Take daily 15-question sessions across Mental Ability, English, Mathematics, and Science
-- Use Focus Mode to strengthen your weakest category
-- Try Challenge Mode for harder, high-pressure sets when online generation is available
-- Practice Timed Exam Mode to improve speed and decision-making
-- Review your recent performance and readiness trends
-- Save unfinished or completed sessions and load them later
-- Request AI-generated Coach Note explanations after answering to improve understanding
+Core features:
+- Random Quiz for balanced daily review
+- Focus Mode for weak-category practice
+- Timed Exam Mode for speed and pacing
+- Challenge Mode for advanced mixed practice when online
+- Readiness insights and recent performance history
+- Saved sessions for easy continuation
+- Optional AI Coach Note explanations after answering
+- Optional daily rewards and extra session tasks
 
-USTET Reviewer 2027 is designed for consistent daily practice. The app helps you build confidence through structured repetition, practical reasoning items, and clear progress tracking.
+Best use:
+- Build a daily review habit
+- Improve accuracy across core ACET subjects
+- Practice under time pressure before exam day
 
-Notes for App Review alignment:
-- The app launches to the native home screen even when offline.
-- Random Quiz, Focus Mode, and Timed Exam can use local seeded question sets offline.
-- Internet access is required for progress syncing, streak rewards, ads, Challenge Mode generation, and AI Coach Note explanations.
+Review note:
+- Random Quiz, Focus Mode, and Timed Exam can run from local seeded content.
+- Internet is only needed for syncing, rewards, Challenge Mode generation, ads, report submission, and AI Coach Note explanations.
 
 ## Google Play Description
-USTET Reviewer 2027 helps you prepare smarter for the UST entrance exam with realistic, reasoning-based practice.
+ACET Reviewer 2027 is a mobile review app for ACET preparation.
 
-Train every day with quiz sets covering:
-- Mental Ability
+Use it to:
+- Answer daily multiple-choice drills
+- Strengthen weak subjects with Focus Mode
+- Train speed with Timed Exam Mode
+- Try Challenge Mode for harder mixed sessions while online
+- Track readiness and recent performance
+- Save sessions and continue later
+- Read optional AI Coach Note explanations after each answer
+- Claim extra sessions from daily task rewards
+
+Subjects covered:
 - English
 - Mathematics
-- Science
+- Logical Reasoning
+- Mental Ability / Abstract
 
-Key features:
-- Daily quiz sessions with progress tracking
-- Focus Mode to target weak categories
-- Challenge Mode for harder test sets when online generation is available
-- Timed Exam Mode for speed training
-- Readiness and 10-day history insights
-- Saved sessions for continued practice
-- Optional AI-generated post-answer explanations for better learning
-
-Whether you are starting prep early or reviewing close to exam date, USTET Reviewer 2027 gives you a clear routine and measurable progress.
+The app is built for repeat practice, measurable progress, and exam-style study on mobile.

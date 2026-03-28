@@ -4,6 +4,17 @@ import 'package:google_fonts/google_fonts.dart';
 import 'config/pnle_theme.dart';
 import 'utils/responsive.dart';
 
+const _coachCream = Color(0xFFFCF6EB);
+const _coachPanel = Color(0xFFF9F3E7);
+const _coachText = Color(0xFF5A7652);
+const _coachTextSoft = Color(0xFF8AA081);
+const _coachBorder = Color(0xA4C5D6AE);
+const _coachLeaf = Color(0xFF7EA468);
+const _coachLeafSoft = Color(0xFFDDEBCE);
+const _coachSkySoft = Color(0xFFE6EFF7);
+const _coachWarm = Color(0xFFC28D74);
+const _coachWarmSoft = Color(0xFFF4E3D9);
+
 class ExplanationDialog extends StatefulWidget {
   final Future<String> Function() onGenerate;
   final String? initialExplanation;
@@ -11,7 +22,7 @@ class ExplanationDialog extends StatefulWidget {
   final String userAnswer;
   final String correctAnswer;
   final bool isCorrect;
-  final bool hasAdFreeAccess;
+  final bool hasUnlimitedAccess;
   final VoidCallback onReportContent;
   final VoidCallback? onUseBetterAI;
 
@@ -23,7 +34,7 @@ class ExplanationDialog extends StatefulWidget {
     required this.userAnswer,
     required this.correctAnswer,
     required this.isCorrect,
-    this.hasAdFreeAccess = false,
+    this.hasUnlimitedAccess = false,
     required this.onReportContent,
     this.onUseBetterAI,
   });
@@ -109,22 +120,23 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              PnleTheme.bgTop.withOpacity(0.95),
-              PnleTheme.bgBottom.withOpacity(0.95),
+              Color.lerp(_coachPanel, _coachLeafSoft, 0.24)!,
+              _coachPanel,
+              Color.lerp(_coachPanel, _coachSkySoft, 0.24)!,
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(32),
           border: Border.all(
-            color: Colors.white.withOpacity(0.3),
-            width: 2,
+            color: _coachBorder,
+            width: 1.6,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.white.withOpacity(0.1),
-              blurRadius: 20,
-              spreadRadius: 2,
+              color: _coachLeaf.withOpacity(0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -145,7 +157,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                           style: GoogleFonts.outfit(
                             fontSize: r.fontSize(22),
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _coachText,
                           ),
                         ),
                         GestureDetector(
@@ -153,15 +165,15 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.1),
+                              color: _coachCream,
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: Colors.white.withOpacity(0.3),
+                                color: _coachBorder,
                               ),
                             ),
                             child: Icon(
                               Icons.close,
-                              color: Colors.white.withOpacity(0.8),
+                              color: _coachTextSoft,
                               size: 20,
                             ),
                           ),
@@ -170,7 +182,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     ),
                     const SizedBox(height: 16),
                     Divider(
-                      color: Colors.white.withOpacity(0.2),
+                      color: _coachBorder,
                       height: 1,
                       thickness: 1,
                     ),
@@ -186,7 +198,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                   children: [
                     CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        Colors.white.withOpacity(0.8),
+                        _coachLeaf,
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -196,7 +208,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(16),
                         fontWeight: FontWeight.w600,
-                        color: Colors.white.withOpacity(0.9),
+                        color: _coachText,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -205,7 +217,8 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(13),
-                        color: Colors.white.withOpacity(0.6),
+                        color: _coachTextSoft,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -226,10 +239,10 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                           padding: const EdgeInsets.all(16),
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.08),
+                            color: _coachWarmSoft,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.2),
+                              color: _coachWarm.withOpacity(0.25),
                               width: 1.5,
                             ),
                           ),
@@ -248,7 +261,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(13),
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white.withOpacity(0.7),
+                                      color: _coachTextSoft,
                                     ),
                                   ),
                                 ],
@@ -260,7 +273,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                 style: GoogleFonts.outfit(
                                   fontSize: r.fontSize(15),
                                   fontWeight: FontWeight.w600,
-                                  color: PnleTheme.warning.withOpacity(0.9),
+                                  color: _coachWarm,
                                 ),
                               ),
                             ],
@@ -273,10 +286,10 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                         padding: const EdgeInsets.all(16),
                         margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
-                          color: PnleTheme.success.withOpacity(0.08),
+                          color: _coachLeafSoft,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: PnleTheme.success.withOpacity(0.3),
+                            color: _coachLeaf.withOpacity(0.3),
                             width: 1.5,
                           ),
                         ),
@@ -295,7 +308,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                   style: GoogleFonts.outfit(
                                     fontSize: r.fontSize(13),
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.white.withOpacity(0.7),
+                                    color: _coachTextSoft,
                                   ),
                                 ),
                               ],
@@ -307,7 +320,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                               style: GoogleFonts.outfit(
                                 fontSize: r.fontSize(15),
                                 fontWeight: FontWeight.w600,
-                                color: PnleTheme.success.withOpacity(0.9),
+                                color: _coachLeaf,
                               ),
                             ),
                           ],
@@ -319,10 +332,10 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                         padding: const EdgeInsets.all(16),
                         margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
+                          color: _coachCream,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.2),
+                            color: _coachBorder,
                             width: 1.5,
                           ),
                         ),
@@ -334,7 +347,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                               style: GoogleFonts.outfit(
                                 fontSize: r.fontSize(13),
                                 fontWeight: FontWeight.w600,
-                                color: Colors.white.withOpacity(0.7),
+                                color: _coachTextSoft,
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -342,7 +355,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                               explanation!,
                               style: GoogleFonts.outfit(
                                 fontSize: r.fontSize(14),
-                                color: Colors.white.withOpacity(0.85),
+                                color: _coachText,
                                 height: 1.6,
                               ),
                             ),
@@ -354,10 +367,10 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: PnleTheme.warning.withOpacity(0.08),
+                          color: const Color(0xFFF7EFCF),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: PnleTheme.warning.withOpacity(0.2),
+                            color: const Color(0xFFD9C59C),
                             width: 1,
                           ),
                         ),
@@ -368,7 +381,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                               children: [
                                 Icon(
                                   Icons.info,
-                                  color: PnleTheme.warning.withOpacity(0.7),
+                                  color: const Color(0xFFB28D4B),
                                   size: 16,
                                 ),
                                 const SizedBox(width: 12),
@@ -379,7 +392,8 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                         : 'This Coach Note is generated online for review guidance. Please verify with trusted references.',
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(12),
-                                      color: Colors.white.withOpacity(0.6),
+                                      color: _coachTextSoft,
+                                      fontWeight: FontWeight.w600,
                                       height: 1.4,
                                     ),
                                   ),
@@ -397,7 +411,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                                 style: GoogleFonts.outfit(
                                   fontSize: r.fontSize(12),
                                   fontWeight: FontWeight.w600,
-                                  color: PnleTheme.warning.withOpacity(0.75),
+                                  color: _coachWarm,
                                   decoration: TextDecoration.underline,
                                 ),
                               ),
@@ -413,16 +427,16 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                         Text(
                           'Need a deeper breakdown?',
                           style: GoogleFonts.outfit(
-                            color: Colors.white.withOpacity(0.8),
+                            color: _coachText,
                             fontSize: r.fontSize(14),
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 12),
                         ElevatedButton(
                           onPressed: widget.onUseBetterAI,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: PnleTheme.bgTop,
+                            backgroundColor: _coachLeaf,
                             padding: const EdgeInsets.symmetric(
                               horizontal: 24,
                               vertical: 12,
@@ -437,14 +451,14 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                             children: [
                               Icon(
                                 Icons.auto_awesome,
-                                color: Colors.white,
+                                color: _coachCream,
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
                               Text(
                                 'DEEPER COACHING',
                                 style: GoogleFonts.outfit(
-                                  color: Colors.white,
+                                  color: _coachCream,
                                   fontWeight: FontWeight.bold,
                                   fontSize: r.fontSize(14),
                                 ),
@@ -466,17 +480,17 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: _coachCream,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.3),
+                    color: _coachBorder,
                     width: 1.5,
                   ),
                 ),
                 child: Text(
                   '$counter%',
                   style: GoogleFonts.outfit(
-                    color: Colors.white.withOpacity(0.9),
+                    color: _coachText,
                     fontSize: r.fontSize(16),
                     fontWeight: FontWeight.w600,
                   ),
@@ -492,10 +506,10 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 48, vertical: 14),
                     decoration: BoxDecoration(
-                      color: PnleTheme.bgTop.withOpacity(0.35),
+                      color: _coachCream,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: PnleTheme.glowA.withOpacity(0.5),
+                        color: _coachBorder,
                         width: 1.5,
                       ),
                     ),
@@ -503,7 +517,7 @@ class _ExplanationDialogState extends State<ExplanationDialog> {
                       child: Text(
                         'CLOSE',
                         style: GoogleFonts.outfit(
-                          color: Colors.white,
+                          color: _coachText,
                           fontSize: r.fontSize(16),
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.5,

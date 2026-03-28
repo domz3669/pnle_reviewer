@@ -6,6 +6,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'menu_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'config/pnle_theme.dart';
 import 'services/sound_service.dart';
 
 void main() async {
@@ -32,11 +33,38 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: PnleTheme.accent,
+      brightness: Brightness.dark,
+    ).copyWith(
+      primary: PnleTheme.accent,
+      secondary: PnleTheme.accentDeep,
+      surface: PnleTheme.bgTop,
+      onPrimary: Colors.black,
+      onSecondary: Colors.white,
+      onSurface: Colors.white,
+    );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         textTheme: GoogleFonts.poppinsTextTheme(),
         useMaterial3: true,
+        brightness: Brightness.dark,
+        colorScheme: colorScheme,
+        scaffoldBackgroundColor: PnleTheme.bgBottom,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: PnleTheme.bgTop,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        cardTheme: CardThemeData(
+          color: Colors.white.withValues(alpha: 0.08),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
       ),
       home: const SplashScreen(),
     );
@@ -63,7 +91,8 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _initializeAndProceed() async {
     try {
       // ✅ Initialize Firebase in background
-      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform);
     } catch (e) {
       debugPrint('Firebase init error: $e');
       // Continue without Firebase

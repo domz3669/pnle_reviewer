@@ -2,6 +2,7 @@ class Question {
   final int number;
   final String category;
   final String question;
+  final String? imageAssetPath;
   final List<String> choices;
   final String answer;
   final String? explanation; // ✅ optional now
@@ -11,6 +12,7 @@ class Question {
     required this.number,
     required this.category,
     required this.question,
+    this.imageAssetPath,
     required this.choices,
     required this.answer,
     this.explanation,
@@ -31,12 +33,14 @@ class Question {
 
     // Find new position of correct answer
     final newCorrectIndex = shuffledChoices.indexOf(correctText);
-    final newAnswer = String.fromCharCode(65 + newCorrectIndex); // 0=A, 1=B, 2=C, 3=D
+    final newAnswer =
+        String.fromCharCode(65 + newCorrectIndex); // 0=A, 1=B, 2=C, 3=D
 
     return Question(
       number: number,
       category: category,
       question: question,
+      imageAssetPath: imageAssetPath,
       choices: shuffledChoices,
       answer: newAnswer,
       explanation: explanation,
@@ -49,6 +53,7 @@ class Question {
       number: json['number'],
       category: json['category'],
       question: json['question'],
+      imageAssetPath: json['imageAssetPath'] as String?,
       choices: List<String>.from(json['choices']),
       answer: json['answer'],
       explanation: json['explanation'], // may be null

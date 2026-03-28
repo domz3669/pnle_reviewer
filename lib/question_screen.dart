@@ -11,37 +11,61 @@ import 'dart:convert';
 import 'config/secrets.dart';
 import 'config/admob_ids.dart';
 import 'config/pnle_theme.dart';
+import 'models/acet_assessment.dart';
 import 'models/question.dart';
 import 'utils/responsive.dart';
 import 'animated_results_dialog.dart';
 import 'explanation_dialog.dart';
 import 'better_explanation_dialog.dart';
+import 'services/acet_assessment_service.dart';
 import 'services/review_service.dart';
 import 'services/gemini_service.dart';
 import 'services/gpt_service.dart';
 
-const String _reportingAppName = 'USTET Reviewer 2027';
+const String _reportingAppName = 'ACET Reviewer 2027';
+const _quizDialogCream = Color(0xFFFCF6EB);
+const _quizDialogPanel = Color(0xFFF9F3E7);
+const _quizDialogText = Color(0xFF5A7652);
+const _quizDialogTextSoft = Color(0xFF8AA081);
+const _quizDialogBorder = Color(0xA4C5D6AE);
+const _quizDialogLeaf = Color(0xFF7EA468);
+const _quizDialogLeafSoft = Color(0xFFDDEBCE);
+const _quizDialogSkySoft = Color(0xFFE6EFF7);
+const _quizDialogWarm = Color(0xFFC28D74);
+const _quizDialogWarmSoft = Color(0xFFF4E3D9);
+const _quizDialogButter = Color(0xFFB28D4B);
+const _quizDialogButterSoft = Color(0xFFF7EFCF);
+const _quizScreenBackground = Color(0xFFFCF6EB);
+const _quizScreenPanel = Color(0xFFF9F3E7);
+const _quizAnswerCorrect = Color(0xFF7EA468);
+const _quizAnswerCorrectDeep = Color(0xFF698C59);
+const _quizAnswerWrong = Color(0xFFC28D74);
+const _quizAnswerWrongDeep = Color(0xFFAE765F);
 
 class QuestionScreen extends StatefulWidget {
   final List<Question> questions;
-  final bool hasAdFreeAccess;
+  final bool hasUnlimitedAccess;
+  final bool strictTimingEnabled;
   final bool recordResults;
   final String testMode; // 'randomQuiz' or 'focusMode' or 'previous'
   final int zeroAdSessionsRemaining;
   final int initialIndex;
   final Map<String, int>? initialCorrectCount;
   final int initialElapsedSeconds;
+  final List<AcetQuestionAttempt>? initialAttempts;
 
   const QuestionScreen({
     super.key,
     required this.questions,
-    this.hasAdFreeAccess = false,
+    this.hasUnlimitedAccess = false,
+    this.strictTimingEnabled = false,
     this.recordResults = true,
     this.testMode = 'randomQuiz',
     this.zeroAdSessionsRemaining = 0,
     this.initialIndex = 0,
     this.initialCorrectCount,
     this.initialElapsedSeconds = 0,
+    this.initialAttempts,
   });
 
   @override
@@ -83,6 +107,8 @@ class _QuestionScreenState extends State<QuestionScreen>
 
   // Pre-loaded sound service for zero-latency playback
   final SoundService _soundService = SoundService();
+  final AcetAssessmentService _acetAssessmentService =
+      const AcetAssessmentService();
 
   // Track total time spent on the quiz
   final Stopwatch _quizStopwatch = Stopwatch();
@@ -119,6 +145,8 @@ class _QuestionScreenState extends State<QuestionScreen>
   final Map<String, int> _totalCount = {};
   final List<Map<String, dynamic>> _mistakes = [];
   final Set<int> _recordedMistakeQuestionIndexes = <int>{};
+  final List<AcetQuestionAttempt> _questionAttempts = <AcetQuestionAttempt>[];
+  final Set<int> _recordedAttemptQuestionNumbers = <int>{};
   int _elapsedOffsetSeconds = 0;
 
   // =========================
@@ -130,14 +158,13 @@ class _QuestionScreenState extends State<QuestionScreen>
 
   /// Get timer duration based on question category
   int _getTimerForCategory(String category) {
-    if (_isTimedExamMode) {
+    if (_usesStrictTiming) {
       switch (category) {
         case 'Mathematics':
-        case 'Science':
           return 40;
-        case 'Mental Ability':
-          return 35;
         case 'English':
+        case 'Logical Reasoning':
+        case 'Mental Ability / Abstract':
         default:
           return 35;
       }
@@ -145,15 +172,15 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     final isChallenge = widget.testMode == 'challenge';
     switch (category) {
-      case 'Mental Ability':
+      case 'English':
         return isChallenge ? 65 : 45;
       case 'Mathematics':
-      case 'Science':
         return isChallenge ? 85 : 60;
-      case 'English':
-        return isChallenge ? 95 : 70;
+      case 'Logical Reasoning':
+      case 'Mental Ability / Abstract':
+        return isChallenge ? 75 : 55;
       default:
-        return isChallenge ? 80 : 55;
+        return isChallenge ? 75 : 55;
     }
   }
 
@@ -162,6 +189,11 @@ class _QuestionScreenState extends State<QuestionScreen>
   bool _autoAdvanceQueued = false;
 
   bool get _isTimedExamMode => widget.testMode == 'timedExam';
+  bool get _usesStrictTiming => _isTimedExamMode || widget.strictTimingEnabled;
+  bool get _isVisualQuestion =>
+      (currentQuestion.imageAssetPath?.isNotEmpty ?? false);
+
+  bool get _hasVisualPromptText => currentQuestion.question.trim().isNotEmpty;
 
   Question get currentQuestion => widget.questions[currentIndex];
 
@@ -208,6 +240,16 @@ class _QuestionScreenState extends State<QuestionScreen>
       }
     }
 
+    final initialAttempts = widget.initialAttempts;
+    if (initialAttempts != null) {
+      _questionAttempts
+        ..clear()
+        ..addAll(initialAttempts);
+      _recordedAttemptQuestionNumbers
+        ..clear()
+        ..addAll(initialAttempts.map((attempt) => attempt.questionNumber));
+    }
+
     _timeController = AnimationController(
       vsync: this,
       duration: Duration(seconds: _currentMaxTime),
@@ -239,14 +281,14 @@ class _QuestionScreenState extends State<QuestionScreen>
     );
 
     _startTimer();
-    if (!widget.hasAdFreeAccess) {
+    if (!widget.hasUnlimitedAccess) {
       _loadBannerAd();
     }
     // Don't load interstitial ads for Quick Practice mode
-    if (!widget.hasAdFreeAccess && widget.testMode != 'quickPractice') {
+    if (!widget.hasUnlimitedAccess && widget.testMode != 'quickPractice') {
       _loadInterstitialAd();
     }
-    if (!widget.hasAdFreeAccess) {
+    if (!widget.hasUnlimitedAccess) {
       _loadExplainInterstitialAd();
     }
   }
@@ -281,11 +323,11 @@ class _QuestionScreenState extends State<QuestionScreen>
           _isBannerAdLoaded = false;
           debugPrint(
               'Banner ad failed to load (${error.code}: ${error.message})');
-          if (!mounted || widget.hasAdFreeAccess) return;
+          if (!mounted || widget.hasUnlimitedAccess) return;
           if (_bannerLoadRetryCount >= _maxBannerLoadRetries) return;
           _bannerLoadRetryCount++;
           Future.delayed(const Duration(seconds: 2), () {
-            if (!mounted || widget.hasAdFreeAccess) return;
+            if (!mounted || widget.hasUnlimitedAccess) return;
             _loadBannerAd();
           });
         },
@@ -357,6 +399,12 @@ class _QuestionScreenState extends State<QuestionScreen>
     });
     // Play wrong answer sound if user didn't answer
     if (selectedChoiceIndex == null) {
+      _recordQuestionAttempt(
+        answered: false,
+        isCorrect: false,
+        timedOut: true,
+        timeSeconds: _currentMaxTime,
+      );
       _recordMistake(
         questionIndex: currentIndex,
         selectedAnswer: null,
@@ -365,7 +413,7 @@ class _QuestionScreenState extends State<QuestionScreen>
       _soundService.playWrongAnswer();
     }
 
-    if (_isTimedExamMode && !_autoAdvanceQueued) {
+    if (_usesStrictTiming && !_autoAdvanceQueued) {
       _autoAdvanceQueued = true;
       Future.delayed(const Duration(milliseconds: 650), () {
         _autoAdvanceQueued = false;
@@ -380,6 +428,45 @@ class _QuestionScreenState extends State<QuestionScreen>
   String _answerLetterForIndex(int index) {
     if (index < 0 || index >= 26) return '';
     return String.fromCharCode(65 + index);
+  }
+
+  int _timeSpentForCurrentQuestion({bool timedOut = false}) {
+    if (timedOut) return _currentMaxTime;
+    final spent = (_currentMaxTime * _timeController.value).round();
+    return spent.clamp(0, _currentMaxTime);
+  }
+
+  void _recordQuestionAttempt({
+    required bool answered,
+    required bool isCorrect,
+    required bool timedOut,
+    int? timeSeconds,
+  }) {
+    final questionNumber = currentQuestion.number;
+    if (_recordedAttemptQuestionNumbers.contains(questionNumber)) {
+      return;
+    }
+
+    _recordedAttemptQuestionNumbers.add(questionNumber);
+    _questionAttempts.add(
+      AcetQuestionAttempt(
+        questionNumber: questionNumber,
+        category: currentQuestion.category,
+        timeSeconds:
+            (timeSeconds ?? _timeSpentForCurrentQuestion(timedOut: timedOut))
+                .clamp(0, _currentMaxTime),
+        isCorrect: isCorrect,
+        answered: answered,
+        timedOut: timedOut,
+      ),
+    );
+  }
+
+  AcetAssessment _buildAssessment() {
+    return _acetAssessmentService.buildAssessment(
+      attempts: _questionAttempts,
+      categoryTotals: Map<String, int>.from(_totalCount),
+    );
   }
 
   void _recordMistake({
@@ -397,6 +484,7 @@ class _QuestionScreenState extends State<QuestionScreen>
         'number': question.number,
         'category': question.category,
         'question': question.question,
+        'imageAssetPath': question.imageAssetPath,
         'choices': question.choices,
         'answer': question.answer,
         'explanation': question.explanation,
@@ -421,6 +509,7 @@ class _QuestionScreenState extends State<QuestionScreen>
               'number': q.number,
               'category': q.category,
               'question': q.question,
+              'imageAssetPath': q.imageAssetPath,
               'choices': q.choices,
               'answer': q.answer,
               'explanation': q.explanation,
@@ -433,12 +522,15 @@ class _QuestionScreenState extends State<QuestionScreen>
       'elapsedSeconds': elapsedSeconds,
       'testMode': widget.testMode,
       'recordResults': widget.recordResults,
+      'assessmentAttempts':
+          _questionAttempts.map((attempt) => attempt.toJson()).toList(),
     };
   }
 
   Map<String, dynamic> _buildResultPayload({
     required String nextAction,
     required int elapsedSeconds,
+    required AcetAssessment assessment,
   }) {
     return {
       'correctCount': Map<String, int>.from(_correctCount),
@@ -448,13 +540,202 @@ class _QuestionScreenState extends State<QuestionScreen>
       'recordResults': widget.recordResults,
       'mistakes': List<Map<String, dynamic>>.from(_mistakes),
       'elapsedSeconds': elapsedSeconds,
+      'assessment': assessment.toJson(),
+      'assessmentAttempts':
+          _questionAttempts.map((attempt) => attempt.toJson()).toList(),
     };
   }
 
   Color _timeColorFromRatio(double ratio) {
-    if (ratio > 0.6) return PnleTheme.success;
-    if (ratio > 0.3) return PnleTheme.warning;
+    if (ratio > 0.6) return _quizDialogLeaf;
+    if (ratio > 0.3) return _quizDialogButter;
     return PnleTheme.danger;
+  }
+
+  void _showQuizSnackBar(
+    String message, {
+    Color accent = _quizDialogLeaf,
+    int seconds = 2,
+  }) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: Duration(seconds: seconds),
+        content: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_quizDialogPanel, _quizDialogCream, 0.3)!,
+                _quizDialogPanel,
+                Color.lerp(_quizDialogPanel, _quizDialogSkySoft, 0.18)!,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: accent.withValues(alpha: 0.28)),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: 0.12),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child:
+                    Icon(Icons.info_outline_rounded, color: accent, size: 16),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  message,
+                  style: GoogleFonts.outfit(
+                    color: _quizDialogText,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _showPauseExitDialog() async {
+    final shouldPause = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_quizDialogPanel, _quizDialogLeafSoft, 0.18)!,
+                _quizDialogPanel,
+                Color.lerp(_quizDialogPanel, _quizDialogWarmSoft, 0.16)!,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _quizDialogBorder, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: _quizDialogLeaf.withValues(alpha: 0.12),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _quizDialogLeafSoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.pause_circle_outline_rounded,
+                      color: _quizDialogLeaf,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Pause And Exit?',
+                      style: GoogleFonts.outfit(
+                        color: _quizDialogText,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Your current progress will be saved so you can continue this quiz later.',
+                style: GoogleFonts.outfit(
+                  color: _quizDialogTextSoft,
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: _quizDialogBorder),
+                        backgroundColor: _quizDialogCream,
+                        foregroundColor: _quizDialogText,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(
+                        'Continue Quiz',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _quizDialogLeaf,
+                        foregroundColor: _quizDialogCream,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(
+                        'Pause Exit',
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return shouldPause ?? false;
   }
 
   Widget _animatedTimeBar() {
@@ -476,7 +757,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                   return Container(
                     height: 6,
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
+                      color: _quizDialogLeafSoft.withValues(alpha: 0.65),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Stack(
@@ -494,7 +775,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 colors: [
                                   barColor.withValues(alpha: 0.95),
                                   barColor.withValues(alpha: 0.72),
-                                  Colors.white.withValues(alpha: 0.18),
+                                  _quizDialogCream.withValues(alpha: 0.38),
                                 ],
                               ),
                               borderRadius: BorderRadius.circular(10),
@@ -579,75 +860,50 @@ class _QuestionScreenState extends State<QuestionScreen>
   Color _choiceColor(int index) {
     // When time is up, highlight all choices red
     if (_timeUp) {
-      return PnleTheme.danger.withValues(alpha: 0.25);
+      return _quizAnswerWrong;
     }
 
     // When answer is selected, only highlight the user's choice
     if (_answerSelected && selectedChoiceIndex == index) {
-      // Green if correct, red if wrong
-      return index == _correctIndex
-          ? PnleTheme.success.withValues(alpha: 0.25)
-          : PnleTheme.danger.withValues(alpha: 0.25);
+      return index == _correctIndex ? _quizAnswerCorrect : _quizAnswerWrong;
     }
 
-    return Colors.white.withValues(alpha: 0.08);
+    return _quizDialogCream;
   }
 
   LinearGradient? _choiceGradient(int index) {
-    if (_timeUp) {
-      return LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          PnleTheme.danger.withValues(alpha: 0.30),
-          PnleTheme.danger.withValues(alpha: 0.20),
-          Colors.white.withValues(alpha: 0.08),
-        ],
-      );
-    }
-
-    if (_answerSelected && selectedChoiceIndex == index) {
-      final base =
-          index == _correctIndex ? PnleTheme.success : PnleTheme.danger;
-      return LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          base.withValues(alpha: 0.30),
-          base.withValues(alpha: 0.20),
-          Colors.white.withValues(alpha: 0.08),
-        ],
-      );
-    }
-
     return null;
   }
 
   Color _choiceBorderColor(int index) {
-    if (_timeUp) return PnleTheme.danger;
+    if (_timeUp) return _quizAnswerWrongDeep;
     if (_answerSelected && selectedChoiceIndex == index) {
-      return index == _correctIndex ? PnleTheme.success : PnleTheme.danger;
+      return index == _correctIndex
+          ? _quizAnswerCorrectDeep
+          : _quizAnswerWrongDeep;
     }
-    return Colors.white.withValues(alpha: 0.2);
+    return _quizDialogBorder;
   }
 
   Color _choiceTextColor(int index) {
-    if (_timeUp) return Colors.white;
-    if (_answerSelected && selectedChoiceIndex == index) return Colors.white;
-    return Colors.white.withValues(alpha: 0.9);
+    if (_timeUp) return _quizDialogCream;
+    if (_answerSelected && selectedChoiceIndex == index) {
+      return _quizDialogCream;
+    }
+    return _quizDialogText;
   }
 
   // =========================
   // HELPER METHODS
   // =========================
   bool _canUseExplainWhy() {
-    if (widget.hasAdFreeAccess) return true;
+    if (widget.hasUnlimitedAccess) return true;
     if (_explainAdUnlockedForCurrentQuestion) return true;
     return explanationCount < _freeExplainLimitForCurrentMode;
   }
 
   bool _canOfferExplainAdUnlock() {
-    if (widget.hasAdFreeAccess) return false;
+    if (widget.hasUnlimitedAccess) return false;
     if (_canUseExplainWhy()) return false;
     return _explainAdUnlockCount < _maxExplainAdUnlocksForCurrentMode;
   }
@@ -698,21 +954,27 @@ class _QuestionScreenState extends State<QuestionScreen>
             child: Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+                gradient: LinearGradient(
+                  colors: [
+                    Color.lerp(_quizDialogPanel, _quizDialogLeafSoft, 0.2)!,
+                    _quizDialogPanel,
+                    Color.lerp(_quizDialogPanel, _quizDialogSkySoft, 0.24)!,
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
-                  color: statusColor.withValues(alpha: 0.5),
+                  color: state.isLoading
+                      ? _quizDialogBorder
+                      : statusColor.withValues(alpha: 0.32),
                   width: 1.5,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: 28,
-                    offset: const Offset(0, 16),
+                    color: _quizDialogLeaf.withValues(alpha: 0.12),
+                    blurRadius: 22,
+                    offset: const Offset(0, 12),
                   ),
                 ],
               ),
@@ -726,8 +988,15 @@ class _QuestionScreenState extends State<QuestionScreen>
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.16),
+                          color: state.isLoading
+                              ? _quizDialogCream
+                              : statusColor.withValues(alpha: 0.14),
                           shape: BoxShape.circle,
+                          border: Border.all(
+                            color: state.isLoading
+                                ? _quizDialogBorder
+                                : statusColor.withValues(alpha: 0.22),
+                          ),
                         ),
                         child: state.isLoading
                             ? SizedBox(
@@ -756,7 +1025,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                   ? 'Submitting Report'
                                   : 'Report Submitted',
                               style: GoogleFonts.outfit(
-                                color: Colors.white,
+                                color: _quizDialogText,
                                 fontSize: 24,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -765,7 +1034,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                             Text(
                               state.title,
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.92),
+                                color: _quizDialogTextSoft,
                                 fontSize: 15,
                                 fontWeight: FontWeight.w600,
                                 height: 1.35,
@@ -780,7 +1049,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                   Text(
                     'Question reported',
                     style: GoogleFonts.outfit(
-                      color: PnleTheme.accent,
+                      color: _quizDialogLeaf,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.2,
@@ -791,16 +1060,16 @@ class _QuestionScreenState extends State<QuestionScreen>
                     width: double.infinity,
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.06),
+                      color: _quizDialogCream,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.1),
+                        color: _quizDialogBorder,
                       ),
                     ),
                     child: Text(
                       question,
                       style: GoogleFonts.outfit(
-                        color: Colors.white,
+                        color: _quizDialogText,
                         fontSize: 16,
                         fontStyle: FontStyle.italic,
                         height: 1.45,
@@ -811,9 +1080,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                   Text(
                     state.detail,
                     style: GoogleFonts.outfit(
-                      color: Colors.white.withValues(alpha: 0.76),
+                      color: _quizDialogTextSoft,
                       fontSize: 13,
                       height: 1.45,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 22),
@@ -823,7 +1093,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                         ? Text(
                             'Sending...',
                             style: GoogleFonts.outfit(
-                              color: Colors.white.withValues(alpha: 0.7),
+                              color: _quizDialogTextSoft,
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
@@ -832,11 +1102,9 @@ class _QuestionScreenState extends State<QuestionScreen>
                             onPressed: () => Navigator.of(dialogContext).pop(),
                             style: FilledButton.styleFrom(
                               backgroundColor: state.sentSuccessfully
-                                  ? PnleTheme.accent
+                                  ? _quizDialogLeaf
                                   : statusColor,
-                              foregroundColor: state.sentSuccessfully
-                                  ? PnleTheme.bgBottom
-                                  : Colors.black,
+                              foregroundColor: _quizDialogCream,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 22,
                                 vertical: 14,
@@ -945,9 +1213,7 @@ class _QuestionScreenState extends State<QuestionScreen>
       canPop: false,
       child: Scaffold(
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: PnleTheme.appBackground,
-          ),
+          decoration: const BoxDecoration(color: _quizScreenBackground),
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -963,10 +1229,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
+                            color: _quizDialogCream,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.2),
+                              color: _quizDialogBorder,
                             ),
                           ),
                           child: Text(
@@ -974,7 +1240,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.outfit(
-                              color: Colors.white,
+                              color: _quizDialogText,
                               fontSize: r.fontSize(11),
                               fontWeight: FontWeight.w600,
                               height: 1.15,
@@ -989,16 +1255,16 @@ class _QuestionScreenState extends State<QuestionScreen>
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: PnleTheme.accent.withValues(alpha: 0.2),
+                          color: _quizDialogLeafSoft,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: PnleTheme.accent.withValues(alpha: 0.5),
+                            color: _quizDialogLeaf.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Text(
                           'Q${currentIndex + 1}/${widget.questions.length}${_sourceSuffixForCurrentQuestion()}',
                           style: GoogleFonts.outfit(
-                            color: PnleTheme.accent,
+                            color: _quizDialogLeaf,
                             fontSize: r.fontSize(11),
                             fontWeight: FontWeight.bold,
                           ),
@@ -1013,10 +1279,10 @@ class _QuestionScreenState extends State<QuestionScreen>
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: PnleTheme.danger.withValues(alpha: 0.14),
+                            color: _quizDialogWarmSoft,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: PnleTheme.danger.withValues(alpha: 0.45),
+                              color: _quizDialogWarm.withValues(alpha: 0.38),
                             ),
                           ),
                           child: Row(
@@ -1031,7 +1297,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                               Text(
                                 'Report',
                                 style: GoogleFonts.outfit(
-                                  color: PnleTheme.danger,
+                                  color: _quizDialogWarm,
                                   fontWeight: FontWeight.w600,
                                   fontSize: r.fontSize(12),
                                 ),
@@ -1042,29 +1308,29 @@ class _QuestionScreenState extends State<QuestionScreen>
                       ),
                       const SizedBox(width: 8),
                       Tooltip(
-                        message: _isTimedExamMode
-                            ? 'Timed Exam must be submitted before exiting.'
+                        message: _usesStrictTiming
+                            ? 'Strict timing session must be submitted before exiting.'
                             : 'Return to menu',
                         child: GestureDetector(
                           onTap: _menuPressed,
                           child: Container(
                             padding: const EdgeInsets.all(9),
                             decoration: BoxDecoration(
-                              color: _isTimedExamMode
-                                  ? Colors.white.withValues(alpha: 0.09)
-                                  : Colors.white.withValues(alpha: 0.12),
+                              color: _usesStrictTiming
+                                  ? _quizDialogLeafSoft.withValues(alpha: 0.75)
+                                  : _quizDialogCream,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: _isTimedExamMode
-                                    ? Colors.white.withValues(alpha: 0.2)
-                                    : Colors.white.withValues(alpha: 0.25),
+                                color: _usesStrictTiming
+                                    ? _quizDialogBorder.withValues(alpha: 0.9)
+                                    : _quizDialogBorder,
                               ),
                             ),
                             child: Icon(
                               Icons.home_rounded,
-                              color: _isTimedExamMode
-                                  ? Colors.white.withValues(alpha: 0.7)
-                                  : Colors.white.withValues(alpha: 0.9),
+                              color: _usesStrictTiming
+                                  ? _quizDialogTextSoft
+                                  : _quizDialogText,
                               size: 18,
                             ),
                           ),
@@ -1075,39 +1341,157 @@ class _QuestionScreenState extends State<QuestionScreen>
 
                   const SizedBox(height: 16),
 
-                  // QUESTION BOX (Scrollable with max height)
+                  // QUESTION BOX (content-driven with capped height)
                   ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxHeight: MediaQuery.of(context).size.height * 0.35,
+                      maxHeight: MediaQuery.of(context).size.height * 0.40,
                     ),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 24,
-                      ),
+                      padding: _isVisualQuestion
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 14,
+                            )
+                          : const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 24,
+                            ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.1),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color.lerp(
+                                _quizScreenPanel, _quizDialogLeafSoft, 0.16)!,
+                            _quizScreenPanel,
+                          ],
+                        ),
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.2),
+                          color: _quizDialogBorder,
                         ),
-                      ),
-                      child: SingleChildScrollView(
-                        child: Text(
-                          currentQuestion.question,
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.outfit(
-                            fontSize: currentQuestion.question.length > 300
-                                ? r.fontSize(15)
-                                : currentQuestion.question.length > 200
-                                    ? r.fontSize(16)
-                                    : r.fontSize(18),
-                            fontWeight: FontWeight.w400,
-                            color: Colors.white.withValues(alpha: 0.95),
-                            height: 1.4,
+                        boxShadow: [
+                          BoxShadow(
+                            color: _quizDialogLeaf.withValues(alpha: 0.08),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
                           ),
-                        ),
+                        ],
                       ),
+                      child: _isVisualQuestion
+                          ? SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (_hasVisualPromptText)
+                                    Text(
+                                      currentQuestion.question,
+                                      textAlign: TextAlign.center,
+                                      style: GoogleFonts.outfit(
+                                        fontSize: currentQuestion
+                                                    .question.length >
+                                                300
+                                            ? r.fontSize(15)
+                                            : currentQuestion.question.length >
+                                                    200
+                                                ? r.fontSize(16)
+                                                : r.fontSize(18),
+                                        fontWeight: FontWeight.w400,
+                                        color: _quizDialogText,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  if (_hasVisualPromptText)
+                                    const SizedBox(height: 10),
+                                  ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxHeight:
+                                          MediaQuery.of(context).size.height *
+                                              0.26,
+                                    ),
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        showDialog<void>(
+                                          context: context,
+                                          builder: (_) => Dialog(
+                                            backgroundColor: Colors.black
+                                                .withValues(alpha: 0.82),
+                                            insetPadding:
+                                                const EdgeInsets.all(12),
+                                            child: InteractiveViewer(
+                                              minScale: 1.0,
+                                              maxScale: 4.0,
+                                              child: AspectRatio(
+                                                aspectRatio: 4 / 3,
+                                                child: Image.asset(
+                                                  currentQuestion
+                                                      .imageAssetPath!,
+                                                  fit: BoxFit.contain,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Image.asset(
+                                          currentQuestion.imageAssetPath!,
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (_, __, ___) {
+                                            return Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                color: _quizDialogCream,
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                border: Border.all(
+                                                  color: _quizDialogBorder,
+                                                ),
+                                              ),
+                                              child: Text(
+                                                'Image could not be loaded.',
+                                                textAlign: TextAlign.center,
+                                                style: GoogleFonts.outfit(
+                                                  color: _quizDialogTextSoft,
+                                                  fontSize: r.fontSize(12),
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    currentQuestion.question,
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.outfit(
+                                      fontSize:
+                                          currentQuestion.question.length > 300
+                                              ? r.fontSize(15)
+                                              : currentQuestion
+                                                          .question.length >
+                                                      200
+                                                  ? r.fontSize(16)
+                                                  : r.fontSize(18),
+                                      fontWeight: FontWeight.w400,
+                                      color: _quizDialogText,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                     ),
                   ),
 
@@ -1130,6 +1514,15 @@ class _QuestionScreenState extends State<QuestionScreen>
                                   ? null
                                   : () {
                                       final isCorrect = index == _correctIndex;
+                                      final timeSpent =
+                                          _timeSpentForCurrentQuestion();
+
+                                      _recordQuestionAttempt(
+                                        answered: true,
+                                        isCorrect: isCorrect,
+                                        timedOut: false,
+                                        timeSeconds: timeSpent,
+                                      );
 
                                       setState(() {
                                         selectedChoiceIndex = index;
@@ -1221,7 +1614,14 @@ class _QuestionScreenState extends State<QuestionScreen>
                                               spreadRadius: 1,
                                             ),
                                           ]
-                                        : null,
+                                        : [
+                                            BoxShadow(
+                                              color: _quizDialogLeaf.withValues(
+                                                  alpha: 0.05),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ],
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.max,
@@ -1261,7 +1661,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                   const SizedBox(height: 12),
 
                   // BANNER AD (placed above bottom actions)
-                  if (!widget.hasAdFreeAccess &&
+                  if (!widget.hasUnlimitedAccess &&
                       _isBannerAdLoaded &&
                       _bannerAd != null) ...[
                     SizedBox(
@@ -1297,40 +1697,38 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 gradient: (canTapExplain && hasExplainAccess)
                                     ? const LinearGradient(
                                         colors: [
-                                          PnleTheme.success,
-                                          Color(0xFF4CAF6F),
+                                          Color(0xFFA8C795),
+                                          Color(0xFF7EA468),
                                         ],
                                       )
                                     : (canTapExplain && !hasExplainAccess)
                                         ? const LinearGradient(
                                             colors: [
-                                              Color(0xFFF6AD55),
-                                              Color(0xFFED8936),
+                                              Color(0xFFF0D9A6),
+                                              Color(0xFFBE8E75),
                                             ],
                                           )
                                         : LinearGradient(
                                             colors: [
-                                              Colors.white
-                                                  .withValues(alpha: 0.12),
-                                              Colors.white
-                                                  .withValues(alpha: 0.06),
+                                              _quizDialogCream,
+                                              _quizScreenPanel,
                                             ],
                                           ),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color: (canTapExplain && hasExplainAccess)
-                                      ? PnleTheme.success.withValues(alpha: 0.6)
+                                      ? _quizDialogLeaf.withValues(alpha: 0.5)
                                       : (canTapExplain && !hasExplainAccess)
-                                          ? const Color(0xFFED8936)
-                                              .withValues(alpha: 0.75)
-                                          : Colors.white.withValues(alpha: 0.2),
+                                          ? _quizDialogWarm.withValues(
+                                              alpha: 0.75)
+                                          : _quizDialogBorder,
                                   width: 1.5,
                                 ),
                                 boxShadow: (canTapExplain && hasExplainAccess)
                                     ? [
                                         BoxShadow(
-                                          color: PnleTheme.success
-                                              .withValues(alpha: 0.3),
+                                          color: _quizDialogLeaf.withValues(
+                                              alpha: 0.2),
                                           blurRadius: 8,
                                           spreadRadius: 1,
                                         ),
@@ -1338,8 +1736,8 @@ class _QuestionScreenState extends State<QuestionScreen>
                                     : (canTapExplain && !hasExplainAccess)
                                         ? [
                                             BoxShadow(
-                                              color: const Color(0xFFED8936)
-                                                  .withValues(alpha: 0.25),
+                                              color: _quizDialogWarm.withValues(
+                                                  alpha: 0.18),
                                               blurRadius: 8,
                                               spreadRadius: 1,
                                             ),
@@ -1366,9 +1764,8 @@ class _QuestionScreenState extends State<QuestionScreen>
                                           : Icon(
                                               Icons.lightbulb_outline_rounded,
                                               color: canTapExplain
-                                                  ? PnleTheme.bgBottom
-                                                  : Colors.white
-                                                      .withValues(alpha: 0.4),
+                                                  ? _quizDialogCream
+                                                  : _quizDialogTextSoft,
                                               size: 20,
                                             ),
                                       const SizedBox(width: 8),
@@ -1376,9 +1773,8 @@ class _QuestionScreenState extends State<QuestionScreen>
                                         'Coach Note',
                                         style: GoogleFonts.outfit(
                                           color: canTapExplain
-                                              ? PnleTheme.bgBottom
-                                              : Colors.white
-                                                  .withValues(alpha: 0.4),
+                                              ? _quizDialogCream
+                                              : _quizDialogTextSoft,
                                           fontWeight: FontWeight.bold,
                                           fontSize: r.fontSize(11),
                                         ),
@@ -1398,8 +1794,8 @@ class _QuestionScreenState extends State<QuestionScreen>
                               _answerSelected ? () => _nextQuestion() : null,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _answerSelected
-                                ? PnleTheme.accent
-                                : Colors.white.withValues(alpha: 0.15),
+                                ? _quizDialogLeaf
+                                : _quizDialogLeafSoft.withValues(alpha: 0.7),
                             shadowColor: Colors.transparent,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             minimumSize: const Size.fromHeight(48),
@@ -1407,15 +1803,15 @@ class _QuestionScreenState extends State<QuestionScreen>
                               borderRadius: BorderRadius.circular(14),
                             ),
                             disabledBackgroundColor:
-                                Colors.white.withValues(alpha: 0.15),
+                                _quizDialogLeafSoft.withValues(alpha: 0.7),
                           ),
                           icon: Icon(
                             currentIndex == widget.questions.length - 1
                                 ? Icons.emoji_events_rounded
                                 : Icons.arrow_forward_rounded,
                             color: _answerSelected
-                                ? PnleTheme.bgBottom
-                                : Colors.white.withValues(alpha: 0.5),
+                                ? _quizDialogCream
+                                : _quizDialogTextSoft,
                             size: r.size(18),
                           ),
                           label: Text(
@@ -1424,8 +1820,8 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 : 'NEXT',
                             style: GoogleFonts.outfit(
                               color: _answerSelected
-                                  ? PnleTheme.bgBottom
-                                  : Colors.white.withValues(alpha: 0.5),
+                                  ? _quizDialogCream
+                                  : _quizDialogTextSoft,
                               fontWeight: FontWeight.bold,
                               fontSize: r.fontSize(14),
                             ),
@@ -1433,6 +1829,19 @@ class _QuestionScreenState extends State<QuestionScreen>
                         ),
                       ),
                     ],
+                  ),
+
+                  const SizedBox(height: 8),
+                  Center(
+                    child: Text(
+                      'Coach Note uses AI after you answer. Internet may be required.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(
+                        color: _quizDialogTextSoft,
+                        fontSize: r.fontSize(10),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
 
                   const SizedBox(height: 12),
@@ -1449,19 +1858,16 @@ class _QuestionScreenState extends State<QuestionScreen>
   // NAVIGATION & RESULTS
   // =========================
   Future<void> _menuPressed() async {
-    if (_isTimedExamMode) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Timed Exam cannot be paused. Finish the exam before exiting.',
-            style: GoogleFonts.outfit(),
-          ),
-          duration: const Duration(seconds: 2),
-        ),
+    if (_usesStrictTiming) {
+      _showQuizSnackBar(
+        'Strict timing session cannot be paused. Finish before exiting.',
+        accent: _quizDialogWarm,
       );
       return;
     }
+
+    final shouldPause = await _showPauseExitDialog();
+    if (!shouldPause || !mounted) return;
 
     _timeController.stop();
     _quizStopwatch.stop();
@@ -1476,7 +1882,7 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   Future<void> _showEndQuizInterstitialIfNeeded() async {
-    if (widget.hasAdFreeAccess || widget.testMode == 'quickPractice') {
+    if (widget.hasUnlimitedAccess || widget.testMode == 'quickPractice') {
       return;
     }
     if (!_isInterstitialAdLoaded || _interstitialAd == null) {
@@ -1545,58 +1951,65 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   Future<void> _showResultsDialog() async {
-    final totalCorrect = _correctCount.values.fold(0, (sum, val) => sum + val);
-    final totalQuestions = widget.questions.length;
-    final percentageValue = (totalCorrect / totalQuestions) * 100;
-    final isPerfect = percentageValue == 100.0;
-
     // Stop the stopwatch and capture elapsed time
     _quizStopwatch.stop();
     final elapsedSeconds =
         _elapsedOffsetSeconds + _quizStopwatch.elapsed.inSeconds;
-    final insightData = _buildSessionInsights(elapsedSeconds);
+    final assessment = _buildAssessment();
+    final percentageValue = assessment.accuracyPercent;
 
     // Update leaderboard with today's score (removed â€” no more auth/leaderboard)
 
     final action = await showDialog<String>(
       context: context,
-      useRootNavigator: true,
       barrierDismissible: false,
       barrierColor: Colors.black87,
       builder: (dialogContext) {
         return AnimatedResultsDialog(
-          totalCorrect: totalCorrect,
-          totalQuestions: totalQuestions,
-          percentageValue: percentageValue,
-          isPerfect: isPerfect,
-          correctCount: _correctCount,
-          totalCount: _totalCount,
-          hasAdFreeAccess: widget.hasAdFreeAccess,
+          assessment: assessment,
+          hasUnlimitedAccess: widget.hasUnlimitedAccess,
           testMode: widget.testMode,
           elapsedSeconds: elapsedSeconds,
           zeroAdSessionsRemaining: widget.zeroAdSessionsRemaining,
-          insightAccuracy: (insightData['sessionAccuracy'] as num).toDouble(),
-          insightSecondsPerQuestion:
-              (insightData['secondsPerQuestion'] as num).toDouble(),
-          insightQuestionsPerMinute:
-              (insightData['questionsPerMinute'] as num).toDouble(),
-          insightTimedOutCount: (insightData['timedOutCount'] as int),
-          insightSpeedLabel: insightData['speedLabel'] as String,
-          insightFocusLabel: insightData['focusLabel'] as String,
-          insightBehaviorMessage: insightData['behaviorMessage'] as String,
           onResultAction: (action) {
-            Navigator.of(dialogContext, rootNavigator: true).pop(action);
+            Navigator.of(dialogContext).pop(action);
           },
         );
       },
     );
 
+    if (!mounted || action == null) return;
+
+    if (action == 'playAgain') {
+      Navigator.pop(
+        context,
+        _buildResultPayload(
+          nextAction: 'playAgain',
+          elapsedSeconds: elapsedSeconds,
+          assessment: assessment,
+        ),
+      );
+      return;
+    }
+
+    if (action == 'menu') {
+      Navigator.pop(
+        context,
+        _buildResultPayload(
+          nextAction: 'menu',
+          elapsedSeconds: elapsedSeconds,
+          assessment: assessment,
+        ),
+      );
+      return;
+    }
+
     // Check if we should show review prompt
-    if (mounted && !widget.hasAdFreeAccess) {
+    if (mounted && !widget.hasUnlimitedAccess) {
       final reviewService = ReviewService();
       final shouldShow = await reviewService.shouldShowReview(
         quizScore: percentageValue,
-        hasAdFreeAccess: false,
+        hasUnlimitedAccess: false,
         hasGraceAccess: false,
       );
 
@@ -1608,67 +2021,6 @@ class _QuestionScreenState extends State<QuestionScreen>
         }
       }
     }
-
-    // Handle the returned action:
-    if (action == null) return;
-
-    if (action == 'playAgain') {
-      if (!mounted) return;
-      Navigator.pop(
-        context,
-        _buildResultPayload(
-          nextAction: 'playAgain',
-          elapsedSeconds: elapsedSeconds,
-        ),
-      );
-    } else if (action == 'menu') {
-      if (!mounted) return;
-      Navigator.pop(
-        context,
-        _buildResultPayload(nextAction: 'menu', elapsedSeconds: elapsedSeconds),
-      );
-    }
-  }
-
-  Map<String, dynamic> _buildSessionInsights(int elapsedSeconds) {
-    final sessionTotal =
-        _totalCount.values.fold<int>(0, (sum, value) => sum + value);
-    final sessionCorrect =
-        _correctCount.values.fold<int>(0, (sum, value) => sum + value);
-
-    final elapsed = elapsedSeconds.clamp(1, 7200);
-    final sessionAccuracy =
-        sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
-    final secondsPerQuestion = sessionTotal > 0 ? elapsed / sessionTotal : 0.0;
-    final questionsPerMinute =
-        elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
-
-    final timedOutCount =
-        _mistakes.where((item) => item['timedOut'] == true).length;
-
-    final speedLabel = secondsPerQuestion > 50
-        ? 'Too slow'
-        : (secondsPerQuestion < 25 ? 'Too fast' : 'Balanced');
-
-    final focusLabel = timedOutCount >= 3
-        ? 'Low focus'
-        : (timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
-
-    final behaviorMessage = secondsPerQuestion > 50
-        ? 'You spent too long on several items. In USTET, this can cost multiple answer opportunities.'
-        : (secondsPerQuestion < 25 && sessionAccuracy < 70
-            ? 'You moved very fast but accuracy dropped. Slow down slightly on hard items.'
-            : 'Your pacing is close to exam pace. Maintain skip-and-return discipline.');
-
-    return {
-      'sessionAccuracy': sessionAccuracy,
-      'secondsPerQuestion': secondsPerQuestion,
-      'questionsPerMinute': questionsPerMinute,
-      'timedOutCount': timedOutCount,
-      'speedLabel': speedLabel,
-      'focusLabel': focusLabel,
-      'behaviorMessage': behaviorMessage,
-    };
   }
 
   // OLD RESULTS DIALOG - Removed. Using AnimatedResultsDialog instead.
@@ -1676,15 +2028,9 @@ class _QuestionScreenState extends State<QuestionScreen>
 
   Future<void> _showExplainAdOfferDialog() async {
     if (!_canOfferExplainAdUnlock()) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Ad unlock limit reached for this quiz. Try again next quiz session.',
-            style: GoogleFonts.outfit(),
-          ),
-          duration: const Duration(seconds: 2),
-        ),
+      _showQuizSnackBar(
+        'Ad unlock limit reached for this quiz. Try again next quiz session.',
+        accent: _quizDialogWarm,
       );
       return;
     }
@@ -1704,19 +2050,20 @@ class _QuestionScreenState extends State<QuestionScreen>
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                PnleTheme.bgTop.withValues(alpha: 0.96),
-                PnleTheme.bgBottom.withValues(alpha: 0.96),
+                Color.lerp(_quizDialogPanel, _quizDialogWarmSoft, 0.18)!,
+                _quizDialogPanel,
+                Color.lerp(_quizDialogPanel, _quizDialogSkySoft, 0.22)!,
               ],
             ),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.3),
+              color: _quizDialogBorder,
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                blurRadius: 20,
+                color: _quizDialogLeaf.withValues(alpha: 0.12),
+                blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
             ],
@@ -1730,15 +2077,15 @@ class _QuestionScreenState extends State<QuestionScreen>
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.18),
+                      color: _quizDialogButterSoft,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: Colors.orange.withValues(alpha: 0.5),
+                        color: _quizDialogButter.withValues(alpha: 0.3),
                       ),
                     ),
                     child: const Icon(
                       Icons.info_outline_rounded,
-                      color: Color(0xFFFFC86A),
+                      color: _quizDialogButter,
                       size: 22,
                     ),
                   ),
@@ -1747,7 +2094,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                     child: Text(
                       'Coach Note Limit Reached',
                       style: GoogleFonts.outfit(
-                        color: Colors.white,
+                        color: _quizDialogText,
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
                       ),
@@ -1759,16 +2106,28 @@ class _QuestionScreenState extends State<QuestionScreen>
               Text(
                 'Watch an ad to unlock Coach Note for this question.',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.9),
+                  color: _quizDialogText,
+                  fontWeight: FontWeight.w600,
                   height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Coach Note gives optional AI-generated review guidance after you answer.',
+                style: GoogleFonts.outfit(
+                  color: _quizDialogTextSoft,
+                  fontSize: 13,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 'Coach Note ad unlocks left this quiz: $remainingAdUnlocks/$_maxExplainAdUnlocksForCurrentMode',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.72),
+                  color: _quizDialogWarm,
                   fontSize: 13,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 18),
@@ -1779,10 +2138,14 @@ class _QuestionScreenState extends State<QuestionScreen>
                       onPressed: () => Navigator.pop(context, false),
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.45),
+                          color: _quizDialogBorder,
                         ),
-                        foregroundColor: Colors.white,
+                        foregroundColor: _quizDialogText,
+                        backgroundColor: _quizDialogCream,
                         padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                       child: Text(
                         'Not now',
@@ -1795,9 +2158,12 @@ class _QuestionScreenState extends State<QuestionScreen>
                     child: ElevatedButton(
                       onPressed: () => Navigator.pop(context, true),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: PnleTheme.accent,
-                        foregroundColor: PnleTheme.bgBottom,
+                        backgroundColor: _quizDialogLeaf,
+                        foregroundColor: _quizDialogCream,
                         padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -1832,11 +2198,9 @@ class _QuestionScreenState extends State<QuestionScreen>
     if (!mounted) return;
 
     if (!unlocked) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ad not available yet. Please try again in a moment.'),
-          duration: Duration(seconds: 2),
-        ),
+      _showQuizSnackBar(
+        'Ad not available yet. Please try again in a moment.',
+        accent: _quizDialogButter,
       );
       return;
     }
@@ -1891,14 +2255,10 @@ class _QuestionScreenState extends State<QuestionScreen>
       if (!mounted) return;
 
       if (!hasInternet) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'No internet connection. Coach Note is available offline only when the question already has a saved explanation.',
-              style: GoogleFonts.outfit(),
-            ),
-            duration: const Duration(seconds: 3),
-          ),
+        _showQuizSnackBar(
+          'No internet connection. Coach Note is available offline only when the question already has a saved explanation.',
+          accent: _quizDialogWarm,
+          seconds: 3,
         );
         return;
       }
@@ -1909,7 +2269,7 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     setState(() {
       _explanationRequested = true;
-      if (countAsFreeUsage && !widget.hasAdFreeAccess) {
+      if (countAsFreeUsage && !widget.hasUnlimitedAccess) {
         explanationCount++;
       }
     });
@@ -1948,9 +2308,9 @@ class _QuestionScreenState extends State<QuestionScreen>
         userAnswer: userAnswerText,
         correctAnswer: correctAnswerText,
         isCorrect: isCorrect,
-        hasAdFreeAccess: widget.hasAdFreeAccess,
+        hasUnlimitedAccess: widget.hasUnlimitedAccess,
         onReportContent: _reportContent,
-        onUseBetterAI: hasInternet
+        onUseBetterAI: (hasInternet && !_isVisualQuestion)
             ? () async {
                 final messenger = ScaffoldMessenger.of(context);
                 final navigator = Navigator.of(context, rootNavigator: true);
@@ -1958,14 +2318,11 @@ class _QuestionScreenState extends State<QuestionScreen>
                 if (!mounted) return;
 
                 if (!hasInternet) {
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'No internet connection. Coach Note requires internet access.',
-                        style: GoogleFonts.outfit(),
-                      ),
-                      duration: const Duration(seconds: 3),
-                    ),
+                  messenger.hideCurrentSnackBar();
+                  _showQuizSnackBar(
+                    'No internet connection. Coach Note requires internet access.',
+                    accent: _quizDialogWarm,
+                    seconds: 3,
                   );
                   return;
                 }
@@ -2023,16 +2380,11 @@ class _QuestionScreenState extends State<QuestionScreen>
     final hasLocalExplanation =
         localExplanation != null && localExplanation.isNotEmpty;
 
-    if (!widget.hasAdFreeAccess && !_canUseExplainWhy()) {
+    if (!widget.hasUnlimitedAccess && !_canUseExplainWhy()) {
       if (!_canOfferExplainAdUnlock()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Ad unlock limit reached for this quiz. Try again next quiz session.',
-              style: GoogleFonts.outfit(),
-            ),
-            duration: const Duration(seconds: 2),
-          ),
+        _showQuizSnackBar(
+          'Ad unlock limit reached for this quiz. Try again next quiz session.',
+          accent: _quizDialogWarm,
         );
         return;
       }
@@ -2042,14 +2394,10 @@ class _QuestionScreenState extends State<QuestionScreen>
         if (!mounted) return;
 
         if (!hasInternet) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Saved Coach Notes work offline, but ad unlocks for extra uses need internet access.',
-                style: GoogleFonts.outfit(),
-              ),
-              duration: const Duration(seconds: 3),
-            ),
+          _showQuizSnackBar(
+            'Saved Coach Notes work offline, but ad unlocks for extra uses need internet access.',
+            accent: _quizDialogWarm,
+            seconds: 3,
           );
           return;
         }
@@ -2061,7 +2409,7 @@ class _QuestionScreenState extends State<QuestionScreen>
 
     await _openExplanationDialog(
       countAsFreeUsage:
-          !widget.hasAdFreeAccess && !_explainAdUnlockedForCurrentQuestion,
+          !widget.hasUnlimitedAccess && !_explainAdUnlockedForCurrentQuestion,
     );
   }
 

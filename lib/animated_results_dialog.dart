@@ -1,47 +1,38 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'config/pnle_theme.dart';
+
+import 'models/acet_assessment.dart';
 import 'services/sound_service.dart';
 
+const _resultsCream = Color(0xFFFCF6EB);
+const _resultsPanel = Color(0xFFF9F3E7);
+const _resultsText = Color(0xFF5A7652);
+const _resultsTextSoft = Color(0xFF8AA081);
+const _resultsBorder = Color(0xA4C5D6AE);
+const _resultsLeaf = Color(0xFF7EA468);
+const _resultsLeafSoft = Color(0xFFDDEBCE);
+const _resultsSkySoft = Color(0xFFE6EFF7);
+const _resultsWarm = Color(0xFFC28D74);
+const _resultsWarmSoft = Color(0xFFF4E3D9);
+const _resultsButter = Color(0xFFB28D4B);
+const _resultsButterSoft = Color(0xFFF7EFCF);
+
 class AnimatedResultsDialog extends StatefulWidget {
-  final int totalCorrect;
-  final int totalQuestions;
-  final double percentageValue;
-  final bool isPerfect;
-  final Map<String, int> correctCount;
-  final Map<String, int> totalCount;
-  final bool hasAdFreeAccess;
+  final AcetAssessment assessment;
+  final bool hasUnlimitedAccess;
   final String? testMode;
   final int elapsedSeconds;
   final Function(String) onResultAction;
   final int zeroAdSessionsRemaining;
-  final double insightAccuracy;
-  final double insightSecondsPerQuestion;
-  final double insightQuestionsPerMinute;
-  final int insightTimedOutCount;
-  final String insightSpeedLabel;
-  final String insightFocusLabel;
-  final String insightBehaviorMessage;
 
   const AnimatedResultsDialog({
-    required this.totalCorrect,
-    required this.totalQuestions,
-    required this.percentageValue,
-    required this.isPerfect,
-    required this.correctCount,
-    required this.totalCount,
-    required this.hasAdFreeAccess,
+    super.key,
+    required this.assessment,
+    required this.hasUnlimitedAccess,
     required this.testMode,
-    this.elapsedSeconds = 0,
+    required this.elapsedSeconds,
     required this.onResultAction,
     this.zeroAdSessionsRemaining = 0,
-    this.insightAccuracy = 0,
-    this.insightSecondsPerQuestion = 0,
-    this.insightQuestionsPerMinute = 0,
-    this.insightTimedOutCount = 0,
-    this.insightSpeedLabel = 'Balanced',
-    this.insightFocusLabel = 'Moderate focus',
-    this.insightBehaviorMessage = '',
   });
 
   @override
@@ -50,403 +41,334 @@ class AnimatedResultsDialog extends StatefulWidget {
 
 class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
     with TickerProviderStateMixin {
-  late AnimationController _percentageController;
-  late AnimationController _progressController;
-  late AnimationController _buttonGlowController;
-  late Animation<double> _percentageAnimation;
-  late Animation<double> _buttonGlowAnimation;
+  late final AnimationController _fadeController;
+  late final AnimationController _countController;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<double> _accuracyAnimation;
   final SoundService _soundService = SoundService();
 
   @override
   void initState() {
     super.initState();
-
-    // Play ending sound on loop (pre-loaded, instant)
     _soundService.playEndingSoundLoop();
 
-    _percentageController = AnimationController(
-      duration: const Duration(milliseconds: 3500),
+    _fadeController = AnimationController(
       vsync: this,
+      duration: const Duration(milliseconds: 500),
     );
-
-    _progressController = AnimationController(
-      duration: const Duration(milliseconds: 3500),
+    _countController = AnimationController(
       vsync: this,
-    );
-
-    _buttonGlowController = AnimationController(
       duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    )..repeat(reverse: true);
+    );
 
-    _percentageAnimation = Tween<double>(begin: 0, end: widget.percentageValue)
-        .animate(CurvedAnimation(
-            parent: _percentageController, curve: Curves.easeOutCubic));
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOutCubic,
+    );
+    _accuracyAnimation = Tween<double>(
+      begin: 0,
+      end: widget.assessment.accuracyPercent,
+    ).animate(
+      CurvedAnimation(parent: _countController, curve: Curves.easeOutCubic),
+    );
 
-    _buttonGlowAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(
-            parent: _buttonGlowController, curve: Curves.easeInOut));
-
-    _percentageController.forward();
-    _progressController.forward();
+    _fadeController.forward();
+    _countController.forward();
   }
 
   @override
   void dispose() {
     _soundService.stopEndingSound();
-    _percentageController.dispose();
-    _progressController.dispose();
-    _buttonGlowController.dispose();
+    _fadeController.dispose();
+    _countController.dispose();
     super.dispose();
   }
 
-  String _getPerformanceMessage(double score) {
-    if (score >= 90) return "Outstanding!";
-    if (score >= 70) return "Great job!";
-    if (score >= 50) return "Good effort!";
-    return "Keep practicing!";
-  }
-
-  String _formatTime(int totalSeconds) {
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    if (minutes > 0) {
-      return '${minutes}m ${seconds}s';
+  String _modeTitle() {
+    switch (widget.testMode) {
+      case 'focusMode':
+        return 'ACET Focus Results';
+      case 'challenge':
+        return 'ACET Challenge Results';
+      case 'timedExam':
+        return 'ACET Timed Results';
+      case 'reviewMistakes':
+        return 'ACET Mistake Review';
+      default:
+        return 'ACET Practice Results';
     }
-    return '${seconds}s';
   }
 
-  Color _getPercentageColor(double score) {
-    if (score >= 80) return PnleTheme.success;
-    if (score >= 50) return PnleTheme.warning;
-    return PnleTheme.danger;
+  String _modeTag() {
+    switch (widget.testMode) {
+      case 'focusMode':
+        return 'FOCUS';
+      case 'challenge':
+        return 'CHALLENGE';
+      case 'timedExam':
+        return 'TIMED';
+      case 'reviewMistakes':
+        return 'REVIEW';
+      default:
+        return 'QUIZ';
+    }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
-          ),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.3),
-            width: 2,
-          ),
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.isPerfect) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    const Icon(Icons.auto_awesome_rounded,
-                        color: Colors.amberAccent, size: 24),
-                    const Icon(Icons.emoji_events_rounded,
-                        color: Colors.amber, size: 24),
-                    const Icon(Icons.auto_awesome_rounded,
-                        color: Colors.amberAccent, size: 24),
-                  ],
-                ),
-                const SizedBox(height: 8),
-              ],
-              AnimatedBuilder(
-                animation: _percentageAnimation,
-                builder: (context, child) {
-                  final displayPercentage =
-                      _percentageAnimation.value.toStringAsFixed(1);
-                  final color = _getPercentageColor(_percentageAnimation.value);
-                  final scale = 0.95 + (_percentageAnimation.value / 100) * 0.1;
+  Color _readinessColor() {
+    switch (widget.assessment.readinessLabel) {
+      case 'ACET Ready':
+        return _resultsLeaf;
+      case 'Competitive':
+        return const Color(0xFF7293AE);
+      case 'Developing':
+        return _resultsButter;
+      default:
+        return _resultsWarm;
+    }
+  }
 
-                  return Transform.scale(
-                    scale: scale,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 16, horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: color.withOpacity(0.5),
-                          width: 2,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            '$displayPercentage%',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.outfit(
-                              color: color,
-                              fontSize: 48,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            '${widget.totalCorrect} / ${widget.totalQuestions} Correct',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.outfit(
-                              color: Colors.white70,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _getPerformanceMessage(_percentageAnimation.value),
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (widget.elapsedSeconds > 0) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.timer_outlined,
-                                    color: Colors.white54, size: 16),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Time: ${_formatTime(widget.elapsedSeconds)}',
-                                  style: GoogleFonts.outfit(
-                                    color: Colors.white54,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Category Breakdown',
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ...widget.correctCount.keys.map((category) {
-                final correct = widget.correctCount[category] ?? 0;
-                final total = widget.totalCount[category] ?? 1;
-                if (total == 0) return const SizedBox.shrink();
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'Strong':
+        return _resultsLeaf;
+      case 'Good':
+        return const Color(0xFF7293AE);
+      case 'Needs Speed':
+      case 'Needs Accuracy':
+        return _resultsButter;
+      default:
+        return _resultsWarm;
+    }
+  }
 
-                return AnimatedBuilder(
-                  animation: _progressController,
-                  builder: (context, _) {
-                    final animatedValue =
-                        (correct / total) * _progressController.value;
-                    final percentage =
-                        ((correct / total) * 100).toStringAsFixed(0);
+  Color _softAccent(Color accent) {
+    if (accent == _resultsLeaf) return _resultsLeafSoft;
+    if (accent == _resultsWarm) return _resultsWarmSoft;
+    if (accent == _resultsButter) return _resultsButterSoft;
+    return _resultsSkySoft;
+  }
 
-                    return _ResultCategoryItem(
-                      category: category,
-                      correct: correct,
-                      total: total,
-                      percentage: percentage,
-                      animatedProgress: animatedValue,
-                    );
-                  },
-                );
-              }),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.2),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Session Insights',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Speed: ${widget.insightSpeedLabel} (${widget.insightSecondsPerQuestion.toStringAsFixed(1)}s/question, ${widget.insightQuestionsPerMinute.toStringAsFixed(2)} q/min)',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white.withValues(alpha: 0.86),
-                        fontSize: 12,
-                        height: 1.25,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Accuracy: ${widget.insightAccuracy.toStringAsFixed(1)}% • Focus: ${widget.insightFocusLabel} (${widget.insightTimedOutCount} timeouts)',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white.withValues(alpha: 0.86),
-                        fontSize: 12,
-                        height: 1.25,
-                      ),
-                    ),
-                    if (widget.insightBehaviorMessage.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        widget.insightBehaviorMessage,
-                        style: GoogleFonts.outfit(
-                          color: const Color(0xFFFFD166),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        _soundService.stopEndingSound();
-                        widget.onResultAction('menu');
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        side: BorderSide(
-                          color: Colors.white.withOpacity(0.5),
-                          width: 2,
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        widget.testMode == 'reviewMistakes'
-                            ? 'HOME'
-                            : 'QUIZ MENU',
-                        style: GoogleFonts.outfit(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: AnimatedBuilder(
-                      animation: _buttonGlowAnimation,
-                      builder: (context, child) => Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: PnleTheme.accent.withOpacity(
-                                  0.4 + (_buttonGlowAnimation.value * 0.3)),
-                              blurRadius: 8 + (_buttonGlowAnimation.value * 8),
-                              spreadRadius:
-                                  1 + (_buttonGlowAnimation.value * 2),
-                            ),
-                          ],
-                        ),
-                        child: child,
-                      ),
-                      child: ElevatedButton(
-                        onPressed: () {
-                          _soundService.stopEndingSound();
-                          widget.onResultAction('playAgain');
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: PnleTheme.accent,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Text(
-                          'PLAY AGAIN',
-                          style: GoogleFonts.outfit(
-                            color: PnleTheme.bgBottom,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+  String _formatTime(double seconds) {
+    if (seconds >= 60) {
+      final minutes = seconds ~/ 60;
+      final remainder = (seconds % 60).round();
+      return '${minutes}m ${remainder}s';
+    }
+    return '${seconds.toStringAsFixed(1)}s';
+  }
+
+  String _focusRecommendation() {
+    final focus = widget.assessment.recommendedFocusCategory;
+    if (focus.isEmpty) {
+      return 'Build consistent timed repetition across all categories.';
+    }
+    return 'Recommended focus: $focus';
+  }
+
+  String _benchmarkBand() {
+    final accuracy = widget.assessment.accuracyPercent;
+    final avgTime = widget.assessment.averageTimePerQuestionSeconds;
+    if (accuracy >= 84 && avgTime <= 40) {
+      return 'Band A';
+    }
+    if (accuracy >= 74 && avgTime <= 50) {
+      return 'Band B';
+    }
+    if (accuracy >= 64 && avgTime <= 60) {
+      return 'Band C';
+    }
+    return 'Band D';
+  }
+
+  Color _benchmarkColor(String band) {
+    switch (band) {
+      case 'Band A':
+        return _resultsLeaf;
+      case 'Band B':
+        return const Color(0xFF7293AE);
+      case 'Band C':
+        return _resultsButter;
+      default:
+        return _resultsWarm;
+    }
+  }
+
+  String _nextDrillPlan() {
+    final stats = _sortedCategoryStats();
+    if (stats.isEmpty) {
+      return 'Do one 10-question mixed drill, then review all mistakes before starting a new set.';
+    }
+
+    final weakest = stats.first;
+    final secondWeakest = stats.length > 1 ? stats[1] : stats.first;
+    return 'Next drill: run 8 questions in ${weakest.category} and 4 in ${secondWeakest.category}. Spend 2 minutes reviewing each miss before retrying the same category.';
+  }
+
+  List<AcetCategoryAssessment> _sortedCategoryStats() {
+    final stats = widget.assessment.perCategoryStats.values.toList();
+    stats.sort((a, b) {
+      final accuracyCompare = a.accuracyPercent.compareTo(b.accuracyPercent);
+      if (accuracyCompare != 0) return accuracyCompare;
+      return b.averageTimePerQuestionSeconds
+          .compareTo(a.averageTimePerQuestionSeconds);
+    });
+    return stats;
+  }
+
+  Widget _metricCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color accent,
+    bool compact = false,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(compact ? 12 : 14),
+      decoration: BoxDecoration(
+        color: _resultsCream,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withValues(alpha: 0.26)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Icon(icon, color: accent, size: compact ? 17 : 18),
+          SizedBox(height: compact ? 8 : 10),
+          Text(
+            label,
+            style: GoogleFonts.outfit(
+              color: _resultsTextSoft,
+              fontSize: compact ? 10 : 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
+          SizedBox(height: compact ? 2 : 4),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.outfit(
+              color: _resultsText,
+              fontSize: compact ? 15 : 18,
+              fontWeight: FontWeight.w800,
+              height: 1.05,
+            ),
+          ),
+        ],
       ),
     );
   }
-}
 
-class _ResultCategoryItem extends StatelessWidget {
-  final String category;
-  final int correct;
-  final int total;
-  final String percentage;
-  final double animatedProgress;
-
-  const _ResultCategoryItem({
-    required this.category,
-    required this.correct,
-    required this.total,
-    required this.percentage,
-    required this.animatedProgress,
-  });
-
-  IconData _getCategoryIcon(String cat) {
-    switch (cat) {
-      case 'Mental Ability':
-        return Icons.record_voice_over_rounded;
-      case 'English':
-        return Icons.menu_book_rounded;
-      case 'Mathematics':
-        return Icons.calculate_rounded;
-      case 'Science':
-        return Icons.science_rounded;
-      default:
-        return Icons.edit_note_rounded;
-    }
+  Widget _compactSummaryTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color accent,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: _resultsCream,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: _softAccent(accent),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: accent, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.outfit(
+                    color: _resultsTextSoft,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: GoogleFonts.outfit(
+                    color: _resultsText,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _speedBucketChip({
+    required String label,
+    required int count,
+    required Color color,
+    bool compact = false,
+  }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 12,
+        vertical: compact ? 9 : 10,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.25),
-          width: 1,
-        ),
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$count',
+            style: GoogleFonts.outfit(
+              color: _resultsText,
+              fontSize: compact ? 16 : 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: GoogleFonts.outfit(
+              color: _resultsTextSoft,
+              fontSize: compact ? 10 : 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryTile(
+    AcetCategoryAssessment stat, {
+    bool condensed = false,
+  }) {
+    final accent = _statusColor(stat.statusLabel);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _resultsCream,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,69 +376,479 @@ class _ResultCategoryItem extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Row(
-                  children: [
-                    Icon(
-                      _getCategoryIcon(category),
-                      size: 19,
-                      color: Colors.white.withOpacity(0.95),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        category,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.outfit(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          height: 1.2,
-                          color: Colors.white,
-                        ),
-                      ),
+                child: Text(
+                  stat.category,
+                  style: GoogleFonts.outfit(
+                    color: _resultsText,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _softAccent(accent),
+                      _softAccent(accent).withValues(alpha: 0.84),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: accent.withValues(alpha: 0.18)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 68, maxWidth: 96),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      '$correct/$total ($percentage%)',
-                      style: GoogleFonts.outfit(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: Colors.white,
-                      ),
-                    ),
+                child: Text(
+                  stat.statusLabel,
+                  style: GoogleFonts.outfit(
+                    color: accent,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: animatedProgress,
-              minHeight: 6,
-              backgroundColor: Colors.white.withOpacity(0.2),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                correct == total
-                    ? PnleTheme.success
-                    : correct > total / 2
-                        ? PnleTheme.warning
-                        : PnleTheme.danger,
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              Text(
+                '${stat.correctAnswers}/${stat.totalQuestions} correct',
+                style: GoogleFonts.outfit(
+                  color: _resultsTextSoft,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
+              Text(
+                '${stat.accuracyPercent.toStringAsFixed(1)}% accuracy',
+                style: GoogleFonts.outfit(
+                  color: _resultsTextSoft,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (!condensed)
+                Text(
+                  '${stat.averageTimePerQuestionSeconds.toStringAsFixed(1)}s avg',
+                  style: GoogleFonts.outfit(
+                    color: _resultsTextSoft,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
           ),
         ],
       ),
     );
   }
-}
 
+  @override
+  Widget build(BuildContext context) {
+    final readinessColor = _readinessColor();
+    final stats = _sortedCategoryStats();
+    final compact = MediaQuery.of(context).size.width <= 380;
+
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 760, maxHeight: 880),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_resultsPanel, _resultsLeafSoft, 0.2)!,
+                _resultsPanel,
+                Color.lerp(_resultsPanel, _resultsSkySoft, 0.24)!,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: readinessColor.withValues(alpha: 0.28)),
+            boxShadow: [
+              BoxShadow(
+                color: _resultsLeaf.withValues(alpha: 0.12),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              _softAccent(readinessColor),
+                              _softAccent(readinessColor)
+                                  .withValues(alpha: 0.86),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: readinessColor.withValues(alpha: 0.18),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: readinessColor.withValues(alpha: 0.08),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          _modeTag(),
+                          style: GoogleFonts.outfit(
+                            color: readinessColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                            letterSpacing: 0.9,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              _softAccent(readinessColor),
+                              _softAccent(readinessColor)
+                                  .withValues(alpha: 0.84),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: readinessColor.withValues(alpha: 0.18),
+                          ),
+                        ),
+                        child: Text(
+                          widget.assessment.readinessLabel,
+                          style: GoogleFonts.outfit(
+                            color: readinessColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _modeTitle(),
+                    style: GoogleFonts.outfit(
+                      color: _resultsText,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Session summary based on your latest ACET performance.',
+                    style: GoogleFonts.outfit(
+                      color: _resultsTextSoft,
+                      fontSize: 13,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: readinessColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                          color: readinessColor.withValues(alpha: 0.28)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Overall Performance',
+                          style: GoogleFonts.outfit(
+                            color: _resultsText,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        AnimatedBuilder(
+                          animation: _accuracyAnimation,
+                          builder: (context, _) {
+                            return Text(
+                              '${_accuracyAnimation.value.toStringAsFixed(1)}%',
+                              style: GoogleFonts.outfit(
+                                color: _resultsText,
+                                fontSize: 44,
+                                fontWeight: FontWeight.w900,
+                                height: 1,
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '${widget.assessment.correctAnswers}/${widget.assessment.totalQuestions} correct',
+                          style: GoogleFonts.outfit(
+                            color: _resultsTextSoft,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Column(
+                          children: [
+                            _compactSummaryTile(
+                              icon: Icons.check_circle_outline_rounded,
+                              label: 'Accuracy',
+                              value:
+                                  '${widget.assessment.accuracyPercent.toStringAsFixed(1)}%',
+                              accent: _resultsLeaf,
+                            ),
+                            const SizedBox(height: 10),
+                            _compactSummaryTile(
+                              icon: Icons.timer_outlined,
+                              label: 'Avg Time',
+                              value: _formatTime(widget
+                                  .assessment.averageTimePerQuestionSeconds),
+                              accent: const Color(0xFF7293AE),
+                            ),
+                            const SizedBox(height: 10),
+                            _compactSummaryTile(
+                              icon: Icons.bolt_rounded,
+                              label: 'Efficiency',
+                              value: widget.assessment.efficiencyScore
+                                  .toStringAsFixed(1),
+                              accent: _resultsWarm,
+                            ),
+                            const SizedBox(height: 10),
+                            _compactSummaryTile(
+                              icon: Icons.flag_rounded,
+                              label: 'Readiness',
+                              value: widget.assessment.readinessLabel,
+                              accent: readinessColor,
+                            ),
+                            const SizedBox(height: 10),
+                            _compactSummaryTile(
+                              icon: Icons.track_changes_rounded,
+                              label: 'Benchmark',
+                              value: _benchmarkBand(),
+                              accent: _benchmarkColor(_benchmarkBand()),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Category Breakdown',
+                    style: GoogleFonts.outfit(
+                      color: _resultsText,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ...stats.map(
+                    (stat) => _categoryTile(
+                      stat,
+                      condensed: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _resultsCream,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: _resultsBorder,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Coach Feedback',
+                          style: GoogleFonts.outfit(
+                            color: _resultsText,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          widget.assessment.insightMessage,
+                          style: GoogleFonts.outfit(
+                            color: _resultsTextSoft,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _focusRecommendation(),
+                          style: GoogleFonts.outfit(
+                            color: _resultsLeaf,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _nextDrillPlan(),
+                          style: GoogleFonts.outfit(
+                            color: _resultsText,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  compact
+                      ? Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                onPressed: () => widget.onResultAction('menu'),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: _resultsBorder),
+                                  backgroundColor: _resultsCream,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Back To Menu',
+                                  style: GoogleFonts.outfit(
+                                    color: _resultsText,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: () =>
+                                    widget.onResultAction('playAgain'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _resultsLeaf,
+                                  foregroundColor: _resultsCream,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Play Again',
+                                  style: GoogleFonts.outfit(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => widget.onResultAction('menu'),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: _resultsBorder),
+                                  backgroundColor: _resultsCream,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Back To Menu',
+                                  style: GoogleFonts.outfit(
+                                    color: _resultsText,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () =>
+                                    widget.onResultAction('playAgain'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _resultsLeaf,
+                                  foregroundColor: _resultsCream,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: Text(
+                                  'Play Again',
+                                  style: GoogleFonts.outfit(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

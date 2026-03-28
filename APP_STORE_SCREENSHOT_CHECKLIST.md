@@ -1,58 +1,44 @@
 App Store Screenshot Checklist
 
 Goal
-- Ensure screenshots reflect the exact UI and features available in this build.
+- Show the core review flow clearly and avoid any screen that depends on unstable network-only states.
 
-Recommended Screenshot Order (iPhone)
-1. Home screen showing native study modes:
-   Random Quiz, Focus Mode, Timed Exam, History entry point, and Saved Tests entry point if visible.
-2. Random Quiz or Timed Exam question screen:
-   Show timer, answer choices, and clearly native UI elements.
-3. Results screen:
-   Show score, category breakdown, and analytics cards.
-4. History screen:
-   Show the 10-day trend and summary stats.
-5. Saved Tests / Continue Session screen:
-   Show at least one saved or resumable session.
-6. Coach Note explanation screen:
-   Show the AI coaching UI after a question is answered.
+Recommended Screenshot Order
+1. Home screen
+Description: Show Random Quiz, Focus Mode, Timed Exam, and the main readiness card.
 
-Capture Set (iPhone)
-1. Start screen showing:
-   - Random Quiz
-   - Focus Mode
-   - Timed Exam
-   - Challenge Mode only if captured during an online-ready state
-2. Active quiz question screen with timer and answer options.
-3. Results screen with score and category breakdown.
-4. History screen showing 10-day performance chart/cards.
-5. Saved tests screen with at least one saved test.
-6. Coach Note explanation screen after answering a question.
+2. Quiz screen
+Description: Show one active multiple-choice question with answer options and the timer if using Timed Exam.
 
-Final Upload Captions
-1. Practice with native USTET study modes built for daily review.
-2. Answer timed multiple-choice questions in a focused test flow.
-3. Review scores and category breakdowns after every session.
-4. Track progress with a 10-day performance record.
-5. Save sessions and continue unfinished tests anytime.
-6. Get optional AI Coach Note explanations after you answer.
+3. Results screen
+Description: Show the score, category breakdown, and key result cards after finishing a session.
 
-Caption Guardrails
-- Keep captions descriptive, not promotional. Avoid words like premium, subscription, best, guaranteed, official, or unlimited.
-- Do not imply that Challenge Mode or Coach Note works offline.
-- Do not mention email reporting, human review, or live tutoring unless the current build visibly supports it.
+4. History screen
+Description: Show the 10-day trend, recent sessions, and summary stats.
 
-Quality Rules
-- Use production-like data (no placeholders, no debug text).
-- Avoid any old subscription or premium wording.
-- Avoid offline banners, loading failures, empty-state cards, or any message that suggests the app cannot be used.
-- Prefer screenshots from the same account/profile so stats and labels feel consistent.
-- Keep one language/locale consistent across all screenshots.
-- Ensure status bar and top/bottom safe areas are clean.
+5. Saved session screen
+Description: Show at least one saved or resumable session so continuation is obvious.
 
-Submission Notes
-- Replace all previous screenshots in App Store Connect.
-- Verify screenshot order tells a clear feature journey:
-  Home -> Quiz -> Results -> History -> Saved Tests -> Coach Note.
-- If you only have 5 slots for a size class, drop Challenge Mode first and keep Coach Note only if it is clean and obviously in-app.
-- Do not lead with Challenge Mode. Lead with the core native quiz flow.
+6. Coach Note screen
+Description: Show the optional explanation panel after answering a question.
+
+Suggested Captions
+1. Review with focused ACET study modes.
+2. Answer exam-style questions in a clean test flow.
+3. Check scores and category results after each session.
+4. Track recent progress and readiness trends.
+5. Save sessions and continue later.
+6. Read optional Coach Note explanations after answering.
+
+What To Avoid
+- Empty states
+- Loading or error dialogs
+- Offline warnings
+- Any old premium or subscription wording
+- Challenge Mode as the lead screenshot
+
+Best Capture Notes
+- Use the same account and data set across all screenshots.
+- Keep one language and one visual style across the full set.
+- Prefer realistic scores and progress, not perfect or zeroed-out data.
+- If you only want five screenshots, drop Coach Note first and keep the core study flow.

@@ -10,7 +10,7 @@ import '../models/pnle_key_areas.dart';
 
 class SeedQuestionPoolService {
   static const String _assetPath = 'assets/seed/initial_question_pool.json';
-  static const String _prefsKey = 'seedQuestionPoolPayloadV1';
+  static const String _prefsKey = 'seedQuestionPoolPayloadV4';
 
   final Random _random = Random();
   bool _initialized = false;
@@ -25,6 +25,18 @@ class SeedQuestionPoolService {
     'timedExam',
   };
 
+  String _normalizeCategory(String category) {
+    final normalized = category.trim();
+    switch (normalized) {
+      case 'Mental Ability':
+      case 'Mental Ability/Abstract':
+      case 'Mental Ability & Abstract':
+        return 'Mental Ability / Abstract';
+      default:
+        return normalized;
+    }
+  }
+
   String _normalizeMode(String mode) {
     switch (mode) {
       case 'timedMode':
@@ -38,12 +50,56 @@ class SeedQuestionPoolService {
     final normalized = text.trim().toLowerCase();
     return normalized.startsWith('identify the key area being tested') ||
         normalized.startsWith('focus mode: pick the most precise key') ||
-        normalized.contains('scenario emphasis:');
+        normalized.contains('scenario emphasis:') ||
+        normalized.contains('choose the best acet-style answer') ||
+        normalized.contains('which choice is most defensible') ||
+        normalized.contains('select the strongest response') ||
+        normalized.contains('identify the most accurate answer in this') ||
+        normalized.contains('concise and speed-answerable item') ||
+        normalized.endsWith(' extra rc') ||
+        normalized.endsWith(' focus rc') ||
+        normalized.endsWith(' challenge rc') ||
+        normalized.endsWith(' timed rc');
+  }
+
+  bool _looksCorruptedText(String? text) {
+    if (text == null || text.isEmpty) return false;
+    return text.contains('�') ||
+        text.contains('â€') ||
+        text.contains('â€™') ||
+        text.contains('â€œ') ||
+        text.contains('â€') ||
+        text.contains('Ã') ||
+        text.contains('Â');
+  }
+
+  bool _isGenericTemplateExplanation(String? text) {
+    if (text == null || text.trim().isEmpty) return false;
+    final normalized = text.trim().toLowerCase();
+    return normalized.contains('directly matches the required') &&
+        normalized.contains('target different concepts');
+  }
+
+  bool _isTrivialComputationQuestion(String text) {
+    final normalized = text.trim().toLowerCase();
+    final simpleArithmetic = RegExp(
+      r'^(compute\s+)?\d+(?:\.\d+)?\s*[\+\-x*/]\s*\d+(?:\.\d+)?\s*(?:=\s*\?)?\.?$',
+    );
+    final simpleFractionArithmetic = RegExp(
+      r'^(compute\s+)?\d+/\d+\s*[\+\-x*/]\s*\d+/\d+\s*(?:=\s*\?)?\.?$',
+    );
+    return simpleArithmetic.hasMatch(normalized) ||
+        simpleFractionArithmetic.hasMatch(normalized);
   }
 
   bool _isUsableQuestion(Question question) {
     if (question.question.trim().isEmpty) return false;
+    if (_looksCorruptedText(question.question)) return false;
+    if (_looksCorruptedText(question.explanation)) return false;
+    if (question.choices.any(_looksCorruptedText)) return false;
     if (_isTemplateQuestionText(question.question)) return false;
+    if (_isGenericTemplateExplanation(question.explanation)) return false;
+    if (_isTrivialComputationQuestion(question.question)) return false;
     return true;
   }
 
@@ -55,6 +111,10 @@ class SeedQuestionPoolService {
 
     if (savedPayload != null) {
       try {
+        if (_looksCorruptedText(savedPayload)) {
+          throw const FormatException(
+              'Seed pool cache contains corrupted text.');
+        }
         final raw = jsonDecode(savedPayload);
         if (raw is Map<String, dynamic>) {
           _hydrateFromMap(raw);
@@ -97,7 +157,8 @@ class SeedQuestionPoolService {
         parts.add('$mode[$modeTotal]{${counts.join(', ')}}');
       }
 
-      debugPrint('[SeedPool] Loaded from $source. Total=$grandTotal :: ${parts.join(' | ')}');
+      debugPrint(
+          '[SeedPool] Loaded from $source. Total=$grandTotal :: ${parts.join(' | ')}');
     } catch (e) {
       debugPrint('[SeedPool] Unable to print summary: $e');
     }
@@ -117,7 +178,9 @@ class SeedQuestionPoolService {
 
     final neededPerCategory = <String, int>{};
     for (final category in categoryMap.values) {
-      neededPerCategory[category] = (neededPerCategory[category] ?? 0) + 1;
+      final normalizedCategory = _normalizeCategory(category);
+      neededPerCategory[normalizedCategory] =
+          (neededPerCategory[normalizedCategory] ?? 0) + 1;
     }
 
     final modeBuckets = _pool[normalizedMode] ?? {};
@@ -146,7 +209,7 @@ class SeedQuestionPoolService {
     final sortedKeys = categoryMap.keys.toList()..sort();
 
     for (final qNo in sortedKeys) {
-      final category = categoryMap[qNo] ?? '';
+      final category = _normalizeCategory(categoryMap[qNo] ?? '');
       final bucket = modeBuckets[category];
 
       if (bucket == null || bucket.isEmpty) {
@@ -183,7 +246,9 @@ class SeedQuestionPoolService {
 
     final neededPerCategory = <String, int>{};
     for (final category in categoryMap.values) {
-      neededPerCategory[category] = (neededPerCategory[category] ?? 0) + 1;
+      final normalizedCategory = _normalizeCategory(category);
+      neededPerCategory[normalizedCategory] =
+          (neededPerCategory[normalizedCategory] ?? 0) + 1;
     }
 
     for (final entry in neededPerCategory.entries) {
@@ -226,8 +291,10 @@ class SeedQuestionPoolService {
 
     if (questions.isEmpty) return;
 
+    final normalizedCategory = _normalizeCategory(category);
+
     final modeBuckets = _pool.putIfAbsent(normalizedMode, () => {});
-    final bucket = modeBuckets.putIfAbsent(category, () => []);
+    final bucket = modeBuckets.putIfAbsent(normalizedCategory, () => []);
 
     for (final question in questions) {
       if (question.choices.length < 4) continue;
@@ -235,7 +302,7 @@ class SeedQuestionPoolService {
 
       final normalized = Question(
         number: bucket.length + 1,
-        category: category,
+        category: normalizedCategory,
         question: question.question.trim(),
         choices: List<String>.from(question.choices.take(4)),
         answer: question.answer.trim().toUpperCase(),
@@ -321,8 +388,10 @@ class SeedQuestionPoolService {
       return;
     }
 
+    final normalizedCategory = _normalizeCategory(category);
+
     final modeBuckets = _pool.putIfAbsent(normalizedMode, () => {});
-    final bucket = modeBuckets.putIfAbsent(category, () => []);
+    final bucket = modeBuckets.putIfAbsent(normalizedCategory, () => []);
 
     for (final q in questionsRaw.whereType<Map>()) {
       try {
@@ -350,7 +419,8 @@ class SeedQuestionPoolService {
 
         final fallbackCandidates = <Question>[];
 
-        final randomBucket = _pool['randomQuiz']?[category] ?? const <Question>[];
+        final randomBucket =
+            _pool['randomQuiz']?[category] ?? const <Question>[];
         fallbackCandidates.addAll(randomBucket);
 
         for (final fallbackMode in _supportedModes) {

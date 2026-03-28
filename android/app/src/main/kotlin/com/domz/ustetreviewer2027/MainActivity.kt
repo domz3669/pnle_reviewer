@@ -1,4 +1,4 @@
-package com.domz.ustetreviewer2027
+package com.niotron.domingotambasacan.acetreviewer2027
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -30,12 +30,12 @@ class DeepSeekService {
     this.maxRetries = _defaultMaxRetries,
     this.temperature = 0.3,
     this.maxTokens,
-    this.examId = 'ustet',
+    this.examId = 'acet',
   });
 
   Future<List<Question>> generateQuestions(
     String prompt,
-    String eligibility, {
+    String programInterest, {
     Map<int, String>? categoryMap,
     bool allowPartialResults = false,
   }) async {
@@ -46,7 +46,7 @@ class DeepSeekService {
         debugPrint('DeepSeek attempt $attempt/$maxRetries...');
         return await _doGenerateQuestions(
           prompt,
-          eligibility,
+          programInterest,
           categoryMap: categoryMap,
           allowPartialResults: allowPartialResults,
         );
@@ -60,12 +60,13 @@ class DeepSeekService {
       }
     }
 
-    throw lastError ?? Exception('Question generation failed after $maxRetries attempts');
+    throw lastError ??
+        Exception('Question generation failed after $maxRetries attempts');
   }
 
   Future<List<Question>> _doGenerateQuestions(
     String prompt,
-    String eligibility, {
+    String programInterest, {
     Map<int, String>? categoryMap,
     bool allowPartialResults = false,
   }) async {
@@ -73,8 +74,7 @@ class DeepSeekService {
 
     final systemPrompt = _examConfigService.systemPromptForExam(
       examId: examId,
-      fallback:
-          "You are a USTET item writer. "
+      fallback: "You are an ACET item writer. "
           "Return VALID JSON ONLY. No markdown. No comments. "
           "Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. "
           "Never ask the student to identify the skill, category, competency, or lesson being tested. "
@@ -135,7 +135,7 @@ class DeepSeekService {
             ? '${candidate.body.substring(0, 240)}...'
             : candidate.body;
         lastErrorMessage =
-          'DeepSeek API error ($endpointLabel): ${candidate.statusCode} - $bodyPreview';
+            'DeepSeek API error ($endpointLabel): ${candidate.statusCode} - $bodyPreview';
         debugPrint('Warning: $lastErrorMessage');
       } on TimeoutException {
         lastErrorMessage =
@@ -144,10 +144,12 @@ class DeepSeekService {
         shouldTryNextEndpoint = false;
       } on SocketException catch (e) {
         lastErrorMessage = 'DeepSeek network error: ${e.message}';
-        debugPrint('Warning: DeepSeek $endpointLabel endpoint socket error: ${e.message}');
+        debugPrint(
+            'Warning: DeepSeek $endpointLabel endpoint socket error: ${e.message}');
       } on http.ClientException catch (e) {
         lastErrorMessage = 'DeepSeek client error: ${e.message}';
-        debugPrint('Warning: DeepSeek $endpointLabel endpoint client error: ${e.message}');
+        debugPrint(
+            'Warning: DeepSeek $endpointLabel endpoint client error: ${e.message}');
       }
 
       if (!shouldTryNextEndpoint) break;
@@ -184,8 +186,9 @@ class DeepSeekService {
       }
     }
 
-    // USTET default random distribution (15 questions):
-    // Q1-2 Language, Q3-7 Reading, Q8-11 Math, Q12-15 Science.
+    // Default random distribution (15 questions):
+    // Q1-4 English, Q5-8 Mathematics, Q9-12 Logical Reasoning,
+    // Q13-15 Mental Ability / Abstract.
 
     final parsedQuestions = <Question>[];
 
@@ -193,19 +196,19 @@ class DeepSeekService {
       final q = questionsJson[i];
       final num = q['number'] as int;
       String category;
-      
+
       // If custom categoryMap is provided (e.g., for Challenge Mode), use it
       if (categoryMap != null && categoryMap.containsKey(num)) {
         category = categoryMap[num]!;
       } else {
-        if (num >= 1 && num <= 2) {
-          category = 'Mental Ability';
-        } else if (num >= 3 && num <= 7) {
+        if (num >= 1 && num <= 4) {
           category = 'English';
-        } else if (num >= 8 && num <= 11) {
+        } else if (num >= 5 && num <= 8) {
           category = 'Mathematics';
+        } else if (num >= 9 && num <= 12) {
+          category = 'Logical Reasoning';
         } else {
-          category = 'Science';
+          category = 'Mental Ability / Abstract';
         }
       }
 
@@ -227,7 +230,7 @@ class DeepSeekService {
     if (categoryMap != null && categoryMap.isNotEmpty) {
       return categoryMap.length;
     }
-    // Default USTET full test size.
+    // Default ACET full test size.
     return 15;
   }
 
@@ -237,19 +240,23 @@ class DeepSeekService {
 
     debugPrint('Warning: Strict JSON parse failed. Trying recovery parser...');
 
-    final recoveredFromQuestionsKey = _recoverQuestionsFromQuestionsKey(content);
+    final recoveredFromQuestionsKey =
+        _recoverQuestionsFromQuestionsKey(content);
     if (recoveredFromQuestionsKey.isNotEmpty) {
-      debugPrint('Recovered ${recoveredFromQuestionsKey.length} questions from questions[] slice.');
+      debugPrint(
+          'Recovered ${recoveredFromQuestionsKey.length} questions from questions[] slice.');
       return recoveredFromQuestionsKey;
     }
 
     final recoveredFromObjects = _recoverQuestionsFromObjectScan(content);
     if (recoveredFromObjects.isNotEmpty) {
-      debugPrint('Recovered ${recoveredFromObjects.length} questions from object scan.');
+      debugPrint(
+          'Recovered ${recoveredFromObjects.length} questions from object scan.');
       return recoveredFromObjects;
     }
 
-    debugPrint('Error: JSON decode failed and recovery found no valid questions.');
+    debugPrint(
+        'Error: JSON decode failed and recovery found no valid questions.');
     debugPrint(content);
     return const [];
   }

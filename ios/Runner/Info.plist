@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>UPCAT Reviewer 2027</string>
+	<string>ACET Reviewer 2027</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>UPCAT Reviewer 2027</string>
+	<string>ACET Reviewer 2027</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -67,8 +67,8 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-9985022151393867~7387678886</string>
+	<string>ca-app-pub-9985022151393867~4001388639</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>UPCAT Reviewer 2027 needs to identify your device</string>
+	<string>ACET Reviewer 2027 needs to identify your device</string>
 </dict>
 </plist>

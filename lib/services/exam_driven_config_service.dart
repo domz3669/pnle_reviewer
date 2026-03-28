@@ -15,7 +15,7 @@ class ExamDrivenConfigService {
   static const String _examConfigAssetPath = 'assets/config/exam_config.json';
 
   bool _loaded = false;
-  String _defaultExamId = 'ustet';
+  String _defaultExamId = 'acet';
   final Map<String, PromptConfig> _promptByExam = {};
   final Map<String, ExamConfig> _examById = {};
 

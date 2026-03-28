@@ -3,6 +3,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'config/pnle_theme.dart';
 
+const _settingsCream = Color(0xFFFCF6EB);
+const _settingsPanel = Color(0xFFF9F3E7);
+const _settingsLeaf = Color(0xFF7EA468);
+const _settingsLeafSoft = Color(0xFFDDEBCE);
+const _settingsText = Color(0xFF5A7652);
+const _settingsTextSoft = Color(0xFF8AA081);
+const _settingsBorder = Color(0xA4C5D6AE);
+
 class SettingsScreen extends StatefulWidget {
   final String nickname;
   final Future<void> Function(String nickname)? onNicknameChanged;
@@ -10,6 +18,8 @@ class SettingsScreen extends StatefulWidget {
   final Future<void> Function(bool muted)? onMuteAllSoundsChanged;
   final bool notificationsEnabled;
   final Future<bool> Function(bool enabled)? onNotificationsChanged;
+  final bool strictTimingEnabled;
+  final Future<void> Function(bool enabled)? onStrictTimingChanged;
   final bool embedded;
 
   const SettingsScreen({
@@ -20,6 +30,8 @@ class SettingsScreen extends StatefulWidget {
     this.onMuteAllSoundsChanged,
     this.notificationsEnabled = false,
     this.onNotificationsChanged,
+    this.strictTimingEnabled = false,
+    this.onStrictTimingChanged,
     this.embedded = false,
   });
 
@@ -31,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _nicknameController;
   late bool _muteAllSounds;
   late bool _notificationsEnabled;
+  late bool _strictTimingEnabled;
   String _appVersionLabel = 'Version';
 
   @override
@@ -39,6 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _nicknameController = TextEditingController(text: widget.nickname);
     _muteAllSounds = widget.muteAllSounds;
     _notificationsEnabled = widget.notificationsEnabled;
+    _strictTimingEnabled = widget.strictTimingEnabled;
     _loadAppVersion();
   }
 
@@ -64,6 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     _muteAllSounds = widget.muteAllSounds;
     _notificationsEnabled = widget.notificationsEnabled;
+    _strictTimingEnabled = widget.strictTimingEnabled;
   }
 
   @override
@@ -75,7 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final body = Container(
-      decoration: const BoxDecoration(gradient: PnleTheme.appBackground),
+      decoration: const BoxDecoration(color: _settingsCream),
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -87,7 +102,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: _nicknameController.text.trim().isEmpty
                 ? 'Set your display name'
                 : _nicknameController.text.trim(),
-            trailing: const Icon(Icons.edit_rounded, color: Colors.white70),
+            trailing: const Icon(Icons.edit_rounded, color: _settingsTextSoft),
             onTap: _showNicknameDialog,
           ),
           const SizedBox(height: 24),
@@ -118,6 +133,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   await widget.onNotificationsChanged?.call(value) ?? value;
               if (!mounted) return;
               setState(() => _notificationsEnabled = applied);
+            },
+          ),
+          const SizedBox(height: 24),
+
+          _buildSectionTitle('TEST MODE'),
+          _buildToggleTile(
+            icon: Icons.timer_rounded,
+            title: 'Strict ACET Timing',
+            subtitle: 'Use exam-speed timer and auto-next on timeout',
+            tileKey: const Key('toggle_strict_timing'),
+            value: _strictTimingEnabled,
+            onChanged: (value) async {
+              setState(() => _strictTimingEnabled = value);
+              await widget.onStrictTimingChanged?.call(value);
             },
           ),
           const SizedBox(height: 24),
@@ -161,12 +190,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Settings',
           style: GoogleFonts.outfit(
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: _settingsText,
           ),
         ),
-        backgroundColor: PnleTheme.bgTop,
+        backgroundColor: _settingsCream,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: _settingsText),
       ),
       body: body,
     );
@@ -176,9 +205,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Text(
       title,
       style: GoogleFonts.outfit(
-        color: Colors.white,
+        color: _settingsText,
         fontWeight: FontWeight.bold,
-        fontSize: 12,
+        fontSize: 13,
         letterSpacing: 1.2,
       ),
     );
@@ -190,32 +219,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String subtitle,
     Widget? trailing,
     VoidCallback? onTap,
-    Color textColor = Colors.white,
+    Color textColor = _settingsText,
   }) {
     return Container(
       decoration: BoxDecoration(
+        color: _settingsPanel,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+        border: Border.all(color: _settingsBorder),
       ),
       child: ListTile(
         onTap: onTap,
-        leading: Icon(icon, color: textColor.withValues(alpha: 0.8)),
+        leading: Icon(icon, color: _settingsLeaf),
         title: Text(
           title,
           style: GoogleFonts.outfit(
-            color: textColor,
+            color: _settingsText,
             fontWeight: FontWeight.bold,
           ),
         ),
         subtitle: Text(
           subtitle,
           style: GoogleFonts.outfit(
-            color: Colors.white.withValues(alpha: 0.6),
-            fontSize: 12,
+            color: _settingsTextSoft,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        trailing: trailing ??
-            Icon(Icons.chevron_right, color: textColor.withValues(alpha: 0.6)),
+        trailing:
+            trailing ?? Icon(Icons.chevron_right, color: _settingsTextSoft),
       ),
     );
   }
@@ -230,27 +261,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     return Container(
       decoration: BoxDecoration(
+        color: _settingsPanel,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+        border: Border.all(color: _settingsBorder),
       ),
       child: SwitchListTile(
         key: tileKey,
         value: value,
         onChanged: onChanged,
-        activeThumbColor: PnleTheme.accent,
-        secondary: Icon(icon, color: Colors.white.withValues(alpha: 0.8)),
+        activeThumbColor: _settingsLeaf,
+        activeTrackColor: _settingsLeafSoft,
+        inactiveThumbColor: const Color(0xFFF8F1E6),
+        inactiveTrackColor: const Color(0xFFE6E8D7),
+        secondary: Icon(icon, color: _settingsLeaf),
         title: Text(
           title,
           style: GoogleFonts.outfit(
-            color: Colors.white,
+            color: _settingsText,
             fontWeight: FontWeight.bold,
           ),
         ),
         subtitle: Text(
           subtitle,
           style: GoogleFonts.outfit(
-            color: Colors.white.withValues(alpha: 0.6),
-            fontSize: 12,
+            color: _settingsTextSoft,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
@@ -267,16 +303,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              PnleTheme.bgTop.withValues(alpha: 0.98),
-              PnleTheme.bgBottom.withValues(alpha: 0.96),
-            ],
-          ),
+          color: _settingsPanel,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: PnleTheme.accent.withValues(alpha: 0.32)),
+          border: Border.all(color: _settingsBorder),
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
@@ -290,7 +319,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Text(
                       title,
                       style: GoogleFonts.outfit(
-                        color: Colors.white,
+                        color: _settingsText,
                         fontWeight: FontWeight.bold,
                         fontSize: 19,
                       ),
@@ -299,7 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   IconButton(
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close_rounded),
-                    color: Colors.white.withValues(alpha: 0.8),
+                    color: _settingsTextSoft,
                     splashRadius: 20,
                   ),
                 ],
@@ -319,7 +348,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Text(
                     'Close',
                     style: GoogleFonts.outfit(
-                      color: PnleTheme.accent,
+                      color: _settingsLeaf,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -347,7 +376,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildHelpItem('How does the daily system work?',
                   'Complete 4 quiz sessions daily to track your progress.'),
               _buildHelpItem('How are scores calculated?',
-                  'Scores use UPCAT weighting: Language Proficiency 20%, Reading Comprehension 30%, Mathematics 25%, Science 25%.'),
+                  'Scores currently weight the four ACET categories evenly: English 25%, Mathematics 25%, Logical Reasoning 25%, Mental Ability / Abstract 25%.'),
               _buildHelpItem('When do streaks reset?',
                   'Missing a day resets your daily streak counter.'),
             ],
@@ -372,19 +401,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
               controller: _nicknameController,
               autofocus: true,
               maxLength: 24,
-              style: GoogleFonts.outfit(color: Colors.white),
+              style: GoogleFonts.outfit(color: _settingsText),
               decoration: InputDecoration(
                 hintText: 'Enter your nickname',
-                hintStyle: GoogleFonts.outfit(color: Colors.white38),
-                counterStyle: GoogleFonts.outfit(color: Colors.white54),
+                hintStyle: GoogleFonts.outfit(color: _settingsTextSoft),
+                counterStyle: GoogleFonts.outfit(color: _settingsTextSoft),
+                filled: true,
+                fillColor: _settingsCream,
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide:
-                      BorderSide(color: Colors.white.withValues(alpha: 0.25)),
+                  borderSide: const BorderSide(color: _settingsBorder),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: PnleTheme.accent),
+                  borderSide: const BorderSide(color: _settingsLeaf),
                 ),
               ),
             ),
@@ -405,12 +435,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: PnleTheme.accent,
+                  backgroundColor: _settingsLeafSoft,
+                  foregroundColor: _settingsText,
+                  elevation: 0,
+                  side: const BorderSide(color: _settingsBorder),
                 ),
                 child: Text(
                   'Save Nickname',
                   style: GoogleFonts.outfit(
-                    color: Colors.black,
+                    color: _settingsText,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -429,14 +462,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Text(
           question,
           style: GoogleFonts.outfit(
-            color: PnleTheme.accent,
+            color: _settingsLeaf,
             fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           answer,
-          style: GoogleFonts.outfit(color: Colors.white.withValues(alpha: 0.8)),
+          style: GoogleFonts.outfit(
+            color: _settingsTextSoft,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 12),
       ],
@@ -452,12 +488,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: 'Privacy Policy',
         content: SingleChildScrollView(
           child: Text(
-            'UPCAT Reviewer 2027 stores quiz progress, scores, nickname, and session usage data so your study history and readiness insights can persist across sessions.\n\n'
+            'ACET Reviewer 2027 stores quiz progress, scores, nickname, and session usage data so your study history and readiness insights can persist across sessions.\n\n'
             'The app uses Firebase to back up progress and Google Mobile Ads for ad delivery. Coach Note explanations use online generative AI services when you request them from a quiz.\n\n'
             'Offline quiz play can continue with local seeded question sets, while syncing, rewards, and AI explanations wait until internet access returns.\n\n'
             'We do not sell your personal data. Publish a full external privacy policy in App Store Connect and keep this summary aligned with it.',
-            style:
-                GoogleFonts.outfit(color: Colors.white.withValues(alpha: 0.8)),
+            style: GoogleFonts.outfit(
+              color: _settingsTextSoft,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -470,7 +508,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       barrierColor: Colors.black87,
       builder: (context) => _buildGradientDialog(
         context: context,
-        title: 'About UPCAT Reviewer 2027',
+        title: 'About ACET Reviewer 2027',
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -479,21 +517,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 _appVersionLabel,
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _settingsText,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                'A native UPCAT review app with local quiz modes, progress tracking, and optional AI-generated coaching notes.',
+                'A native ACET review app with local quiz modes, progress tracking, and optional AI-generated coaching notes.',
                 style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.8)),
+                  color: _settingsTextSoft,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 16),
               Text(
                 'Developer',
                 style: GoogleFonts.outfit(
-                  color: PnleTheme.accent,
+                  color: _settingsLeaf,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -502,7 +542,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 'Ilocano Dev',
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _settingsText,
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),
@@ -511,7 +551,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 'Contact',
                 style: GoogleFonts.outfit(
-                  color: PnleTheme.accent,
+                  color: _settingsLeaf,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -520,16 +560,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 'domingotambasacan@gmail.com',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.9),
+                  color: _settingsText,
                   fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
                 '✨ Built with Flutter & Firebase',
                 style: GoogleFonts.outfit(
-                  color: PnleTheme.accent,
+                  color: _settingsLeaf,
                   fontSize: 12,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],

@@ -2,13 +2,13 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <application
-        android:label="USTET Reviewer 2027"
+        android:label="ACET Reviewer 2027"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
-    <meta-data
+        <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-9985022151393867~9669875643"/>
+            android:value="ca-app-pub-9985022151393867~5701483111"/>
 
     <activity
             android:name=".MainActivity"

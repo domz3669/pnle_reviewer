@@ -6,10 +6,10 @@ enum TestGenerationResult {
 }
 
 class TestGenerationController {
-  final bool hasAdFreeAccess;
+  final bool hasUnlimitedAccess;
 
   TestGenerationController({
-    required this.hasAdFreeAccess,
+    required this.hasUnlimitedAccess,
   });
 
   /// Entry point called by UI
@@ -17,8 +17,8 @@ class TestGenerationController {
     required Future<bool> Function() showRewardedAd,
     required Future<bool> Function() generateTest,
   }) async {
-    // Ad-free access: no ad gate
-    if (hasAdFreeAccess) {
+    // Unlimited access: no ad gate
+    if (hasUnlimitedAccess) {
       return await _attemptGeneration(generateTest);
     }
 

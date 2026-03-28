@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "defaultExamId": "ustet",
+  "defaultExamId": "acet",
   "exams": {
-    "ustet": {
-      "appTitle": "USTET Reviewer 2027",
+    "acet": {
+      "appTitle": "ACET Reviewer 2027",
       "language": "English",
       "categories": [
-        "Mental Ability",
         "English",
         "Mathematics",
-        "Science"
+        "Logical Reasoning",
+        "Mental Ability / Abstract"
       ],
       "modes": {
         "randomQuiz": {
@@ -28,7 +28,7 @@
         },
         "timedExam": {
           "questionCount": 15,
-          "timePerQuestionSeconds": 40,
+          "timePerQuestionSeconds": 30,
           "autoNextOnTimeout": true
         },
         "reviewMistakes": {

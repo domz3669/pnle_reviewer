@@ -3,22 +3,22 @@ import 'dart:io';
 /// Centralized AdMob IDs for platform-specific configuration.
 /// Set [useTestAds] to true while testing to avoid policy violations.
 class AdMobIds {
-  static const bool useTestAds = false;
+  static const bool useTestAds = true;
 
-  static const String androidAppId = 'ca-app-pub-9985022151393867~9669875643';
-  static const String iosAppId = 'ca-app-pub-9985022151393867~5372105232';
+  static const String androidAppId = 'ca-app-pub-9985022151393867~5701483111';
+  static const String iosAppId = 'ca-app-pub-9985022151393867~4001388639';
 
-  static const String androidBanner = 'ca-app-pub-9985022151393867/8943951486';
-  static const String iosBanner = 'ca-app-pub-9985022151393867/3691624808';
+  static const String androidBanner = 'ca-app-pub-9985022151393867/2364873337';
+  static const String iosBanner = 'ca-app-pub-9985022151393867/3606503514';
 
   static const String androidInterstitial =
-      'ca-app-pub-9985022151393867/4565722779';
+      'ca-app-pub-9985022151393867/6024916746';
   static const String iosInterstitial =
-      'ca-app-pub-9985022151393867/8680227603';
+      'ca-app-pub-9985022151393867/7880923895';
 
   static const String androidRewarded =
-      'ca-app-pub-9985022151393867/8548932913';
-  static const String iosRewarded = 'ca-app-pub-9985022151393867/3105034547';
+      'ca-app-pub-9985022151393867/5166997196';
+  static const String iosRewarded = 'ca-app-pub-9985022151393867/4544314117';
 
   static const String androidBannerTest =
       'ca-app-pub-3940256099942544/6300978111';

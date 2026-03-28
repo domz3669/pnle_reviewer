@@ -102,5 +102,57 @@ void main() {
         isFalse,
       );
     });
+
+    testWidgets('session recovery path works end-to-end', (tester) async {
+      const todayKey = '2026-03-18';
+      final now = DateTime(2026, 3, 18, 9, 0, 0);
+
+      var state = seedState(
+        remainingSessions: 1,
+        adChances: 1,
+        completedSessions: 4,
+      );
+
+      // 1) Spend last session and verify hard-stop at zero.
+      state = SessionFlowHarness.consumeSession(state);
+      expect(state.remainingSessions, 0);
+      state = SessionFlowHarness.consumeSession(state);
+      expect(state.remainingSessions, 0);
+
+      // 2) Recover one session by watching an ad.
+      state = SessionFlowHarness.rewardedAdSuccess(state, now);
+      expect(state.remainingSessions, 1);
+      expect(state.adChances, 0);
+      expect(state.nextAdRefillAt, isNotNull);
+
+      // 3) Spend recovered session.
+      state = SessionFlowHarness.consumeSession(state);
+      expect(state.remainingSessions, 0);
+
+      // 4) Claim streak reward once, then block duplicate claim same day.
+      expect(SessionFlowHarness.canClaimStreakReward(state, todayKey), isTrue);
+      state = SessionFlowHarness.claimStreakReward(state, todayKey);
+      expect(state.remainingSessions, 1);
+      expect(state.lastStreakRewardClaimDate, todayKey);
+      expect(SessionFlowHarness.canClaimStreakReward(state, todayKey), isFalse);
+
+      final duplicateClaim = SessionFlowHarness.claimStreakReward(state, todayKey);
+      expect(duplicateClaim.remainingSessions, state.remainingSessions);
+      expect(duplicateClaim.lastStreakRewardClaimDate, state.lastStreakRewardClaimDate);
+
+      // 5) Ad chance refills back to cap on two-hour cadence.
+      state = SessionFlowHarness.processAdRefill(
+        state,
+        now.add(refillDuration + const Duration(minutes: 1)),
+      );
+      expect(state.adChances, 1);
+
+      state = SessionFlowHarness.processAdRefill(
+        state,
+        now.add(refillDuration * 2 + const Duration(minutes: 1)),
+      );
+      expect(state.adChances, 2);
+      expect(state.nextAdRefillAt, isNull);
+    });
   });
 }

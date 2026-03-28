@@ -4,6 +4,17 @@ import 'package:google_fonts/google_fonts.dart';
 import 'config/pnle_theme.dart';
 import 'utils/responsive.dart';
 
+const _deepCoachCream = Color(0xFFFCF6EB);
+const _deepCoachPanel = Color(0xFFF9F3E7);
+const _deepCoachText = Color(0xFF5A7652);
+const _deepCoachTextSoft = Color(0xFF8AA081);
+const _deepCoachBorder = Color(0xA4C5D6AE);
+const _deepCoachLeaf = Color(0xFF7EA468);
+const _deepCoachLeafSoft = Color(0xFFDDEBCE);
+const _deepCoachSkySoft = Color(0xFFE6EFF7);
+const _deepCoachWarm = Color(0xFFC28D74);
+const _deepCoachWarmSoft = Color(0xFFF4E3D9);
+
 class BetterExplanationDialog extends StatefulWidget {
   final Future<String> Function() onGenerate;
   final String userAnswer;
@@ -108,22 +119,23 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              PnleTheme.bgTop.withOpacity(0.95),
-              PnleTheme.bgBottom.withOpacity(0.95),
+              Color.lerp(_deepCoachPanel, _deepCoachLeafSoft, 0.22)!,
+              _deepCoachPanel,
+              Color.lerp(_deepCoachPanel, _deepCoachSkySoft, 0.24)!,
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(32),
           border: Border.all(
-            color: Colors.white.withOpacity(0.3),
-            width: 2,
+            color: _deepCoachBorder,
+            width: 1.6,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.white.withOpacity(0.1),
-              blurRadius: 20,
-              spreadRadius: 2,
+              color: _deepCoachLeaf.withOpacity(0.12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -144,7 +156,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                           style: GoogleFonts.outfit(
                             fontSize: r.fontSize(22),
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _deepCoachText,
                           ),
                         ),
                         Material(
@@ -158,15 +170,15 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                               width: 44,
                               height: 44,
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
+                                color: _deepCoachCream,
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
+                                  color: _deepCoachBorder,
                                 ),
                               ),
                               child: Icon(
                                 Icons.close,
-                                color: Colors.white.withOpacity(0.8),
+                                color: _deepCoachTextSoft,
                                 size: 20,
                               ),
                             ),
@@ -176,7 +188,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                     ),
                     const SizedBox(height: 16),
                     Divider(
-                      color: Colors.white.withOpacity(0.2),
+                      color: _deepCoachBorder,
                       height: 1,
                       thickness: 1,
                     ),
@@ -192,7 +204,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                   children: [
                     CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        Colors.white.withOpacity(0.8),
+                        _deepCoachLeaf,
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -202,7 +214,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(16),
                         fontWeight: FontWeight.w600,
-                        color: Colors.white.withOpacity(0.9),
+                        color: _deepCoachText,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -211,7 +223,8 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: r.fontSize(13),
-                        color: Colors.white.withOpacity(0.6),
+                        color: _deepCoachTextSoft,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -231,10 +244,10 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                           padding: const EdgeInsets.all(16),
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.08),
+                            color: _deepCoachWarmSoft,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.2),
+                              color: _deepCoachWarm.withOpacity(0.25),
                               width: 1.5,
                             ),
                           ),
@@ -253,7 +266,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(13),
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white.withOpacity(0.7),
+                                      color: _deepCoachTextSoft,
                                     ),
                                   ),
                                 ],
@@ -265,7 +278,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                                 style: GoogleFonts.outfit(
                                   fontSize: r.fontSize(15),
                                   fontWeight: FontWeight.w600,
-                                  color: PnleTheme.danger.withOpacity(0.9),
+                                  color: _deepCoachWarm,
                                 ),
                               ),
                             ],
@@ -280,10 +293,10 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                           padding: const EdgeInsets.all(16),
                           margin: const EdgeInsets.only(bottom: 16),
                           decoration: BoxDecoration(
-                            color: PnleTheme.success.withOpacity(0.08),
+                            color: _deepCoachLeafSoft,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: PnleTheme.success.withOpacity(0.3),
+                              color: _deepCoachLeaf.withOpacity(0.3),
                               width: 1.5,
                             ),
                           ),
@@ -302,7 +315,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(13),
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white.withOpacity(0.7),
+                                      color: _deepCoachTextSoft,
                                     ),
                                   ),
                                 ],
@@ -314,7 +327,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                                 style: GoogleFonts.outfit(
                                   fontSize: r.fontSize(15),
                                   fontWeight: FontWeight.w600,
-                                  color: PnleTheme.success.withOpacity(0.9),
+                                  color: _deepCoachLeaf,
                                 ),
                               ),
                             ],
@@ -327,10 +340,10 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                         padding: const EdgeInsets.all(16),
                         margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
+                          color: _deepCoachCream,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.2),
+                            color: _deepCoachBorder,
                             width: 1.5,
                           ),
                         ),
@@ -342,7 +355,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                               style: GoogleFonts.outfit(
                                 fontSize: r.fontSize(13),
                                 fontWeight: FontWeight.w600,
-                                color: Colors.white.withOpacity(0.7),
+                                color: _deepCoachTextSoft,
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -350,7 +363,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                               explanation!,
                               style: GoogleFonts.outfit(
                                 fontSize: r.fontSize(14),
-                                color: Colors.white.withOpacity(0.85),
+                                color: _deepCoachText,
                                 height: 1.6,
                               ),
                             ),
@@ -364,10 +377,10 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: PnleTheme.warning.withOpacity(0.08),
+                          color: const Color(0xFFF7EFCF),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: PnleTheme.warning.withOpacity(0.2),
+                            color: const Color(0xFFD9C59C),
                             width: 1,
                           ),
                         ),
@@ -378,7 +391,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                               children: [
                                 Icon(
                                   Icons.info,
-                                  color: PnleTheme.warning.withOpacity(0.7),
+                                  color: const Color(0xFFB28D4B),
                                   size: 16,
                                 ),
                                 const SizedBox(width: 12),
@@ -387,7 +400,8 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                                     'Coaching notes are for review guidance. Please verify with trusted references.',
                                     style: GoogleFonts.outfit(
                                       fontSize: r.fontSize(12),
-                                      color: Colors.white.withOpacity(0.6),
+                                      color: _deepCoachTextSoft,
+                                      fontWeight: FontWeight.w600,
                                       height: 1.4,
                                     ),
                                   ),
@@ -405,7 +419,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                                 style: GoogleFonts.outfit(
                                   fontSize: r.fontSize(12),
                                   fontWeight: FontWeight.w600,
-                                  color: PnleTheme.danger.withOpacity(0.8),
+                                  color: _deepCoachWarm,
                                   decoration: TextDecoration.underline,
                                 ),
                               ),
@@ -426,17 +440,17 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                 padding:
                     const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: _deepCoachCream,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.3),
+                    color: _deepCoachBorder,
                     width: 1.5,
                   ),
                 ),
                 child: Text(
                   '$counter%',
                   style: GoogleFonts.outfit(
-                    color: Colors.white.withOpacity(0.9),
+                    color: _deepCoachText,
                     fontSize: r.fontSize(16),
                     fontWeight: FontWeight.w600,
                   ),
@@ -455,10 +469,10 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                     padding: const EdgeInsets.symmetric(
                         horizontal: 48, vertical: 14),
                     decoration: BoxDecoration(
-                      color: PnleTheme.bgTop.withOpacity(0.35),
+                      color: _deepCoachCream,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: PnleTheme.glowA.withOpacity(0.5),
+                        color: _deepCoachBorder,
                         width: 1.5,
                       ),
                     ),
@@ -466,7 +480,7 @@ class _BetterExplanationDialogState extends State<BetterExplanationDialog>
                       child: Text(
                         'CLOSE',
                         style: GoogleFonts.outfit(
-                          color: Colors.white,
+                          color: _deepCoachText,
                           fontSize: r.fontSize(16),
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.5,

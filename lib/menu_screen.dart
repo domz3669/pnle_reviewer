@@ -15,12 +15,15 @@ import 'services/device_service.dart';
 import 'services/notification_service.dart';
 
 import 'question_screen.dart';
+import 'models/acet_assessment.dart';
 import 'models/question.dart';
 import 'models/pnle_key_areas.dart';
 import 'services/question_generation_service.dart';
 import 'services/deepseek_service.dart';
 import 'services/exam_driven_config_service.dart';
 import 'services/seed_question_pool_service.dart';
+import 'services/acet_assessment_service.dart';
+import 'services/local_visual_question_service.dart';
 import 'config/secrets.dart';
 import 'config/admob_ids.dart';
 import 'config/pnle_theme.dart';
@@ -52,6 +55,7 @@ class _SavedSession {
                 'number': q.number,
                 'category': q.category,
                 'question': q.question,
+                'imageAssetPath': q.imageAssetPath,
                 'choices': q.choices,
                 'answer': q.answer,
                 'explanation': q.explanation,
@@ -116,37 +120,53 @@ class _SavedSession {
 
 class _QuizActivityRecord {
   final DateTime date;
+  final String mode;
   final int questionCount;
   final int correctCount;
   final double scorePercent;
+  final int elapsedSeconds;
+  final int timedOutCount;
   final Map<String, int> categoryCorrect;
   final Map<String, int> categoryTotal;
+  final AcetAssessment? assessment;
 
   const _QuizActivityRecord({
     required this.date,
+    this.mode = 'randomQuiz',
     required this.questionCount,
     required this.correctCount,
     required this.scorePercent,
+    this.elapsedSeconds = 0,
+    this.timedOutCount = 0,
     this.categoryCorrect = const <String, int>{},
     this.categoryTotal = const <String, int>{},
+    this.assessment,
   });
 
   Map<String, dynamic> toJson() => {
         'date': date.toIso8601String(),
+        'mode': mode,
         'questionCount': questionCount,
         'correctCount': correctCount,
         'scorePercent': scorePercent,
+        'elapsedSeconds': elapsedSeconds,
+        'timedOutCount': timedOutCount,
         'categoryCorrect': categoryCorrect,
         'categoryTotal': categoryTotal,
+        'assessment': assessment?.toJson(),
       };
 
   static _QuizActivityRecord? fromJson(Map<String, dynamic> json) {
     final dateRaw = json['date'] ?? json['d'];
+    final modeRaw = json['mode'] ?? json['m'];
     final questionRaw = json['questionCount'] ?? json['q'];
     final correctRaw = json['correctCount'] ?? json['c'];
     final scoreRaw = json['scorePercent'] ?? json['p'];
+    final elapsedRaw = json['elapsedSeconds'] ?? json['e'];
+    final timedOutRaw = json['timedOutCount'] ?? json['t'];
     final categoryCorrectRaw = json['categoryCorrect'] ?? json['cc'];
     final categoryTotalRaw = json['categoryTotal'] ?? json['ct'];
+    final assessmentRaw = json['assessment'] ?? json['a'];
     if (dateRaw is! String || questionRaw is! num) return null;
 
     final parsedDate = DateTime.tryParse(dateRaw);
@@ -174,11 +194,19 @@ class _QuizActivityRecord {
 
     return _QuizActivityRecord(
       date: parsedDate,
+      mode: modeRaw is String && modeRaw.trim().isNotEmpty
+          ? modeRaw.trim()
+          : 'randomQuiz',
       questionCount: questionRaw.toInt(),
       correctCount: (correctRaw is num) ? correctRaw.toInt() : 0,
       scorePercent: (scoreRaw is num) ? scoreRaw.toDouble() : 0,
+      elapsedSeconds: (elapsedRaw is num) ? elapsedRaw.toInt() : 0,
+      timedOutCount: (timedOutRaw is num) ? timedOutRaw.toInt() : 0,
       categoryCorrect: parsedCategoryCorrect,
       categoryTotal: parsedCategoryTotal,
+      assessment: assessmentRaw is Map
+          ? AcetAssessment.fromJson(Map<String, dynamic>.from(assessmentRaw))
+          : null,
     );
   }
 }
@@ -201,6 +229,7 @@ class _MistakeRecord {
           'number': question.number,
           'category': question.category,
           'question': question.question,
+          'imageAssetPath': question.imageAssetPath,
           'choices': question.choices,
           'answer': question.answer,
           'explanation': question.explanation,
@@ -243,6 +272,7 @@ class _PausedQuizSession {
   final String testMode;
   final bool recordResults;
   final DateTime pausedAt;
+  final List<AcetQuestionAttempt> assessmentAttempts;
 
   const _PausedQuizSession({
     required this.questions,
@@ -252,6 +282,7 @@ class _PausedQuizSession {
     required this.testMode,
     required this.recordResults,
     required this.pausedAt,
+    this.assessmentAttempts = const <AcetQuestionAttempt>[],
   });
 
   Map<String, dynamic> toJson() => {
@@ -260,6 +291,7 @@ class _PausedQuizSession {
                   'number': q.number,
                   'category': q.category,
                   'question': q.question,
+                  'imageAssetPath': q.imageAssetPath,
                   'choices': q.choices,
                   'answer': q.answer,
                   'explanation': q.explanation,
@@ -272,6 +304,8 @@ class _PausedQuizSession {
         'testMode': testMode,
         'recordResults': recordResults,
         'pausedAt': pausedAt.toIso8601String(),
+        'assessmentAttempts':
+            assessmentAttempts.map((attempt) => attempt.toJson()).toList(),
       };
 
   static _PausedQuizSession? fromJson(Map<String, dynamic> json) {
@@ -282,6 +316,7 @@ class _PausedQuizSession {
     final modeRaw = json['testMode'];
     final recordRaw = json['recordResults'];
     final pausedAtRaw = json['pausedAt'];
+    final attemptsRaw = json['assessmentAttempts'];
 
     if (questionsRaw is! List ||
         indexRaw is! num ||
@@ -311,6 +346,16 @@ class _PausedQuizSession {
     final pausedAt = pausedAtRaw is String
         ? (DateTime.tryParse(pausedAtRaw) ?? DateTime.now())
         : DateTime.now();
+    final attempts = <AcetQuestionAttempt>[];
+    if (attemptsRaw is List) {
+      for (final item in attemptsRaw) {
+        if (item is Map) {
+          attempts.add(
+            AcetQuestionAttempt.fromJson(Map<String, dynamic>.from(item)),
+          );
+        }
+      }
+    }
     return _PausedQuizSession(
       questions: questions,
       currentIndex: idx,
@@ -319,6 +364,7 @@ class _PausedQuizSession {
       testMode: modeRaw,
       recordResults: recordRaw,
       pausedAt: pausedAt,
+      assessmentAttempts: attempts,
     );
   }
 
@@ -330,6 +376,7 @@ class _PausedQuizSession {
     String? testMode,
     bool? recordResults,
     DateTime? pausedAt,
+    List<AcetQuestionAttempt>? assessmentAttempts,
   }) {
     return _PausedQuizSession(
       questions: questions ?? this.questions,
@@ -339,6 +386,7 @@ class _PausedQuizSession {
       testMode: testMode ?? this.testMode,
       recordResults: recordResults ?? this.recordResults,
       pausedAt: pausedAt ?? this.pausedAt,
+      assessmentAttempts: assessmentAttempts ?? this.assessmentAttempts,
     );
   }
 }
@@ -351,57 +399,43 @@ class MenuScreen extends StatefulWidget {
 }
 
 class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
-  // Change this for future app clones (e.g. "acet", "upcat").
-  static const String _activeExamId = 'ustet';
+  // Change this for future exam clones when reusing the app shell.
+  static const String _activeExamId = 'acet';
+  static const String _defaultVisualAbstractAssetPath =
+      'assets/Abstract Reasoning/visual_abstract_questions.json';
+  static const String _usedVisualAbstractPoolIdsPrefsKey =
+      'usedVisualAbstractPoolIds';
 
   final ExamDrivenConfigService _examConfigService =
       ExamDrivenConfigService.instance;
+  final AcetAssessmentService _acetAssessmentService =
+      const AcetAssessmentService();
+  final LocalVisualQuestionService _localVisualQuestionService =
+      const LocalVisualQuestionService();
 
   // =========================
   // STATE
   // =========================
   int currentScreen = 0; // 0=Home, 1=Daily, 2=Quiz, 3=History, 4=Settings
-  String eligibility = 'USTET Reviewer';
-  static const List<String> _ustetCourses = [
-    'Nursing',
-    'Engineering',
-    'Business',
-    'Arts',
-    'Science',
+  String programInterest = 'General ACET';
+  static const String _selectedProgramInterestPrefsKey =
+      'selected_program_interest';
+  static const String _hasChosenProgramInterestPrefsKey =
+      'has_chosen_program_interest';
+  static const List<String> _acetStudyPreferences = [
+    'General ACET',
+    'English Priority',
+    'Mathematics Priority',
+    'Logical Reasoning Priority',
+    'Mental Ability Priority',
   ];
-  static const Map<String, Map<String, int>> _courseTargets = {
-    'Nursing': {
-      'Mental Ability': 80,
-      'English': 85,
-      'Mathematics': 80,
-      'Science': 90,
-    },
-    'Engineering': {
-      'Mental Ability': 80,
-      'English': 80,
-      'Mathematics': 90,
-      'Science': 85,
-    },
-    'Business': {
-      'Mental Ability': 80,
-      'English': 85,
-      'Mathematics': 85,
-      'Science': 75,
-    },
-    'Arts': {
-      'Mental Ability': 85,
-      'English': 90,
-      'Mathematics': 72,
-      'Science': 72,
-    },
-    'Science': {
-      'Mental Ability': 80,
-      'English': 80,
-      'Mathematics': 85,
-      'Science': 90,
-    },
+  static const Map<String, int> _acetReadinessThresholds = {
+    'English': 65,
+    'Mathematics': 65,
+    'Logical Reasoning': 65,
+    'Mental Ability / Abstract': 65,
   };
-  bool hasAdFreeAccess = false;
+  bool hasUnlimitedAccess = false;
   bool hasGraceAccess = false;
   DateTime? graceAccessEndDate;
   // Daily tracking
@@ -453,15 +487,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   FirebaseDatabase get _rtdb => FirebaseDatabase.instanceFor(
         app: Firebase.app(),
         databaseURL:
-            'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/',
+            'https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app/',
       );
 
   // Category scoring targets across daily target sessions.
   Map<String, Map<String, dynamic>> categoryScores = {
-    'Mental Ability': {'correct': 0, 'total': 8, 'weight': 0.20},
-    'English': {'correct': 0, 'total': 20, 'weight': 0.30},
+    'English': {'correct': 0, 'total': 16, 'weight': 0.25},
     'Mathematics': {'correct': 0, 'total': 16, 'weight': 0.25},
-    'Science': {'correct': 0, 'total': 16, 'weight': 0.25},
+    'Logical Reasoning': {'correct': 0, 'total': 16, 'weight': 0.25},
+    'Mental Ability / Abstract': {'correct': 0, 'total': 16, 'weight': 0.25},
   };
 
   late List<Question> _generatedQuestions;
@@ -489,9 +523,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // Focus mode state
   bool _isFocusMode = false;
   String? _focusCategory;
-  bool _isPrimingFreeDeepSeekCache = false;
-  bool _isPrimingRandomQuizCache = false;
-  Completer<void>? _randomQuizPrimeCompleter;
   bool _usedCachedRandomForLastGeneration = false;
   bool _isStartingGeneratedSession = false;
   String _activeGenerationMode = 'randomQuiz';
@@ -515,15 +546,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   List<Question>? _cachedRandomQuizQuestions;
   Map<String, String>? _cachedRandomQuizCoverage;
   List<Question>? _cachedChallengeQuestions;
+  List<Question>? _visualAbstractQuestionPool;
+  final Set<String> _usedVisualAbstractPoolIds = <String>{};
+  bool _usedVisualAbstractPoolLoaded = false;
   static const String _randomQuizCachePrefsKey = 'cachedRandomQuizPayload';
   static const String _focusCachePrefsKey = 'cachedFocusQuizPayload';
   static const String _challengeCachePrefsKey = 'cachedChallengeQuizPayload';
-  // bool _hasChosenEligibility = false; // Removed - not currently used
+  // bool _hasChosenProgramInterest = false; // Removed - not currently used
   bool _showFirstTimeFlow = false;
-  bool _isCoursePickerOpen = false;
   String _nickname = '';
   bool _muteAllSounds = false;
   bool _notificationsEnabled = false;
+  bool _strictTimingEnabled = false;
 
   RewardedAd? _rewardedAd;
   bool _isAdLoaded = false;
@@ -580,31 +614,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   int _dailyTargetTotalForCategory(String category) {
-    switch (category) {
-      case 'Mental Ability':
-        return 8;
-      case 'English':
-        return 20;
-      case 'Mathematics':
-      case 'Science':
-        return 16;
-      default:
-        return 16;
-    }
+    return 16;
   }
 
   double _defaultWeightForCategory(String category) {
-    switch (category) {
-      case 'Mental Ability':
-        return 0.20;
-      case 'English':
-        return 0.30;
-      case 'Mathematics':
-      case 'Science':
-        return 0.25;
-      default:
-        return 0.25;
-    }
+    return 0.25;
   }
 
   void _ensurePnleCategoryScores() {
@@ -709,16 +723,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _primeMissingCachesAsNeeded() async {
-    unawaited(_primeRandomQuizCacheIfEligible());
-
-    if (!_hasUnlockedAdvancedModes) return;
-
-    final focusCategory = _recommendedFocusCategory();
-    if (focusCategory.isNotEmpty) {
-      unawaited(_primeFocusCacheForCategory(focusCategory));
-      unawaited(_primeFreeDeepSeekCaches());
-    }
-    unawaited(_primeChallengeCacheIfEligible());
+    await _ensureSeedPoolReadyForGeneration();
+    if (!_seedPoolReady) return;
+    unawaited(_refillSeedPoolsIfNeeded());
+    unawaited(_refreshPoolWarmupStatus());
   }
 
   Future<void> _initializeSeedPool() async {
@@ -767,7 +775,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Future<void> _refreshPoolWarmupStatus() async {
     if (!_seedPoolReady) return;
 
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     final totalBuckets =
         categories.length * 4; // random, focus, challenge, timed
 
@@ -804,10 +812,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   void _kickoffInitialPregenerationWarmup() {
+    // Keep startup warmup focused on local seed-pool readiness/refill only.
     unawaited(_primeMissingCachesAsNeeded());
 
-    // Retry shortly after startup to catch cases where network permission dialog
-    // delayed initial requests on first app open (notably iOS first launch).
+    // Retry shortly after startup to catch cases where network permission dialogs
+    // delay early refill calls on first app open (notably iOS first launch).
     Future.delayed(const Duration(seconds: 4), () {
       if (!mounted) return;
       unawaited(_primeMissingCachesAsNeeded());
@@ -944,7 +953,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final response = await http
           .get(
             Uri.parse(
-              'https://ustet-reviewer-2027-default-rtdb.asia-southeast1.firebasedatabase.app/.json',
+              'https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app/.json',
             ),
           )
           .timeout(const Duration(seconds: 3));
@@ -1044,43 +1053,54 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _loadPersonalizationPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    final hasChosenEligibility =
-        prefs.getBool('has_chosen_eligibility') ?? false;
-    final savedEligibility = prefs.getString('selected_eligibility');
-    final normalizedEligibility = _normalizeSpecialization(savedEligibility);
+    final legacyHasChosenProgramInterest =
+        prefs.getBool('has_chosen_eligibility');
+    final legacySavedProgramInterest = prefs.getString('selected_eligibility');
+    final hasChosenProgramInterest =
+        prefs.getBool(_hasChosenProgramInterestPrefsKey) ??
+            legacyHasChosenProgramInterest ??
+            false;
+    final savedProgramInterest =
+        prefs.getString(_selectedProgramInterestPrefsKey) ??
+            legacySavedProgramInterest;
+    final normalizedProgramInterest =
+        _normalizeSpecialization(savedProgramInterest);
 
     if (!mounted) return;
     setState(() {
       _nickname = _normalizeNickname(prefs.getString('user_nickname') ?? '');
       _muteAllSounds = prefs.getBool('mute_all_sounds') ?? false;
       _notificationsEnabled = prefs.getBool('notifications_enabled') ?? false;
-      eligibility = normalizedEligibility;
-      _showFirstTimeFlow = !hasChosenEligibility;
+      _strictTimingEnabled = prefs.getBool('strict_timing_enabled') ?? false;
+      programInterest = normalizedProgramInterest;
+      _showFirstTimeFlow = !hasChosenProgramInterest;
     });
     await SoundService().setMuted(_muteAllSounds);
     if (_notificationsEnabled) {
       await _syncNotificationSchedules();
     }
+    if (legacyHasChosenProgramInterest != null ||
+        legacySavedProgramInterest != null) {
+      await prefs.setString(
+        _selectedProgramInterestPrefsKey,
+        normalizedProgramInterest,
+      );
+      await prefs.setBool(
+        _hasChosenProgramInterestPrefsKey,
+        hasChosenProgramInterest,
+      );
+      await _removeLegacyEligibilityPrefs(prefs);
+    }
     _promptCourseTargetIfNeeded();
   }
 
-  void _promptCourseTargetIfNeeded() {
-    if (!_showFirstTimeFlow ||
-        showOnboarding ||
-        _isCoursePickerOpen ||
-        !mounted) {
-      return;
-    }
+  Future<void> _removeLegacyEligibilityPrefs(SharedPreferences prefs) async {
+    await prefs.remove('selected_eligibility');
+    await prefs.remove('has_chosen_eligibility');
+  }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_showFirstTimeFlow ||
-          showOnboarding ||
-          _isCoursePickerOpen ||
-          !mounted) {
-        return;
-      }
-      _showSpecializationSelectionDialog();
-    });
+  void _promptCourseTargetIfNeeded() {
+    // ACET readiness should not require a study preference before practice.
   }
 
   Future<bool> _setNotificationsEnabled(bool enabled) async {
@@ -1170,6 +1190,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _muteAllSounds = muted;
     });
     unawaited(_syncAllProgressToRtdb());
+  }
+
+  Future<void> _setStrictTimingEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('strict_timing_enabled', enabled);
+    if (!mounted) return;
+    setState(() {
+      _strictTimingEnabled = enabled;
+    });
   }
 
   Future<void> _promptNicknameIfMissing() async {
@@ -1835,6 +1864,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
+  String _buildGenerationModeLabel({
+    required bool isFocusMode,
+    String? focusCategory,
+    String defaultLabel = 'RANDOM QUIZ',
+  }) {
+    if (!isFocusMode) {
+      return defaultLabel;
+    }
+
+    final normalizedCategory = focusCategory?.trim();
+    if (normalizedCategory == null || normalizedCategory.isEmpty) {
+      return 'FOCUS MODE';
+    }
+
+    return 'FOCUS MODE\n$normalizedCategory';
+  }
+
   Future<void> _persistQuizActivityRecords() async {
     try {
       _pruneQuizActivityRecords();
@@ -1995,9 +2041,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         // Streak
         'currentStreak': currentStreak,
         'lastQuizDate': lastQuizDate?.toIso8601String(),
-        // Eligibility
-        'selectedEligibility': eligibility,
-        'hasChosenEligibility': !_showFirstTimeFlow,
+        // Program interest
+        'selectedProgramInterest': programInterest,
+        'hasChosenProgramInterest': !_showFirstTimeFlow,
         'nickname': _nickname,
         'muteAllSounds': _muteAllSounds,
         // Free tests (also saved separately, but include here for completeness)
@@ -2031,9 +2077,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'quizActivityRecords': _quizActivityRecords
             .map((record) => {
                   'd': record.date.toIso8601String(),
+                  'm': record.mode,
                   'q': record.questionCount,
                   'c': record.correctCount,
                   'p': record.scorePercent,
+                  'e': record.elapsedSeconds,
+                  't': record.timedOutCount,
                   'cc': record.categoryCorrect,
                   'ct': record.categoryTotal,
                 })
@@ -2129,12 +2178,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
     }
 
-    // --- Eligibility ---
-    final remoteEligibility = data['selectedEligibility'] as String?;
-    final remoteHasChosen = data['hasChosenEligibility'] as bool? ?? false;
+    // --- Program interest ---
+    final remoteProgramInterest = (data['selectedProgramInterest'] ??
+        data['selectedEligibility']) as String?;
+    final remoteHasChosen = (data['hasChosenProgramInterest'] as bool?) ??
+        (data['hasChosenEligibility'] as bool?) ??
+        false;
     if (remoteHasChosen && _showFirstTimeFlow) {
-      if (remoteEligibility != null) {
-        eligibility = _normalizeSpecialization(remoteEligibility);
+      if (remoteProgramInterest != null) {
+        programInterest = _normalizeSpecialization(remoteProgramInterest);
       }
       _showFirstTimeFlow = false;
     }
@@ -2402,8 +2454,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (lastQuizDate != null) {
         await prefs.setString('lastQuizDate', lastQuizDate!.toIso8601String());
       }
-      await prefs.setString('selected_eligibility', eligibility);
-      await prefs.setBool('has_chosen_eligibility', !_showFirstTimeFlow);
+      await prefs.setString(_selectedProgramInterestPrefsKey, programInterest);
+      await prefs.setBool(
+        _hasChosenProgramInterestPrefsKey,
+        !_showFirstTimeFlow,
+      );
+      await _removeLegacyEligibilityPrefs(prefs);
       await prefs.setString('user_nickname', _nickname);
       await prefs.setBool('mute_all_sounds', _muteAllSounds);
       await prefs.setInt('completedSessions', completedSessions);
@@ -2412,8 +2468,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (remoteLastSessionDate != null && remoteLastSessionDate.isNotEmpty) {
         await prefs.setString('lastSessionDate', remoteLastSessionDate);
       } else {
-        await prefs.setString('lastSessionDate',
-        _startOfDay(now).toIso8601String());
+        await prefs.setString(
+            'lastSessionDate', _startOfDay(now).toIso8601String());
       }
       await prefs.setInt('remainingFreeTests', remainingFreeTests);
       await prefs.setInt('extraSessionAdChances', _extraSessionAdChances);
@@ -2500,8 +2556,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         await prefs.setString('lastCategoryScoreResetDate', remoteResetDate);
       } else {
         // If RTDB doesn't have it, set today so the daily reset doesn't fire
-        await prefs.setString('lastCategoryScoreResetDate',
-            _startOfDay(now).toIso8601String());
+        await prefs.setString(
+            'lastCategoryScoreResetDate', _startOfDay(now).toIso8601String());
       }
 
       debugPrint('Restored all progress from RTDB');
@@ -2667,7 +2723,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (_deviceId == null) return;
 
       final prefs = await SharedPreferences.getInstance();
-        final todayOnly = _currentDayStart().toIso8601String();
+      final todayOnly = _currentDayStart().toIso8601String();
       final lastResetDate =
           prefs.getString('lastFreeTestResetDate') ?? todayOnly;
       final db = _rtdb;
@@ -2696,10 +2752,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       // Default weights (must match initial state)
       const defaultWeights = {
-        'Mental Ability': 0.20,
-        'English': 0.30,
+        'English': 0.25,
         'Mathematics': 0.25,
-        'Science': 0.25,
+        'Logical Reasoning': 0.25,
+        'Mental Ability / Abstract': 0.25,
       };
 
       setState(() {
@@ -2875,18 +2931,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final savedDate = prefs.getString('dailyTaskResetDate') ?? today;
       final hasInMemoryDailyTaskStateForToday =
           _dailyTaskSessionsCompleted > 0 ||
-          _dailyTaskHighScoreAchieved ||
-          _dailyTaskFocusCompleted > 0 ||
-          _dailyTaskChallengeCompleted > 0 ||
-          _dailyTaskTimedCompleted > 0 ||
-          _dailyTaskQuestionsAnswered > 0 ||
-          _lastStreakRewardClaimDate == today ||
-          _lastEightSessionRewardClaimDate == today ||
-          _lastHighScoreRewardClaimDate == today ||
-          _lastFocusRewardClaimDate == today ||
-          _lastChallengeRewardClaimDate == today ||
-          _lastTimedExamRewardClaimDate == today ||
-          _lastThirtyAnswersRewardClaimDate == today;
+              _dailyTaskHighScoreAchieved ||
+              _dailyTaskFocusCompleted > 0 ||
+              _dailyTaskChallengeCompleted > 0 ||
+              _dailyTaskTimedCompleted > 0 ||
+              _dailyTaskQuestionsAnswered > 0 ||
+              _lastStreakRewardClaimDate == today ||
+              _lastEightSessionRewardClaimDate == today ||
+              _lastHighScoreRewardClaimDate == today ||
+              _lastFocusRewardClaimDate == today ||
+              _lastChallengeRewardClaimDate == today ||
+              _lastTimedExamRewardClaimDate == today ||
+              _lastThirtyAnswersRewardClaimDate == today;
 
       if (savedDate != today) {
         if (hasInMemoryDailyTaskStateForToday) {
@@ -2933,8 +2989,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           _dailyTaskSessionsCompleted,
           prefs.getInt('dailyTaskSessionsCompleted') ?? 0,
         );
-        _dailyTaskHighScoreAchieved =
-            _dailyTaskHighScoreAchieved ||
+        _dailyTaskHighScoreAchieved = _dailyTaskHighScoreAchieved ||
             (prefs.getBool('dailyTaskHighScoreAchieved') ?? false);
         _dailyTaskFocusCompleted = max(
           _dailyTaskFocusCompleted,
@@ -3252,29 +3307,48 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _saveEligibilityPreference(String value) async {
+  Future<void> _saveProgramInterestPreference(String value) async {
     final prefs = await SharedPreferences.getInstance();
     final normalized = _normalizeSpecialization(value);
-    await prefs.setString('selected_eligibility', normalized);
-    await prefs.setBool('has_chosen_eligibility', true);
+    await prefs.setString(_selectedProgramInterestPrefsKey, normalized);
+    await prefs.setBool(_hasChosenProgramInterestPrefsKey, true);
+    await _removeLegacyEligibilityPrefs(prefs);
 
     setState(() {
-      eligibility = normalized;
+      programInterest = normalized;
       _showFirstTimeFlow = false;
       _ensurePnleCategoryScores();
     });
+
+    unawaited(_primeMissingCachesAsNeeded());
+    if (_seedPoolReady) {
+      unawaited(_refillSeedPoolsIfNeeded());
+      unawaited(_refreshPoolWarmupStatus());
+    }
 
     _syncAllProgressToRtdb();
   }
 
   Future<void> _handleSpecializationSelection(String value) async {
-    await _saveEligibilityPreference(value);
+    await _saveProgramInterestPreference(value);
   }
 
   String _normalizeSpecialization(String? value) {
-    if (value == null || value.isEmpty) return 'Nursing';
-    if (_ustetCourses.contains(value)) return value;
-    return 'Nursing';
+    if (value == null || value.isEmpty) return 'General ACET';
+    switch (value) {
+      case 'Nursing':
+        return 'English Priority';
+      case 'Engineering':
+        return 'Mathematics Priority';
+      case 'Business':
+        return 'Logical Reasoning Priority';
+      case 'Arts':
+        return 'English Priority';
+      case 'Science':
+        return 'Mental Ability Priority';
+    }
+    if (_acetStudyPreferences.contains(value)) return value;
+    return 'General ACET';
   }
 
   // =========================
@@ -3385,7 +3459,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _zeroAdSessionsRemaining = remaining;
       });
     }
-    unawaited(_primeRandomQuizCacheIfEligible());
+    unawaited(_primeMissingCachesAsNeeded());
   }
 
   /// Persist zero-ad sessions remaining to SharedPreferences and RTDB
@@ -3511,221 +3585,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _primeFreeDeepSeekCaches() async {
-    if (hasAdFreeAccess || hasGraceAccess || _isPrimingFreeDeepSeekCache) {
-      return;
-    }
-    if (!_hasUnlockedAdvancedModes) return;
-
-    final weakestCategory = _getWeakestCategory();
-    if (weakestCategory.isEmpty) return;
-
-    final hasFocusCache =
-        (_cachedFocusQuestions[weakestCategory]?.length ?? 0) >= 15;
-    if (hasFocusCache) return;
-
-    _isPrimingFreeDeepSeekCache = true;
-    try {
-      if (!hasFocusCache) {
-        final focusPrompt = _buildFastFocusPrompt(weakestCategory);
-        final focusCategoryMap = _buildFocusCategoryMap(weakestCategory);
-
-        final focusService =
-            _buildDeepSeekService(fastMode: true, tokenCap: 3200);
-        List<Question> deepSeekQuestions = const [];
-
-        try {
-          deepSeekQuestions = await focusService.generateQuestions(
-            focusPrompt,
-            eligibility,
-            categoryMap: focusCategoryMap,
-            allowPartialResults: true,
-          );
-        } catch (e) {
-          debugPrint('Focus cache warmup DeepSeek incomplete: $e');
-        }
-
-        if (deepSeekQuestions.length >= 15) {
-          _cachedFocusQuestions[weakestCategory] =
-              deepSeekQuestions.take(15).toList();
-          unawaited(_persistFocusAndChallengeCaches());
-          return;
-        }
-
-        if (GEMINI_API_KEY.trim().isNotEmpty) {
-          try {
-            final geminiService =
-                QuestionGenerationService(apiKey: GEMINI_API_KEY);
-            final geminiQuestions = await geminiService.generateQuestions(
-              focusPrompt,
-              eligibility,
-              categoryMap: focusCategoryMap,
-            );
-
-            final merged = <Question>[];
-            final seen = <String>{};
-            void addAllUnique(List<Question> items) {
-              for (final q in items) {
-                if (merged.length >= 15) break;
-                final signature =
-                    '${q.category}|${q.question.trim().toLowerCase()}';
-                if (seen.add(signature)) {
-                  merged.add(q);
-                }
-              }
-            }
-
-            addAllUnique(deepSeekQuestions);
-            addAllUnique(geminiQuestions);
-
-            if (merged.length >= 15) {
-              _cachedFocusQuestions[weakestCategory] = merged.take(15).toList();
-              unawaited(_persistFocusAndChallengeCaches());
-              return;
-            }
-          } catch (e) {
-            debugPrint('Focus cache warmup Gemini rescue failed: $e');
-          }
-        }
-
-        // Keep whatever DeepSeek produced so it can still be reused by future recovery logic.
-        if (deepSeekQuestions.isNotEmpty) {
-          _cachedFocusQuestions[weakestCategory] = deepSeekQuestions;
-          unawaited(_persistFocusAndChallengeCaches());
-        }
-      }
-    } catch (e) {
-      debugPrint('Free DeepSeek cache warmup skipped: $e');
-    } finally {
-      _isPrimingFreeDeepSeekCache = false;
-    }
-  }
-
-  bool _canUseDeepSeekPregeneration() {
-    return !hasAdFreeAccess &&
-        !hasGraceAccess &&
-        !_showFirstTimeFlow &&
-        DEEPSEEK_API_KEY.trim().isNotEmpty;
-  }
-
-  String _categoryForQuestionNumber(int number) {
-    if (number >= 1 && number <= 2) return 'Mental Ability';
-    if (number >= 3 && number <= 7) return 'English';
-    if (number >= 8 && number <= 11) return 'Mathematics';
-    return 'Science';
-  }
-
-  Question _cloneQuestionWithNumber(Question source, int number) {
-    return Question(
-      number: number,
-      category: _categoryForQuestionNumber(number),
-      question: source.question,
-      choices: List<String>.from(source.choices),
-      answer: source.answer,
-      explanation: source.explanation,
-      source: source.source,
-    );
-  }
-
-  List<Question> _mergeQuestionSetsForRandomCache({
-    required List<Question> salvaged,
-    required List<Question> fallback,
-    int needed = 15,
-  }) {
-    final mergedByNumber = <int, Question>{};
-
-    for (final q in salvaged) {
-      if (q.number >= 1 &&
-          q.number <= needed &&
-          !mergedByNumber.containsKey(q.number)) {
-        mergedByNumber[q.number] = _cloneQuestionWithNumber(q, q.number);
-      }
-    }
-
-    for (final q in fallback) {
-      if (q.number >= 1 &&
-          q.number <= needed &&
-          !mergedByNumber.containsKey(q.number)) {
-        mergedByNumber[q.number] = _cloneQuestionWithNumber(q, q.number);
-      }
-    }
-
-    if (mergedByNumber.length < needed) {
-      for (final q in fallback) {
-        if (mergedByNumber.length >= needed) break;
-        int slot = 1;
-        while (slot <= needed && mergedByNumber.containsKey(slot)) {
-          slot++;
-        }
-        if (slot <= needed) {
-          mergedByNumber[slot] = _cloneQuestionWithNumber(q, slot);
-        }
-      }
-    }
-
-    final result = <Question>[];
-    for (int i = 1; i <= needed; i++) {
-      final q = mergedByNumber[i];
-      if (q != null) result.add(q);
-    }
-    return result;
-  }
-
-  Future<List<Question>> _buildRandomPregeneratedQuestions(
-      Map<String, String> coverage) async {
-    final prompt = _buildFastPromptFromCoverage(coverage);
-    List<Question> salvagedDeepSeek = const [];
-
-    if (DEEPSEEK_API_KEY.trim().isNotEmpty) {
-      try {
-        final deepSeekService = _buildDeepSeekService(
-          fastMode: true,
-          requestTimeoutOverride: const Duration(seconds: 80),
-          maxRetriesOverride: 1,
-        );
-        salvagedDeepSeek = await deepSeekService.generateQuestions(
-          prompt,
-          eligibility,
-          allowPartialResults: true,
-        );
-      } catch (e) {
-        debugPrint('Random quiz pre-generation DeepSeek failed: $e');
-      }
-    }
-
-    if (salvagedDeepSeek.length >= 15) {
-      return salvagedDeepSeek.take(15).toList();
-    }
-
-    if (GEMINI_API_KEY.trim().isEmpty) {
-      return salvagedDeepSeek;
-    }
-
-    final geminiService = QuestionGenerationService(apiKey: GEMINI_API_KEY);
-    final fallbackGemini = await geminiService
-        .generateQuestions(prompt, eligibility)
-        .timeout(const Duration(seconds: 80));
-
-    if (salvagedDeepSeek.isEmpty) {
-      return fallbackGemini.take(15).toList();
-    }
-
-    return _mergeQuestionSetsForRandomCache(
-      salvaged: salvagedDeepSeek,
-      fallback: fallbackGemini,
-      needed: 15,
-    );
-  }
-
-  bool _coverageMatchesCachedRandom(Map<String, String>? coverage) {
-    if (coverage == null || _cachedRandomQuizCoverage == null) return false;
-    if (coverage.length != _cachedRandomQuizCoverage!.length) return false;
-    for (final entry in coverage.entries) {
-      if (_cachedRandomQuizCoverage![entry.key] != entry.value) return false;
-    }
-    return true;
-  }
-
   Future<void> _loadRandomQuizCache() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -3760,6 +3619,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       'number': q.number,
       'category': q.category,
       'question': q.question,
+      'imageAssetPath': q.imageAssetPath,
       'choices': q.choices,
       'answer': q.answer,
       'explanation': q.explanation,
@@ -3888,80 +3748,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     await _persistRandomQuizCache();
   }
 
-  Future<void> _primeRandomQuizCacheIfEligible({
-    bool force = false,
-    Map<String, String>? coverageOverride,
-  }) async {
-    if (!_canUseDeepSeekPregeneration()) return;
-    if (_isPrimingRandomQuizCache) {
-      await _randomQuizPrimeCompleter?.future;
-      return;
-    }
-    if (!force && (_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
-      if (coverageOverride == null ||
-          _coverageMatchesCachedRandom(coverageOverride)) {
-        return;
-      }
-    }
-
-    _isPrimingRandomQuizCache = true;
-    _randomQuizPrimeCompleter = Completer<void>();
-    try {
-      final coverage = coverageOverride ?? _generateTestCoverage();
-      final questions = await _buildRandomPregeneratedQuestions(coverage);
-      if (questions.length < 15 || !mounted) return;
-
-      setState(() {
-        _cachedRandomQuizCoverage = Map<String, String>.from(coverage);
-        _cachedRandomQuizQuestions = questions;
-      });
-      await _persistRandomQuizCache();
-    } catch (e) {
-      debugPrint('Random quiz DeepSeek pre-generation skipped: $e');
-    } finally {
-      _isPrimingRandomQuizCache = false;
-      if (!(_randomQuizPrimeCompleter?.isCompleted ?? true)) {
-        _randomQuizPrimeCompleter?.complete();
-      }
-      _randomQuizPrimeCompleter = null;
-    }
-  }
-
-  Future<void> _primeFocusCacheForCategory(
-    String category, {
-    bool force = false,
-  }) async {
-    if (!_canUseDeepSeekPregeneration()) return;
-    final existing = _cachedFocusQuestions[category];
-    if (!force && (existing?.length ?? 0) >= 15) return;
-
-    try {
-      final service = _buildDeepSeekService(fastMode: true);
-      final focusQuestions = await service.generateQuestions(
-        _buildFastFocusPrompt(category),
-        eligibility,
-        categoryMap: _buildFocusCategoryMap(category),
-      );
-      if (focusQuestions.length < 15 || !mounted) return;
-
-      setState(() {
-        _cachedFocusQuestions[category] = focusQuestions;
-      });
-      await _persistFocusAndChallengeCaches();
-    } catch (e) {
-      debugPrint('Focus quiz pre-generation skipped: $e');
-    }
-  }
-
   // =========================
   // TEST GENERATION
   // =========================
   Future<bool> _generateTest(
       {bool isFocusMode = false, String? focusCategory}) async {
+    await _ensureSeedPoolReadyForGeneration();
     _usedCachedRandomForLastGeneration = false;
 
     // Primary/Fallback uses Gemini-first; all other users go straight to DeepSeek pre-generation flow.
-    final useGemini = hasAdFreeAccess || hasGraceAccess;
+    final useGemini = hasUnlimitedAccess || hasGraceAccess;
 
     // Use state variables if not passed as parameters
     final useFocusMode = isFocusMode || _isFocusMode;
@@ -3982,13 +3778,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (useFocusMode && category != null) {
-      await _ensureSeedPoolBucketsForRequest(
-        mode: 'focusMode',
-        categoryMap: categoryMap!,
-      );
       final seededQuestions = await _takeSeedQuestions(
         'focusMode',
-        categoryMap,
+        categoryMap!,
       );
       if (seededQuestions.length >= 15) {
         debugPrint('[SeedPool] Focus mode served from pool ($category).');
@@ -3999,14 +3791,28 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _focusCategory = null;
         return true;
       }
+      await _ensureSeedPoolBucketsForRequest(
+        mode: 'focusMode',
+        categoryMap: categoryMap,
+      );
+
+      final refilledSeedQuestions = await _takeSeedQuestions(
+        'focusMode',
+        categoryMap,
+      );
+      if (refilledSeedQuestions.length >= 15) {
+        debugPrint('[SeedPool] Focus mode served after targeted refill.');
+        _generatedQuestions = refilledSeedQuestions.take(15).toList();
+        _generatedQuestions =
+            _generatedQuestions.map((q) => q.shuffled()).toList();
+        _isFocusMode = false;
+        _focusCategory = null;
+        return true;
+      }
     } else {
       final seedMode =
           _activeGenerationMode == 'timedExam' ? 'timedExam' : 'randomQuiz';
       final randomLikeMap = _buildRandomCategoryMap();
-      await _ensureSeedPoolBucketsForRequest(
-        mode: seedMode,
-        categoryMap: randomLikeMap,
-      );
       final seededQuestions = await _takeSeedQuestions(
         seedMode,
         randomLikeMap,
@@ -4014,6 +3820,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (seededQuestions.length >= 15) {
         debugPrint('[SeedPool] $seedMode served from pool.');
         _generatedQuestions = seededQuestions.take(15).toList();
+        _generatedQuestions =
+            _generatedQuestions.map((q) => q.shuffled()).toList();
+        _isFocusMode = false;
+        _focusCategory = null;
+        return true;
+      }
+      await _ensureSeedPoolBucketsForRequest(
+        mode: seedMode,
+        categoryMap: randomLikeMap,
+      );
+
+      final refilledSeedQuestions = await _takeSeedQuestions(
+        seedMode,
+        randomLikeMap,
+      );
+      if (refilledSeedQuestions.length >= 15) {
+        debugPrint('[SeedPool] $seedMode served after targeted refill.');
+        _generatedQuestions = refilledSeedQuestions.take(15).toList();
         _generatedQuestions =
             _generatedQuestions.map((q) => q.shuffled()).toList();
         _isFocusMode = false;
@@ -4032,7 +3856,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
         _generatedQuestions = await service.generateQuestions(
           prompt,
-          eligibility,
+          programInterest,
           categoryMap: categoryMap,
         );
       } catch (e) {
@@ -4043,51 +3867,84 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         final service = _buildDeepSeekService(fastMode: false);
         _generatedQuestions = await service.generateQuestions(
           prompt,
-          eligibility,
+          programInterest,
           categoryMap: categoryMap,
         );
       }
     } else {
       debugPrint('[SeedPool] Falling back to live generation (DeepSeek flow).');
-      if (DEEPSEEK_API_KEY.trim().isEmpty) {
-        return false;
-      }
       if (useFocusMode && category != null) {
         final cached = _cachedFocusQuestions[category];
         if (cached != null && cached.length >= 15) {
           _generatedQuestions = cached.take(15).toList();
           _cachedFocusQuestions.remove(category);
           unawaited(_persistFocusAndChallengeCaches());
-          unawaited(_primeFocusCacheForCategory(category, force: true));
+          unawaited(_primeMissingCachesAsNeeded());
         } else {
-          final service = _buildDeepSeekService(fastMode: true);
-          _generatedQuestions = await service.generateQuestions(
-            deepSeekPrompt,
-            eligibility,
-            categoryMap: categoryMap,
-          );
+          try {
+            if (DEEPSEEK_API_KEY.trim().isEmpty) {
+              throw Exception('DeepSeek unavailable');
+            }
+            final service = _buildDeepSeekService(fastMode: true);
+            _generatedQuestions = await service.generateQuestions(
+              deepSeekPrompt,
+              programInterest,
+              categoryMap: categoryMap,
+            );
+          } catch (_) {
+            if (GEMINI_API_KEY.trim().isEmpty) {
+              return false;
+            }
+            final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+            _generatedQuestions = await service.generateQuestions(
+              prompt,
+              programInterest,
+              categoryMap: categoryMap,
+            );
+          }
         }
       } else {
-        final hasCachedRandomReady =
-            (_cachedRandomQuizQuestions?.length ?? 0) >= 15;
-        if (_isPrimingRandomQuizCache && !hasCachedRandomReady) {
-          await _randomQuizPrimeCompleter?.future;
+        var servedFromCache = false;
+        if ((_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
+          final cachedQuestions = _cachedRandomQuizQuestions!;
+          final cachedVisualCount = cachedQuestions
+              .where((q) => (q.imageAssetPath?.isNotEmpty ?? false))
+              .length;
+          if (cachedVisualCount > 1) {
+            await _clearRandomQuizCache();
+          } else {
+            _usedCachedRandomForLastGeneration = true;
+            if (_cachedRandomQuizCoverage != null) {
+              _currentTestCoverage =
+                  Map<String, String>.from(_cachedRandomQuizCoverage!);
+            }
+            _generatedQuestions = cachedQuestions.take(15).toList();
+            servedFromCache = true;
+          }
         }
 
-        if ((_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
-          _usedCachedRandomForLastGeneration = true;
-          if (_cachedRandomQuizCoverage != null) {
-            _currentTestCoverage =
-                Map<String, String>.from(_cachedRandomQuizCoverage!);
+        if (!servedFromCache) {
+          try {
+            if (DEEPSEEK_API_KEY.trim().isEmpty) {
+              throw Exception('DeepSeek unavailable');
+            }
+            final service = _buildDeepSeekService(fastMode: true);
+            _generatedQuestions = await service.generateQuestions(
+              deepSeekPrompt,
+              programInterest,
+              categoryMap: categoryMap,
+            );
+          } catch (_) {
+            if (GEMINI_API_KEY.trim().isEmpty) {
+              return false;
+            }
+            final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+            _generatedQuestions = await service.generateQuestions(
+              prompt,
+              programInterest,
+              categoryMap: categoryMap,
+            );
           }
-          _generatedQuestions = _cachedRandomQuizQuestions!.take(15).toList();
-        } else {
-          final service = _buildDeepSeekService(fastMode: true);
-          _generatedQuestions = await service.generateQuestions(
-            deepSeekPrompt,
-            eligibility,
-            categoryMap: categoryMap,
-          );
         }
       }
     }
@@ -4096,7 +3953,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _generatedQuestions = _generatedQuestions.map((q) => q.shuffled()).toList();
 
     // Increment daily usage counter for access-enabled users
-    if ((hasAdFreeAccess || hasGraceAccess) && _generatedQuestions.isNotEmpty) {
+    if ((hasUnlimitedAccess || hasGraceAccess) &&
+        _generatedQuestions.isNotEmpty) {
       _incrementGenerationUsage(_generatedQuestions.length);
     }
 
@@ -4110,7 +3968,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   /// Build category map for Focus Mode (10 focus + 5 mixed)
   Map<int, String> _buildFocusCategoryMap(String focusCategory) {
     final categoryMap = <int, String>{};
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     final otherCategories =
         categories.where((cat) => cat != focusCategory).toList();
 
@@ -4136,7 +3994,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Map<int, String> _buildChallengeCategoryMap(String focusCategory) {
     final categoryMap = <int, String>{};
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
 
     for (int q = 1; q <= 6; q++) {
       categoryMap[q] = focusCategory;
@@ -4164,7 +4022,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Map<int, String> _buildRandomCategoryMap() {
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     if (categories.isEmpty) return {};
 
     final categoryMap = <int, String>{};
@@ -4201,6 +4059,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return questions;
   }
 
+  Future<void> _ensureSeedPoolReadyForGeneration() async {
+    if (_seedPoolReady) return;
+    try {
+      await _seedPoolService.ensureInitialized();
+      if (!mounted) {
+        _seedPoolReady = true;
+        return;
+      }
+      setState(() {
+        _seedPoolReady = true;
+      });
+      unawaited(_refreshPoolWarmupStatus());
+    } catch (e) {
+      debugPrint('Seed pool readiness check skipped: $e');
+    }
+  }
+
   Future<void> _ensureSeedPoolBucketsForRequest({
     required String mode,
     required Map<int, String> categoryMap,
@@ -4217,7 +4092,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _isRefillingSeedPool = true;
     try {
       final deficits =
-          await _seedPoolService.getDeficits(threshold: 20, targetSize: 30);
+          await _seedPoolService.getDeficits(threshold: 29, targetSize: 30);
 
       final modePrefix = '$mode::';
       for (final entry in deficits.entries) {
@@ -4273,7 +4148,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _isRefillingSeedPool = true;
     try {
       final deficits =
-          await _seedPoolService.getDeficits(threshold: 20, targetSize: 30);
+          await _seedPoolService.getDeficits(threshold: 29, targetSize: 30);
 
       for (final entry in deficits.entries) {
         if (entry.value <= 0) continue;
@@ -4332,14 +4207,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
       generated = await service.generateQuestions(
         prompt,
-        eligibility,
+        programInterest,
         categoryMap: categoryMap,
       );
     } else if (GEMINI_API_KEY.trim().isNotEmpty) {
       final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
       generated = await service.generateQuestions(
         prompt,
-        eligibility,
+        programInterest,
         categoryMap: categoryMap,
       );
     }
@@ -4385,7 +4260,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       count: count,
       fallbackModeInstruction: modeInstruction,
       fallbackTemplate:
-          'Generate exactly {{count}} multiple-choice questions for USTET practice.\n\nCategory: {{category}}\n{{modeInstruction}}\n\nConstraints:\n- Return strict JSON array only (no markdown):\n[\n  {\n    "number": 1,\n    "category": "{{category}}",\n    "question": "...",\n    "choices": ["A", "B", "C", "D"],\n    "answer": "A",\n    "explanation": "2-3 sentence concise rationale",\n    "source": "seed_refill"\n  }\n]\n- Exactly 4 choices per question.\n- One correct answer only, answer must be A/B/C/D.\n- Keep questions age-appropriate for Filipino SHS and college admission prep.\n- Avoid duplicates and avoid requiring images or tables.',
+          'Generate exactly {{count}} multiple-choice questions for ACET practice.\n\nCategory: {{category}}\n{{modeInstruction}}\n\nConstraints:\n- Return strict JSON array only (no markdown):\n[\n  {\n    "number": 1,\n    "category": "{{category}}",\n    "question": "...",\n    "choices": ["A", "B", "C", "D"],\n    "answer": "A",\n    "explanation": "2-3 sentence concise rationale",\n    "source": "seed_refill"\n  }\n]\n- Exactly 4 choices per question.\n- One correct answer only, answer must be A/B/C/D.\n- Keep questions age-appropriate for Filipino SHS and college admission prep.\n- Avoid duplicates and avoid requiring images or tables.',
     );
   }
 
@@ -4405,7 +4280,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _isPrimingChallengeCache = true;
     _challengePrimeCompleter = Completer<void>();
     try {
-      final categories = _categoriesForEligibility();
+      final categories = _categoriesForProgramInterest();
       if (categories.isEmpty) return;
 
       final focusCategory = categories[Random().nextInt(categories.length)];
@@ -4415,7 +4290,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
       final questions = await service.generateQuestions(
         prompt,
-        eligibility,
+        programInterest,
         categoryMap: categoryMap,
       );
 
@@ -4438,7 +4313,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Map<String, String> _generateTestCoverage() {
     final Map<String, String> selected = {};
 
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
 
     for (final category in categories) {
       selected[category] = _pickRandomKeyArea(category);
@@ -4449,7 +4324,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Map<String, String> _generateFocusModeCoverage(String focusCategory) {
     final Map<String, String> selected = {};
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
 
     // Generate topics for all categories (for the 5 mixed questions in focus mode)
     for (final category in categories) {
@@ -4491,7 +4366,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => QuestionScreen(
           questions: pooledQuestions,
-          hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
+          hasUnlimitedAccess: hasUnlimitedAccess || hasGraceAccess,
+          strictTimingEnabled: _strictTimingEnabled,
           recordResults: false,
           testMode: 'quickPractice',
           zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -4531,13 +4407,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => QuestionScreen(
           questions: session.questions,
-          hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
+          hasUnlimitedAccess: hasUnlimitedAccess || hasGraceAccess,
+          strictTimingEnabled: _strictTimingEnabled,
           recordResults: session.recordResults,
           testMode: session.testMode,
           zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
           initialIndex: session.currentIndex,
           initialCorrectCount: session.correctCount,
           initialElapsedSeconds: session.elapsedSeconds,
+          initialAttempts: session.assessmentAttempts,
         ),
       ),
     );
@@ -4585,13 +4463,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_menuPastelPanel, _menuPastelLeafSoft, 0.18)!,
+                _menuPastelPanel,
+                Color.lerp(_menuPastelPanel, _menuPastelYellow, 0.12)!,
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+            border: Border.all(color: _menuPastelGlassBorder),
+            boxShadow: [
+              BoxShadow(
+                color: _menuPastelLeaf.withValues(alpha: 0.12),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -4600,7 +4489,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Text(
                 'Continue Session',
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _menuPastelText,
                   fontWeight: FontWeight.w700,
                   fontSize: 20,
                 ),
@@ -4611,8 +4500,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ? 'Retrieving your unfinished sessions...'
                     : 'Choose an unfinished mode to resume.',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.75),
+                  color: _menuPastelTextSoft,
                   fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 14),
@@ -4623,14 +4513,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     child: Column(
                       children: [
                         const CircularProgressIndicator(
-                          color: PnleTheme.accent,
+                          color: _menuPastelLeaf,
                         ),
                         const SizedBox(height: 14),
                         Text(
                           'Retrieving your unfinished sessions...',
                           style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.75),
+                            color: _menuPastelTextSoft,
                             fontSize: 13,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -4651,20 +4542,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(
                           Icons.play_circle_fill_rounded,
-                          color: PnleTheme.accent,
+                          color: _menuPastelLeaf,
                         ),
                         title: Text(
                           _modeLabel(mode),
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: _menuPastelText,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         subtitle: Text(
                           'Progress: $progress',
                           style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.7),
+                            color: _menuPastelTextSoft,
                             fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         onTap: () async {
@@ -4677,11 +4569,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 ),
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton(
+                child: OutlinedButton(
                   onPressed: () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: _menuPastelCream,
+                    foregroundColor: _menuPastelText,
+                    side: const BorderSide(color: _menuPastelGlassBorder),
+                  ),
                   child: Text(
                     'Close',
-                    style: GoogleFonts.outfit(color: Colors.white70),
+                    style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
                   ),
                 ),
               ),
@@ -4705,7 +4602,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => QuestionScreen(
           questions: reviewQuestions,
-          hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
+          hasUnlimitedAccess: hasUnlimitedAccess || hasGraceAccess,
+          strictTimingEnabled: _strictTimingEnabled,
           recordResults: false,
           testMode: 'reviewMistakes',
           zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -4751,13 +4649,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_menuPastelPanel, _menuPastelLeafSoft, 0.18)!,
+                _menuPastelPanel,
+                Color.lerp(_menuPastelPanel, _menuPastelYellow, 0.14)!,
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+            border: Border.all(color: _menuPastelGlassBorder),
+            boxShadow: [
+              BoxShadow(
+                color: _menuPastelLeaf.withValues(alpha: 0.12),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -4765,7 +4674,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Text(
                 'Review Mistakes',
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _menuPastelText,
                   fontWeight: FontWeight.bold,
                   fontSize: 22,
                 ),
@@ -4776,8 +4685,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ? 'Retrieving saved mistakes...'
                     : '${_mistakeQueue.length} missed questions saved',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.75),
+                  color: _menuPastelTextSoft,
                   fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 16),
@@ -4787,15 +4697,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   child: Column(
                     children: [
                       const CircularProgressIndicator(
-                        color: PnleTheme.accent,
+                        color: _menuPastelLeaf,
                       ),
                       const SizedBox(height: 14),
                       Text(
                         'Retrieving saved mistakes...',
                         textAlign: TextAlign.center,
                         style: GoogleFonts.outfit(
-                          color: Colors.white.withValues(alpha: 0.75),
+                          color: _menuPastelTextSoft,
                           fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -4806,8 +4717,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   'No mistakes saved yet. Finish quizzes to build your review queue.',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.75),
+                    color: _menuPastelTextSoft,
                     fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 )
               else
@@ -4825,13 +4737,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           item.timedOut
                               ? Icons.timer_off_rounded
                               : Icons.cancel_outlined,
-                          color: const Color(0xFFFF8A80),
+                          color: const Color(0xFFBE8E75),
                           size: 18,
                         ),
                         title: Text(
                           item.question.category,
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: _menuPastelText,
                             fontWeight: FontWeight.w600,
                             fontSize: 12,
                           ),
@@ -4841,8 +4753,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.7),
+                            color: _menuPastelTextSoft,
                             fontSize: 11,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       );
@@ -4853,16 +4766,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Row(
                 children: [
                   Expanded(
-                    child: TextButton(
+                    child: OutlinedButton(
                       onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: _menuPastelCream,
+                        foregroundColor: _menuPastelText,
+                        side: const BorderSide(color: _menuPastelGlassBorder),
+                      ),
                       child: Text(
                         'Close',
-                        style: GoogleFonts.outfit(color: Colors.white70),
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
                   Expanded(
-                    child: TextButton(
+                    child: OutlinedButton(
                       onPressed: _mistakeQueue.isEmpty
                           ? null
                           : () async {
@@ -4872,10 +4790,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               await _persistMistakeQueue();
                               if (mounted) Navigator.pop(context);
                             },
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF7E8E2),
+                        foregroundColor: const Color(0xFFBE8E75),
+                        side: const BorderSide(color: Color(0xFFE2C3B6)),
+                      ),
                       child: Text(
                         'Clear',
                         style: GoogleFonts.outfit(
-                          color: const Color(0xFFFFB3B3),
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -4889,8 +4812,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               await _startReviewMistakesSession();
                             },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: PnleTheme.accent,
-                        foregroundColor: Colors.black,
+                        backgroundColor: _menuPastelLeaf,
+                        foregroundColor: _menuPastelCream,
                       ),
                       child: Text(
                         'Start',
@@ -5016,13 +4939,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_menuPastelPanel, _menuPastelLeafSoft, 0.2)!,
+                _menuPastelPanel,
+                Color.lerp(_menuPastelPanel, _menuPastelYellow, 0.18)!,
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+            border: Border.all(color: _menuPastelGlassBorder, width: 1.4),
+            boxShadow: [
+              BoxShadow(
+                color: _menuPastelLeaf.withValues(alpha: 0.12),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -5031,7 +4965,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Text(
                 _modeLabel(mode),
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _menuPastelText,
                   fontWeight: FontWeight.w700,
                   fontSize: 20,
                 ),
@@ -5040,28 +4974,40 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Text(
                 'You already have an unfinished session (${existing.currentIndex + 1}/${existing.questions.length}).',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.8),
+                  color: _menuPastelTextSoft,
                   fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 6),
               Text(
                 'Paused sessions reset at midnight with daily tasks.',
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.65),
+                  color: _menuPastelTextSoft.withValues(alpha: 0.86),
                   fontSize: 11,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
-                    child: TextButton(
+                    child: OutlinedButton(
                       onPressed: () => Navigator.pop(context, 'continue'),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: _menuPastelGlassBorder,
+                        ),
+                        backgroundColor: _menuPastelCream,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
                       child: Text(
                         'Continue',
                         style: GoogleFonts.outfit(
-                          color: Colors.white,
+                          color: _menuPastelText,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -5072,12 +5018,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     child: ElevatedButton(
                       onPressed: () => Navigator.pop(context, 'new'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: PnleTheme.accent,
-                        foregroundColor: Colors.black,
+                        backgroundColor: _menuPastelLeaf,
+                        foregroundColor: _menuPastelCream,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                       child: Text(
                         'Start New',
-                        style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
+                        style: GoogleFonts.outfit(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ),
@@ -5114,14 +5066,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _launchChallengeMode() async {
     if ((_cachedChallengeQuestions?.length ?? 0) < 10) {
-      final categories = _categoriesForEligibility();
+      final categories = _categoriesForProgramInterest();
       if (categories.isNotEmpty) {
         final focusCategory = categories[Random().nextInt(categories.length)];
         final challengeMap = _buildChallengeCategoryMap(focusCategory);
-        await _ensureSeedPoolBucketsForRequest(
-          mode: 'challenge',
-          categoryMap: challengeMap,
-        );
         final seededQuestions = await _takeSeedQuestions(
           'challenge',
           challengeMap,
@@ -5132,6 +5080,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             _cachedChallengeQuestions = seededQuestions.take(10).toList();
           });
           unawaited(_persistFocusAndChallengeCaches());
+        } else {
+          await _ensureSeedPoolBucketsForRequest(
+            mode: 'challenge',
+            categoryMap: challengeMap,
+          );
         }
       }
     }
@@ -5156,7 +5109,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         MaterialPageRoute(
           builder: (_) => QuestionScreen(
             questions: cachedQuestions,
-            hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
+            hasUnlimitedAccess: hasUnlimitedAccess || hasGraceAccess,
+            strictTimingEnabled: _strictTimingEnabled,
             recordResults: false,
             testMode: 'challenge',
             zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -5195,7 +5149,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             ),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
-                color: Colors.amber.withValues(alpha: 0.5), width: 2),
+                color: PnleTheme.warning.withValues(alpha: 0.5), width: 2),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -5203,8 +5157,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.emoji_events_rounded,
-                      color: Colors.amber.shade200, size: 18),
+                  const Icon(Icons.emoji_events_rounded,
+                      color: PnleTheme.warning, size: 18),
                   const SizedBox(width: 8),
                   Text(
                     'CHALLENGE MODE',
@@ -5217,9 +5171,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 ],
               ),
               const SizedBox(height: 18),
-              CircularProgressIndicator(
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(Colors.amber.shade200),
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(PnleTheme.warning),
               ),
               const SizedBox(height: 14),
               Text(
@@ -5237,9 +5190,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     try {
       // Primary/Fallback uses Gemini-first; all other users use DeepSeek generation flow.
-      final useGemini = hasAdFreeAccess || hasGraceAccess;
+      final useGemini = hasUnlimitedAccess || hasGraceAccess;
       // Generate random category focus for challenge
-      final categories = _categoriesForEligibility();
+      final categories = _categoriesForProgramInterest();
       final focusCategory = categories[Random().nextInt(categories.length)];
       final prompt = useGemini
           ? _buildChallengeModePrompt(focusCategory)
@@ -5255,7 +5208,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         }
         try {
           final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
-          questions = await service.generateQuestions(prompt, eligibility,
+          questions = await service.generateQuestions(prompt, programInterest,
               categoryMap: categoryMap);
         } catch (e) {
           if (DEEPSEEK_API_KEY.trim().isEmpty) {
@@ -5264,7 +5217,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           }
 
           final service = _buildDeepSeekService(fastMode: false);
-          questions = await service.generateQuestions(prompt, eligibility,
+          questions = await service.generateQuestions(prompt, programInterest,
               categoryMap: categoryMap);
         }
       } else {
@@ -5273,7 +5226,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               'Challenge mode is temporarily unavailable while offline and no fallback key is configured.');
         }
         final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
-        questions = await service.generateQuestions(prompt, eligibility,
+        questions = await service.generateQuestions(prompt, programInterest,
             categoryMap: categoryMap);
       }
 
@@ -5303,7 +5256,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           MaterialPageRoute(
             builder: (_) => QuestionScreen(
               questions: questions.take(10).toList(),
-              hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
+              hasUnlimitedAccess: hasUnlimitedAccess || hasGraceAccess,
+              strictTimingEnabled: _strictTimingEnabled,
               recordResults: false,
               testMode: 'challenge',
               zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
@@ -5334,15 +5288,167 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
   }
 
-  List<String> _categoriesForEligibility() {
+  List<String> _categoriesForProgramInterest() {
     return pnleCategories;
   }
 
-  Map<String, int> _activeCourseTargets() {
-    return _courseTargets[eligibility] ?? _courseTargets['Nursing']!;
+  List<_QuizActivityRecord> _recentTimedExamRecords({int count = 6}) {
+    return _quizActivityRecords
+        .where((record) => record.mode == 'timedExam')
+        .take(count)
+        .toList();
+  }
+
+  AcetAssessment _fallbackAssessmentFromRecord(_QuizActivityRecord record) {
+    final averageTime = record.questionCount > 0
+        ? record.elapsedSeconds / record.questionCount
+        : 0.0;
+    final unansweredAnswers =
+        record.timedOutCount.clamp(0, record.questionCount);
+    final wrongAnswers = max(
+      0,
+      record.questionCount - record.correctCount - unansweredAnswers,
+    );
+    final speedFactor = (1.15 - ((averageTime - 10) * 0.02)).clamp(0.70, 1.05);
+    final categoryStats = <String, AcetCategoryAssessment>{};
+
+    for (final entry in record.categoryTotal.entries) {
+      final category = entry.key;
+      final total = entry.value;
+      final correct = record.categoryCorrect[category] ?? 0;
+      final accuracy = total > 0 ? (correct / total) * 100 : 0.0;
+      categoryStats[category] = AcetCategoryAssessment(
+        category: category,
+        correctAnswers: correct,
+        totalQuestions: total,
+        accuracyPercent: accuracy,
+        averageTimePerQuestionSeconds: averageTime,
+        statusLabel: _acetAssessmentService.categoryStatusLabel(
+          accuracyPercent: accuracy,
+          averageTimeSeconds: averageTime,
+        ),
+      );
+    }
+
+    return AcetAssessment(
+      totalQuestions: record.questionCount,
+      correctAnswers: record.correctCount,
+      wrongAnswers: wrongAnswers,
+      unansweredAnswers: unansweredAnswers,
+      timedOutCount: record.timedOutCount,
+      accuracyPercent: record.scorePercent,
+      averageTimePerQuestionSeconds: averageTime,
+      efficiencyScore: (record.scorePercent * speedFactor).clamp(0.0, 100.0),
+      readinessLabel: record.scorePercent >= 80 && averageTime <= 25
+          ? 'ACET Ready'
+          : (record.scorePercent >= 70 && averageTime <= 27
+              ? 'Competitive'
+              : (record.scorePercent >= 55 ? 'Developing' : 'Not Ready')),
+      fastAnswerCount: 0,
+      moderateAnswerCount: 0,
+      slowAnswerCount: 0,
+      questionsPerMinute: record.elapsedSeconds > 0
+          ? (record.questionCount * 60) / record.elapsedSeconds
+          : 0.0,
+      insightMessage: '',
+      recommendedFocusCategory: '',
+      perCategoryStats: categoryStats,
+    );
+  }
+
+  List<AcetAssessment> _recentAssessments({int count = 10, String? mode}) {
+    final records = _quizActivityRecords
+        .where((record) => mode == null || record.mode == mode)
+        .take(count)
+        .toList();
+    return records
+        .map((record) =>
+            record.assessment ?? _fallbackAssessmentFromRecord(record))
+        .toList();
+  }
+
+  AcetAssessment? _recentAssessmentSummary({int count = 10, String? mode}) {
+    final assessments = _recentAssessments(count: count, mode: mode);
+    if (assessments.isEmpty) return null;
+    return _acetAssessmentService.mergeAssessments(assessments);
+  }
+
+  Color _readinessColorForLabel(String label) {
+    switch (label) {
+      case 'ACET Ready':
+        return PnleTheme.success;
+      case 'Competitive':
+        return PnleTheme.info;
+      case 'Developing':
+        return PnleTheme.warning;
+      default:
+        return PnleTheme.danger;
+    }
+  }
+
+  Map<String, dynamic> _timedReadinessMetrics({int count = 6}) {
+    final summary = _recentAssessmentSummary(count: count, mode: 'timedExam');
+    if (summary == null) {
+      return {
+        'hasData': false,
+        'score': 0.0,
+        'accuracy': 0.0,
+        'pace': 0.0,
+        'focus': 0.0,
+        'sessionCount': 0,
+        'label': 'No Timed Data',
+        'summary':
+            'Finish a few Timed Exam sessions to measure exam-speed readiness separately from content mastery.',
+        'color': PnleTheme.neutral,
+      };
+    }
+
+    final label = summary.readinessLabel;
+    final color = _readinessColorForLabel(label);
+    final averageTime = summary.averageTimePerQuestionSeconds;
+    final pace =
+        (100 - ((averageTime - 15).clamp(0.0, 20.0) * 3.2)).clamp(35.0, 100.0);
+    final focus =
+        (100 - ((summary.timedOutCount * 12).toDouble())).clamp(35.0, 100.0);
+    final sessionCount = _recentTimedExamRecords(count: count).length;
+
+    String summaryText;
+    switch (label) {
+      case 'ACET Ready':
+        summaryText =
+            'Recent timed runs show balanced speed and accuracy for ACET pressure.';
+        break;
+      case 'Competitive':
+        summaryText =
+            'Your timed performance is competitive, but a little more speed discipline can still raise efficiency.';
+        break;
+      case 'Developing':
+        summaryText =
+            'The foundation is building, but timed efficiency still needs work before full ACET pace feels stable.';
+        break;
+      default:
+        summaryText =
+            'Timed sets are still breaking down under pressure. Shorter speed drills will help before full runs.';
+    }
+
+    return {
+      'hasData': true,
+      'score': summary.efficiencyScore,
+      'accuracy': summary.accuracyPercent,
+      'pace': pace,
+      'focus': focus,
+      'sessionCount': sessionCount,
+      'label': label,
+      'summary': summaryText,
+      'color': color,
+    };
   }
 
   double _categoryPercent(String category) {
+    final summary = _recentAssessmentSummary();
+    final stat = summary?.perCategoryStats[category];
+    if (stat != null) return stat.accuracyPercent;
+
     final data = categoryScores[category];
     if (data == null) return 0;
     final correct = (data['correct'] as num?)?.toInt() ?? 0;
@@ -5352,29 +5458,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   int _targetForCategory(String category) {
-    return _activeCourseTargets()[category] ?? 80;
-  }
-
-  bool _meetsCourseTarget(String category) {
-    return _categoryPercent(category) >= _targetForCategory(category);
+    return _acetReadinessThresholds[category] ?? 70;
   }
 
   String _readinessLabel() {
-    final categories = _categoriesForEligibility();
-    final met = categories.where(_meetsCourseTarget).length;
-    if (met == categories.length) return 'Ready';
-    return 'Not Ready';
+    return _recentAssessmentSummary()?.readinessLabel ?? 'Not Ready';
   }
 
   Color _readinessColor() {
-    switch (_readinessLabel()) {
-      case 'Ready':
-        return const Color(0xFF34D399);
-      case 'Almost Ready':
-        return Colors.amber;
-      default:
-        return const Color(0xFFFF6B6B);
-    }
+    return _readinessColorForLabel(_readinessLabel());
   }
 
   List<String> _recommendedKeyAreasForCategory(
@@ -5392,187 +5484,177 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _readinessPrimaryFeedback() {
-    final categories = _categoriesForEligibility();
-    String? priorityCategory;
-    double priorityScore = -1;
-    int priorityTarget = -1;
-    double priorityPercent = 0;
-
-    for (final category in categories) {
-      final score = _categoryPercent(category);
-      final target = _targetForCategory(category);
-      final deficit = (target - score).clamp(0.0, 100.0);
-      if (deficit <= 0) {
-        continue;
-      }
-
-      final deficitRatio = target > 0 ? (deficit / target) : 0.0;
-      final scoreKey = (deficitRatio * 1000) + target;
-      if (scoreKey > priorityScore) {
-        priorityScore = scoreKey;
-        priorityCategory = category;
-        priorityTarget = target;
-        priorityPercent = score;
-      }
+    final summary = _recentAssessmentSummary();
+    if (summary == null || summary.totalQuestions == 0) {
+      return 'Finish a few full sessions so the app can assess your ACET speed, accuracy, and efficiency.';
     }
 
-    if (priorityCategory != null) {
-      final gap =
-          (priorityTarget - priorityPercent).clamp(0, 100).toStringAsFixed(1);
-      final keyAreasToReview =
-          _recommendedKeyAreasForCategory(priorityCategory).join(', ');
-      final keyAreaLine = keyAreasToReview.isEmpty
-          ? ''
-          : ' Recommended key areas to review now: $keyAreasToReview.';
-      return 'Priority insight for $eligibility: $priorityCategory target is $priorityTarget%. You are at ${priorityPercent.toStringAsFixed(1)}% (gap: $gap%).$keyAreaLine';
+    final focusCategory = _recommendedFocusCategory();
+    final focusStat = summary.perCategoryStats[focusCategory];
+    final keyAreasToReview =
+        _recommendedKeyAreasForCategory(focusCategory).join(', ');
+    final keyAreaLine = keyAreasToReview.isEmpty
+        ? ''
+        : ' Recommended key areas to review now: $keyAreasToReview.';
+
+    if (focusStat == null) {
+      return summary.insightMessage;
     }
 
-    final avgTarget = categories.isEmpty
-        ? 0.0
-        : categories
-                .map((category) => _targetForCategory(category))
-                .reduce((a, b) => a + b) /
-            categories.length;
-    return 'All $eligibility targets are currently met (avg target ${avgTarget.toStringAsFixed(1)}%). Keep practicing under time pressure to stay ready.';
+    return '${summary.insightMessage} ${focusStat.category} is currently at ${focusStat.accuracyPercent.toStringAsFixed(1)}% accuracy and ${focusStat.averageTimePerQuestionSeconds.toStringAsFixed(1)}s average time.$keyAreaLine';
   }
 
   String _recommendedFocusCategory() {
-    final categories = _categoriesForEligibility();
-    if (categories.isEmpty) return '';
-
-    final allTargetsMet = categories.every(_meetsCourseTarget);
-
-    if (!allTargetsMet) {
-      String bestCategory = categories.first;
-      double bestScore = -1;
-
-      for (final category in categories) {
-        final target = _targetForCategory(category).toDouble();
-        final percent = _categoryPercent(category);
-        final deficit = (target - percent).clamp(0.0, 100.0);
-        final normalizedGap = target > 0 ? (deficit / target) : 0.0;
-        final score = (normalizedGap * 1000) + target;
-        if (score > bestScore) {
-          bestScore = score;
-          bestCategory = category;
-        }
-      }
-      return bestCategory;
-    }
-
-    // After meeting all course minimums, use recent user assessments.
-    final recentRecords = _quizActivityRecords.take(12).toList();
-    String weakestCategory = categories.first;
-    double lowestPercent = 101;
-
-    for (final category in categories) {
-      int correct = 0;
-      int total = 0;
-      for (final record in recentRecords) {
-        correct += record.categoryCorrect[category] ?? 0;
-        total += record.categoryTotal[category] ?? 0;
+    final summary = _recentAssessmentSummary();
+    if (summary != null && summary.totalQuestions > 0) {
+      if (summary.recommendedFocusCategory.isNotEmpty) {
+        return summary.recommendedFocusCategory;
       }
 
-      final percent =
-          total > 0 ? (correct / total) * 100 : _categoryPercent(category);
+      final weakestStat =
+          summary.perCategoryStats.values.fold<AcetCategoryAssessment?>(
+        null,
+        (current, candidate) {
+          if (current == null) return candidate;
+          final currentScore = current.accuracyPercent -
+              (current.averageTimePerQuestionSeconds * 1.5);
+          final candidateScore = candidate.accuracyPercent -
+              (candidate.averageTimePerQuestionSeconds * 1.5);
+          return candidateScore < currentScore ? candidate : current;
+        },
+      );
 
-      if (percent < lowestPercent) {
-        lowestPercent = percent;
-        weakestCategory = category;
+      if (weakestStat != null) {
+        return weakestStat.category;
       }
     }
 
-    return weakestCategory;
+    final weakestCategory = _getWeakestCategory();
+    return weakestCategory.isEmpty ? 'English' : weakestCategory;
   }
 
   Map<String, dynamic> _estimatedCompetitivenessBand() {
-    final categories = _categoriesForEligibility();
-    final metCount = categories.where(_meetsCourseTarget).length;
-    final metRatio = categories.isEmpty ? 0.0 : metCount / categories.length;
-    final weighted = _calculateTotalAverage().clamp(0.0, 100.0);
-
-    // Composite score blends weighted performance and target-threshold compliance.
-    final estimateScore = (weighted * 0.75) + ((metRatio * 100) * 0.25);
-
-    if (estimateScore >= 88) {
+    final summary = _recentAssessmentSummary();
+    if (summary == null || summary.totalQuestions == 0) {
       return {
-        'label': 'Top 10% readiness',
-        'tier': 'Highly Competitive',
-        'color': const Color(0xFF34D399),
+        'label': 'Insufficient Data',
+        'tier': 'Need More Sessions',
+        'color': PnleTheme.neutral,
       };
     }
-    if (estimateScore >= 80) {
+
+    final estimateScore = ((summary.efficiencyScore * 0.65) +
+            (summary.accuracyPercent * 0.20) +
+            ((100 -
+                    summary.averageTimePerQuestionSeconds.clamp(0.0, 40.0) *
+                        2) *
+                0.15))
+        .clamp(0.0, 100.0);
+
+    if (estimateScore >= 85) {
       return {
-        'label': 'Top 20% readiness',
-        'tier': 'Competitive',
-        'color': const Color(0xFF7DD3FC),
+        'label': 'ACET Ready',
+        'tier': 'High Efficiency',
+        'color': PnleTheme.success,
       };
     }
     if (estimateScore >= 72) {
       return {
-        'label': 'Top 30% readiness',
-        'tier': 'Above Average',
-        'color': const Color(0xFFFACC15),
+        'label': 'Competitive',
+        'tier': 'Balanced Pace',
+        'color': PnleTheme.info,
       };
     }
-    if (estimateScore >= 64) {
+    if (estimateScore >= 58) {
       return {
-        'label': 'Top 45% readiness',
-        'tier': 'Developing',
-        'color': const Color(0xFFFFC857),
+        'label': 'Developing',
+        'tier': 'Needs Sharper Pace',
+        'color': PnleTheme.warning,
       };
     }
 
     return {
-      'label': 'Top 60% readiness',
-      'tier': 'Needs Improvement',
-      'color': const Color(0xFFFF6B6B),
+      'label': 'Not Ready',
+      'tier': 'Rebuild Fundamentals',
+      'color': PnleTheme.danger,
     };
   }
 
   String _smartFeedbackSummary() {
-    final categories = _categoriesForEligibility();
-    final strong = <String>[];
-    final weak = <String>[];
-
-    for (final category in categories) {
-      final score = _categoryPercent(category);
-      final target = _targetForCategory(category);
-      if (score >= target + 3) {
-        strong.add(category);
-      } else if (score < target) {
-        weak.add(category);
-      }
+    final summary = _recentAssessmentSummary();
+    if (summary == null || summary.totalQuestions == 0) {
+      return 'Finish a few sessions to unlock ACET-specific speed and efficiency feedback.';
     }
 
-    if (strong.isEmpty && weak.isEmpty) {
-      return 'You are currently close to the target profile for $eligibility. Focus on consistency and speed under time pressure.';
-    }
+    final strong = summary.perCategoryStats.values
+        .where((stat) =>
+            stat.statusLabel == 'Strong' || stat.statusLabel == 'Good')
+        .map((stat) => stat.category)
+        .toList();
+    final weak = summary.perCategoryStats.values
+        .where((stat) =>
+            stat.statusLabel == 'Needs Speed' ||
+            stat.statusLabel == 'Needs Accuracy' ||
+            stat.statusLabel == 'Weak')
+        .map((stat) => stat.category)
+        .toList();
+
     if (weak.isEmpty) {
-      return 'You are strong in ${strong.join(', ')} for $eligibility. Keep speed stable to protect your score under pressure.';
+      return 'Your recent ACET sessions are balanced. Protect that mix of speed and accuracy under pressure.';
     }
     if (strong.isEmpty) {
-      return 'Your key gap for $eligibility is in ${weak.join(', ')}. Prioritize these areas in Focus Mode this week.';
+      return 'Your main ACET gap is in ${weak.join(', ')}. Prioritize timed repetition in those categories.';
     }
-
-    return 'You are strong in ${strong.join(', ')}, but below target in ${weak.join(', ')} for $eligibility.';
+    return 'Strong areas: ${strong.join(', ')}. Priority repairs: ${weak.join(', ')}.';
   }
 
   String _microTipForCategory(String category) {
     switch (category) {
       case 'Mathematics':
-        return 'Tip: In percent problems, convert percent to decimal before multi-step operations.';
-      case 'Science':
-        return 'Tip: Eliminate options that violate core concepts first, then compare the remaining two.';
+        return 'Tip: Translate the question into numbers early so you can spend your time solving, not rereading.';
+      case 'Logical Reasoning':
+        return 'Tip: Lock the given facts first, then test each choice against them instead of chasing assumptions.';
+      case 'Mental Ability / Abstract':
+        return 'Tip: Check for more than one active pattern rule before committing to a sequence or matrix answer.';
       case 'English':
-        return 'Tip: For reading items, answer from evidence in the passage, not assumptions.';
-      case 'Mental Ability':
       default:
-        return 'Tip: If a pattern is unclear in 10 seconds, skip and return after easier items.';
+        return 'Tip: Read for structure first, then eliminate choices that distort tone, logic, or grammar.';
     }
   }
 
   Map<String, dynamic> _sessionInsights(Map<String, dynamic> results) {
+    final assessmentRaw = results['assessment'];
+    if (assessmentRaw is Map) {
+      final assessment =
+          AcetAssessment.fromJson(Map<String, dynamic>.from(assessmentRaw));
+      final speedLabel = assessment.averageTimePerQuestionSeconds <= 15
+          ? 'Fast'
+          : (assessment.averageTimePerQuestionSeconds <= 25
+              ? 'Moderate'
+              : 'Slow');
+      final focusLabel = assessment.timedOutCount >= 3
+          ? 'Low focus'
+          : (assessment.timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
+
+      return {
+        'sessionTotal': assessment.totalQuestions,
+        'sessionAccuracy': assessment.accuracyPercent,
+        'elapsedSeconds': (assessment.averageTimePerQuestionSeconds *
+                assessment.totalQuestions)
+            .round(),
+        'secondsPerQuestion': assessment.averageTimePerQuestionSeconds,
+        'questionsPerMinute': assessment.questionsPerMinute,
+        'timedOutCount': assessment.timedOutCount,
+        'speedLabel': speedLabel,
+        'focusLabel': focusLabel,
+        'behaviorMessage': assessment.insightMessage,
+        'efficiencyScore': assessment.efficiencyScore,
+        'readinessLabel': assessment.readinessLabel,
+        'recommendedFocusCategory': assessment.recommendedFocusCategory,
+        'assessment': assessment,
+      };
+    }
+
     final correctRaw = results['correctCount'];
     final totalRaw = results['totalCount'];
     final elapsedRaw = results['elapsedSeconds'];
@@ -5592,12 +5674,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           .fold<int>(0, (sum, value) => sum + value.toInt());
     }
 
-    final elapsed = (elapsedRaw is num ? elapsedRaw.toInt() : 0).clamp(1, 7200);
+    final elapsedSeconds =
+        (elapsedRaw is num ? elapsedRaw.toInt() : 0).clamp(0, 7200);
+    final effectiveElapsed = elapsedSeconds > 0
+        ? elapsedSeconds
+        : (sessionTotal > 0 ? sessionTotal * 35 : 0);
     final sessionAccuracy =
         sessionTotal > 0 ? (sessionCorrect / sessionTotal) * 100 : 0.0;
-    final secondsPerQuestion = sessionTotal > 0 ? elapsed / sessionTotal : 0.0;
+    final secondsPerQuestion = sessionTotal > 0 && effectiveElapsed > 0
+        ? effectiveElapsed / sessionTotal
+        : 0.0;
     final questionsPerMinute =
-        elapsed > 0 ? (sessionTotal * 60) / elapsed : 0.0;
+        effectiveElapsed > 0 ? (sessionTotal * 60) / effectiveElapsed : 0.0;
 
     int timedOutCount = 0;
     if (mistakesRaw is List) {
@@ -5617,7 +5705,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         : (timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
 
     final behaviorMessage = secondsPerQuestion > 50
-        ? 'You spent too long on several items. In USTET, this can cost multiple answer opportunities.'
+        ? 'You spent too long on several items. In ACET, this can cost multiple answer opportunities.'
         : (secondsPerQuestion < 25 && sessionAccuracy < 70
             ? 'You moved very fast but accuracy dropped. Slow down slightly on hard items.'
             : 'Your pacing is close to exam pace. Maintain skip-and-return discipline.');
@@ -5625,6 +5713,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return {
       'sessionTotal': sessionTotal,
       'sessionAccuracy': sessionAccuracy,
+      'elapsedSeconds': elapsedSeconds,
       'secondsPerQuestion': secondsPerQuestion,
       'questionsPerMinute': questionsPerMinute,
       'timedOutCount': timedOutCount,
@@ -5635,22 +5724,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildCourseReadinessCard() {
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     final totalAvg = _calculateTotalAverage();
     final readiness = _readinessLabel();
     final readinessColor = _readinessColor();
     final competitiveness = _estimatedCompetitivenessBand();
     final competitivenessColor = competitiveness['color'] as Color;
+    final timedReadiness = _timedReadinessMetrics();
+    final timedReadinessColor = timedReadiness['color'] as Color;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            readinessColor.withValues(alpha: 0.25),
-            readinessColor.withValues(alpha: 0.08),
-          ],
-        ),
+        color: const Color(0xFFF7F1E5),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: readinessColor.withValues(alpha: 0.55)),
       ),
@@ -5659,12 +5745,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         children: [
           Row(
             children: [
-              const Icon(Icons.school_rounded, color: Colors.white, size: 18),
+              Icon(Icons.school_rounded, color: _menuPastelText, size: 18),
               const SizedBox(width: 8),
               Text(
-                'Course Target',
+                'Study Preference',
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _menuPastelText,
                   fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
@@ -5682,18 +5768,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.11),
+                  color: _menuPastelCream,
                   borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                  border: Border.all(color: _menuPastelGlassBorder),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      eligibility.toUpperCase(),
+                      programInterest.toUpperCase(),
                       style: GoogleFonts.outfit(
-                        color: Colors.white,
+                        color: _menuPastelText,
                         fontWeight: FontWeight.w700,
                         fontSize: 14,
                         letterSpacing: 0.4,
@@ -5702,7 +5787,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     const SizedBox(width: 8),
                     Icon(
                       Icons.edit_rounded,
-                      color: Colors.white.withValues(alpha: 0.9),
+                      color: _menuPastelTextSoft,
                       size: 16,
                     ),
                   ],
@@ -5713,12 +5798,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.flag_rounded, color: Colors.white, size: 18),
+              Icon(Icons.flag_rounded, color: _menuPastelText, size: 18),
               const SizedBox(width: 8),
               Text(
-                'Readiness',
+                'ACET Readiness',
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _menuPastelText,
                   fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
@@ -5730,14 +5815,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: readinessColor.withValues(alpha: 0.9),
+              color: readinessColor.withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: readinessColor.withValues(alpha: 0.42)),
             ),
             child: Text(
               readiness.toUpperCase(),
               textAlign: TextAlign.center,
               style: GoogleFonts.outfit(
-                color: Colors.white,
+                color: readinessColor,
                 fontWeight: FontWeight.w800,
                 fontSize: 15,
                 letterSpacing: 0.6,
@@ -5749,26 +5835,26 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: _menuPastelCream,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+              border: Border.all(color: _menuPastelGlassBorder),
             ),
             child: Row(
               children: [
                 Icon(
                   Icons.score_rounded,
                   color: totalAvg >= 65
-                      ? const Color(0xFF34D399)
+                      ? PnleTheme.success
                       : (totalAvg >= 50
-                          ? const Color(0xFFFFD166)
-                          : const Color(0xFFFF8A80)),
+                          ? PnleTheme.warning
+                          : PnleTheme.dangerSoft),
                   size: 16,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Overall Average',
+                  'Recent Accuracy',
                   style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.86),
+                    color: _menuPastelTextSoft,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -5777,9 +5863,63 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 Text(
                   '${totalAvg.toStringAsFixed(1)}%',
                   style: GoogleFonts.outfit(
-                    color: Colors.white,
+                    color: _menuPastelText,
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: timedReadinessColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: timedReadinessColor.withValues(alpha: 0.24)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.timer_rounded,
+                      color: timedReadinessColor,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Timed Efficiency',
+                      style: GoogleFonts.outfit(
+                        color: _menuPastelTextSoft,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      timedReadiness['hasData'] as bool
+                          ? '${(timedReadiness['score'] as double).toStringAsFixed(1)}%'
+                          : 'Pending',
+                      style: GoogleFonts.outfit(
+                        color: _menuPastelText,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  timedReadiness['summary'] as String,
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelTextSoft,
+                    fontSize: 13,
+                    height: 1.25,
                   ),
                 ),
               ],
@@ -5789,7 +5929,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           Text(
             'Category Snapshot',
             style: GoogleFonts.outfit(
-              color: Colors.white,
+              color: _menuPastelText,
               fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
@@ -5818,7 +5958,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   child: Text(
                     '${competitiveness['label']} • ${competitiveness['tier']}',
                     style: GoogleFonts.outfit(
-                      color: Colors.white,
+                      color: _menuPastelText,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -5831,17 +5971,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           Text(
             _readinessPrimaryFeedback(),
             style: GoogleFonts.outfit(
-              color: Colors.white.withValues(alpha: 0.86),
-              fontSize: 12,
+              color: _menuPastelText,
+              fontSize: 13,
               height: 1.25,
             ),
           ),
           const SizedBox(height: 6),
           Text(
-            'Scores and competitiveness bands are estimates based on in-app trends and not official UST criteria.',
+            'These readiness bands are in-app ACET estimates based on your recent accuracy, speed, and efficiency. They are not official admission cutoffs.',
             style: GoogleFonts.outfit(
-              color: Colors.white.withValues(alpha: 0.64),
-              fontSize: 11,
+              color: _menuPastelTextSoft,
+              fontSize: 12,
               fontStyle: FontStyle.italic,
             ),
           ),
@@ -5871,7 +6011,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.outfit(
-                    color: Colors.white,
+                    color: _menuPastelText,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -5880,10 +6020,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Text(
                 '${percent.toStringAsFixed(0)}% / $target%',
                 style: GoogleFonts.outfit(
-                  color: meetsTarget
-                      ? const Color(0xFF34D399)
-                      : const Color(0xFFFFD166),
-                  fontSize: 11,
+                  color:
+                      meetsTarget ? _menuPastelLeaf : const Color(0xFFB78368),
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -5895,10 +6034,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             child: LinearProgressIndicator(
               value: (percent / 100).clamp(0.0, 1.0),
               minHeight: 5,
-              backgroundColor: Colors.white.withValues(alpha: 0.15),
-              color: meetsTarget
-                  ? const Color(0xFF34D399)
-                  : const Color(0xFFFFC857),
+              backgroundColor: _menuPastelLeafSoft.withValues(alpha: 0.7),
+              color: meetsTarget ? PnleTheme.success : PnleTheme.warning,
             ),
           ),
         ],
@@ -5907,7 +6044,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _getWeakestCategory() {
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     String weakest = '';
     double lowestPercentage = 100;
 
@@ -6004,166 +6141,461 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _activeGenerationMode = effectiveTestMode;
 
     final effectiveModeLabel = modeLabel ??
-        (activeIsFocusMode
-            ? 'FOCUS MODE${activeFocusCategory != null ? ' • $activeFocusCategory' : ''}'
-            : 'RANDOM QUIZ');
+        _buildGenerationModeLabel(
+          isFocusMode: activeIsFocusMode,
+          focusCategory: activeFocusCategory,
+        );
 
     _isStartingGeneratedSession = false;
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black87,
-      useRootNavigator: true,
-      builder: (dialogContext) {
-        return GeneratingTestDialog(
-          onGenerate: _generateTest,
-          onShowAd: null,
-          onSuccess: null,
-          onSkip: () {
-            final consumed = _consumeFreeSessionAllowance();
-            if (consumed && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Skipped session: 1 credit was consumed.',
-                    style: GoogleFonts.outfit(),
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-
-            if (_usedCachedRandomForLastGeneration) {
-              unawaited(_clearRandomQuizCache());
-            }
-
-            if (activeIsFocusMode && activeFocusCategory != null) {
-              unawaited(_primeFocusCacheForCategory(activeFocusCategory,
-                  force: true));
-            } else {
-              unawaited(_primeRandomQuizCacheIfEligible(
-                force: true,
-              ));
-              unawaited(_primeFreeDeepSeekCaches());
-            }
-          },
-          hasAdFreeAccess: hasAdFreeAccess,
-          isFocusMode: activeIsFocusMode,
-          focusCategory: activeFocusCategory,
-          modeLabel: effectiveModeLabel,
-          onStart: () async {
-            if (_isStartingGeneratedSession) {
-              return;
-            }
-            _isStartingGeneratedSession = true;
-            try {
-              if (!_consumeFreeSessionAllowance()) {
-                return;
-              }
-
-              if (_usedCachedRandomForLastGeneration) {
-                await _clearRandomQuizCache();
-              }
-              if (!mounted || !dialogContext.mounted) return;
-
-              Navigator.of(dialogContext, rootNavigator: true)
-                  .pop(); // Close generation dialog
-              _addSavedSession(
-                _generatedQuestions,
-                activeCoverage,
-                sourceMode: effectiveSourceMode,
-              );
-              if (activeIsFocusMode && activeFocusCategory != null) {
-                unawaited(_primeFocusCacheForCategory(activeFocusCategory,
-                    force: true));
-              } else {
-                unawaited(_primeRandomQuizCacheIfEligible(
-                  force: true,
-                ));
-                unawaited(_primeFreeDeepSeekCaches());
-              }
-              // Function to start the test
-              Future<void> startTest(List<Question> questions) async {
-                final results = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => QuestionScreen(
-                      questions: questions,
-                      hasAdFreeAccess: hasAdFreeAccess || hasGraceAccess,
-                      recordResults: true,
-                      testMode: effectiveTestMode,
-                      zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
-                    ),
-                  ),
-                );
-                if (results is Map<String, dynamic> && mounted) {
-                  if (results['nextAction'] == 'pause') {
-                    await _savePausedSessionFromResult(results);
-                    return;
-                  }
-
-                  final nextAction = results['nextAction'];
-                  await _updateTestResults(results);
-                  if (nextAction == 'playAgain') {
-                    if (effectiveTestMode == 'timedExam') {
-                      _startTimedExamMode();
-                      return;
-                    }
-                    final replayCoverage = !activeIsFocusMode &&
-                            _cachedRandomQuizCoverage != null
-                        ? Map<String, String>.from(_cachedRandomQuizCoverage!)
-                        : activeCoverage;
-                    if (replayCoverage != null) {
-                      _showTestCoverageDialog(
-                        replayCoverage,
-                        isFocusMode: activeIsFocusMode,
-                        focusCategory: activeFocusCategory,
-                      );
-                    }
-                  } else if (nextAction == 'menu') {
-                    setState(() {
-                      currentScreen = 2;
-                    });
-                  }
-                }
-                // Handle different return values
-                else if (results == 'playAgain' && mounted) {
-                  if (effectiveTestMode == 'timedExam') {
-                    _startTimedExamMode();
-                    return;
-                  }
-                  // User clicked Play Again - show Test Coverage dialog again for new test
-                  final replayCoverage =
-                      !activeIsFocusMode && _cachedRandomQuizCoverage != null
-                          ? Map<String, String>.from(_cachedRandomQuizCoverage!)
-                          : activeCoverage;
-                  if (replayCoverage != null) {
-                    _showTestCoverageDialog(
-                      replayCoverage,
-                      isFocusMode: activeIsFocusMode,
-                      focusCategory: activeFocusCategory,
+    unawaited(() async {
+      final preparedLocally = await _tryPrepareLocalSessionForGeneration(
+        useFocusMode: activeIsFocusMode,
+        focusCategory: activeFocusCategory,
+        effectiveTestMode: effectiveTestMode,
+      );
+      if (!preparedLocally || !mounted) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            barrierColor: Colors.black87,
+            useRootNavigator: true,
+            builder: (dialogContext) {
+              return GeneratingTestDialog(
+                onGenerate: _generateTest,
+                onShowAd: null,
+                onSuccess: null,
+                onSkip: () {
+                  final consumed = _consumeFreeSessionAllowance();
+                  if (consumed && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Skipped session: 1 credit was consumed.',
+                          style: GoogleFonts.outfit(),
+                        ),
+                        duration: const Duration(seconds: 2),
+                      ),
                     );
                   }
-                } else if (results == 'menu' && mounted) {
-                  // User clicked Quiz Menu - return to Quiz section
-                  setState(() {
-                    currentScreen = 2; // 2 = Quiz
-                  });
-                } else if (results != null && mounted) {
-                  // Normal completion - update results
-                  await _updateTestResults(results);
-                }
-              }
 
-              await startTest(_generatedQuestions);
-            } finally {
-              _isStartingGeneratedSession = false;
-            }
-          },
-        );
-      },
+                  if (_usedCachedRandomForLastGeneration) {
+                    unawaited(_clearRandomQuizCache());
+                  }
+
+                  unawaited(_primeMissingCachesAsNeeded());
+                },
+                hasUnlimitedAccess: hasUnlimitedAccess,
+                isFocusMode: activeIsFocusMode,
+                focusCategory: activeFocusCategory,
+                modeLabel: effectiveModeLabel,
+                onStart: () async {
+                  await _startPreparedGeneratedSession(
+                    activeIsFocusMode: activeIsFocusMode,
+                    activeFocusCategory: activeFocusCategory,
+                    activeCoverage: activeCoverage,
+                    effectiveSourceMode: effectiveSourceMode,
+                    effectiveTestMode: effectiveTestMode,
+                    dialogContext: dialogContext,
+                  );
+                },
+              );
+            },
+          );
+        }
+        return;
+      }
+
+      await _startPreparedGeneratedSession(
+        activeIsFocusMode: activeIsFocusMode,
+        activeFocusCategory: activeFocusCategory,
+        activeCoverage: activeCoverage,
+        effectiveSourceMode: effectiveSourceMode,
+        effectiveTestMode: effectiveTestMode,
+      );
+    }());
+  }
+
+  Future<bool> _tryPrepareLocalSessionForGeneration({
+    required bool useFocusMode,
+    required String? focusCategory,
+    required String effectiveTestMode,
+  }) async {
+    await _ensureSeedPoolReadyForGeneration();
+    _usedCachedRandomForLastGeneration = false;
+
+    if (useFocusMode && focusCategory != null) {
+      final categoryMap = _buildFocusCategoryMap(focusCategory);
+      final seededQuestions = await _takeSeedQuestions(
+        'focusMode',
+        categoryMap,
+      );
+      if (seededQuestions.length >= 15) {
+        debugPrint(
+            '[SeedPool] Focus mode served locally before showing loading dialog.');
+        _generatedQuestions =
+            seededQuestions.take(15).map((q) => q.shuffled()).toList();
+        return true;
+      }
+
+      final cachedFocus = _cachedFocusQuestions[focusCategory];
+      if (cachedFocus != null && cachedFocus.length >= 15) {
+        debugPrint(
+            '[SeedPool] Focus mode served from local cache before showing loading dialog.');
+        _generatedQuestions =
+            cachedFocus.take(15).map((q) => q.shuffled()).toList();
+        _cachedFocusQuestions.remove(focusCategory);
+        unawaited(_persistFocusAndChallengeCaches());
+        return true;
+      }
+      return false;
+    }
+
+    final seedMode =
+        effectiveTestMode == 'timedExam' ? 'timedExam' : 'randomQuiz';
+    final randomLikeMap = _buildRandomCategoryMap();
+
+    final seededQuestions = await _takeSeedQuestions(
+      seedMode,
+      randomLikeMap,
     );
+    if (seededQuestions.length >= 15) {
+      debugPrint(
+          '[SeedPool] $seedMode served locally before showing loading dialog.');
+      _generatedQuestions =
+          seededQuestions.take(15).map((q) => q.shuffled()).toList();
+      return true;
+    }
+
+    if ((_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
+      final cachedQuestions = _cachedRandomQuizQuestions!;
+      final cachedVisualCount = cachedQuestions
+          .where((q) => (q.imageAssetPath?.isNotEmpty ?? false))
+          .length;
+      if (cachedVisualCount > 1) {
+        // Legacy visual-test cache should not be reused for normal random mode.
+        await _clearRandomQuizCache();
+      } else {
+        debugPrint(
+            '[SeedPool] Random cache served locally before showing loading dialog.');
+        _usedCachedRandomForLastGeneration = true;
+        if (_cachedRandomQuizCoverage != null) {
+          _currentTestCoverage =
+              Map<String, String>.from(_cachedRandomQuizCoverage!);
+        }
+        _generatedQuestions =
+            cachedQuestions.take(15).map((q) => q.shuffled()).toList();
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _isVisualInjectionEligibleMode(String testMode) {
+    return testMode == 'randomQuiz' ||
+        testMode == 'focusMode' ||
+        testMode == 'challenge' ||
+        testMode == 'timedExam';
+  }
+
+  bool _sessionHasAbstractReasoning(List<Question> questions) {
+    return questions
+        .any((q) => q.category.trim() == 'Mental Ability / Abstract');
+  }
+
+  String _resolveVisualAbstractAssetPath() {
+    final randomModeConfig = _examConfigService.getModeConfig(
+      _activeExamId,
+      'randomQuiz',
+    );
+    final configured = randomModeConfig?.localQuestionAssetPath;
+    if (configured != null && configured.trim().isNotEmpty) {
+      return configured.trim();
+    }
+    return _defaultVisualAbstractAssetPath;
+  }
+
+  Future<List<Question>> _loadVisualAbstractPool() async {
+    final cached = _visualAbstractQuestionPool;
+    if (cached != null) {
+      return cached;
+    }
+
+    try {
+      final loaded = await _localVisualQuestionService.loadQuestions(
+        assetPath: _resolveVisualAbstractAssetPath(),
+      );
+      _visualAbstractQuestionPool = loaded;
+      return loaded;
+    } catch (e) {
+      debugPrint('[VisualPool] Failed to load visual pool: $e');
+      _visualAbstractQuestionPool = const <Question>[];
+      return _visualAbstractQuestionPool!;
+    }
+  }
+
+  Future<void> _loadUsedVisualAbstractPoolIds() async {
+    if (_usedVisualAbstractPoolLoaded) {
+      return;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = prefs.getString(_usedVisualAbstractPoolIdsPrefsKey);
+      if (payload != null && payload.isNotEmpty) {
+        final decoded = jsonDecode(payload);
+        if (decoded is List) {
+          _usedVisualAbstractPoolIds
+            ..clear()
+            ..addAll(decoded.whereType<String>().map((e) => e.trim()));
+        }
+      }
+    } catch (e) {
+      debugPrint('[VisualPool] Failed to load used IDs: $e');
+      _usedVisualAbstractPoolIds.clear();
+    }
+
+    _usedVisualAbstractPoolLoaded = true;
+  }
+
+  Future<void> _persistUsedVisualAbstractPoolIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = jsonEncode(_usedVisualAbstractPoolIds.toList());
+      await prefs.setString(_usedVisualAbstractPoolIdsPrefsKey, payload);
+    } catch (e) {
+      debugPrint('[VisualPool] Failed to persist used IDs: $e');
+    }
+  }
+
+  String _visualPoolIdForQuestion(Question question) {
+    final imagePath = question.imageAssetPath?.trim();
+    if (imagePath != null && imagePath.isNotEmpty) {
+      return imagePath;
+    }
+    return 'visual-${question.number}-${question.question.hashCode}';
+  }
+
+  Future<Question?> _pickVisualAbstractQuestionForSession() async {
+    final pool = await _loadVisualAbstractPool();
+    if (pool.isEmpty) {
+      debugPrint('[VisualPool] Selection skipped: pool is empty.');
+      return null;
+    }
+
+    await _loadUsedVisualAbstractPoolIds();
+
+    var available = pool
+        .where(
+          (q) =>
+              !_usedVisualAbstractPoolIds.contains(_visualPoolIdForQuestion(q)),
+        )
+        .toList(growable: false);
+
+    if (available.isEmpty) {
+      debugPrint(
+        '[VisualPool] All items were used. Resetting used set before next pick.',
+      );
+      _usedVisualAbstractPoolIds.clear();
+      await _persistUsedVisualAbstractPoolIds();
+      available = List<Question>.from(pool);
+    }
+
+    if (available.isEmpty) {
+      return null;
+    }
+
+    final random = Random(DateTime.now().microsecondsSinceEpoch);
+    final selected = available[random.nextInt(available.length)];
+    final selectedId = _visualPoolIdForQuestion(selected);
+
+    _usedVisualAbstractPoolIds.add(selectedId);
+    await _persistUsedVisualAbstractPoolIds();
+
+    debugPrint(
+      '[VisualPool] Selected item id=$selectedId number=${selected.number} used=${_usedVisualAbstractPoolIds.length}/${pool.length} remaining=${pool.length - _usedVisualAbstractPoolIds.length}',
+    );
+
+    return selected;
+  }
+
+  Future<void> _injectVisualAbstractQuestionIfNeeded({
+    required String effectiveTestMode,
+  }) async {
+    if (_generatedQuestions.isEmpty) {
+      return;
+    }
+
+    if (!_isVisualInjectionEligibleMode(effectiveTestMode)) {
+      return;
+    }
+
+    if (!_sessionHasAbstractReasoning(_generatedQuestions)) {
+      return;
+    }
+
+    final existingVisualCount = _generatedQuestions
+        .where((q) => (q.imageAssetPath?.isNotEmpty ?? false))
+        .length;
+    if (existingVisualCount > 0) {
+      return;
+    }
+
+    final abstractIndexes = <int>[];
+    for (var i = 0; i < _generatedQuestions.length; i++) {
+      final question = _generatedQuestions[i];
+      if (question.category.trim() == 'Mental Ability / Abstract') {
+        abstractIndexes.add(i);
+      }
+    }
+    if (abstractIndexes.isEmpty) {
+      return;
+    }
+
+    final visual = await _pickVisualAbstractQuestionForSession();
+    if (visual == null) {
+      debugPrint(
+        '[VisualPool] Injection skipped for mode=$effectiveTestMode: no visual item selected.',
+      );
+      return;
+    }
+
+    final random = Random(DateTime.now().millisecondsSinceEpoch);
+    final targetIndex = abstractIndexes[random.nextInt(abstractIndexes.length)];
+    final originalQuestion = _generatedQuestions[targetIndex];
+    final selectedId = _visualPoolIdForQuestion(visual);
+
+    final injected = Question(
+      number: originalQuestion.number,
+      category: 'Mental Ability / Abstract',
+      question: visual.question,
+      imageAssetPath: visual.imageAssetPath,
+      choices: visual.choices,
+      answer: visual.answer,
+      explanation: visual.explanation,
+      source: visual.source,
+    ).shuffled();
+
+    _generatedQuestions[targetIndex] = injected;
+
+    debugPrint(
+      '[VisualPool] Injected mode=$effectiveTestMode id=$selectedId atIndex=$targetIndex replacingQuestionNumber=${originalQuestion.number}',
+    );
+  }
+
+  Future<void> _startPreparedGeneratedSession({
+    required bool activeIsFocusMode,
+    required String? activeFocusCategory,
+    required Map<String, String>? activeCoverage,
+    required String effectiveSourceMode,
+    required String effectiveTestMode,
+    BuildContext? dialogContext,
+  }) async {
+    if (_isStartingGeneratedSession) {
+      return;
+    }
+
+    _isStartingGeneratedSession = true;
+    try {
+      if (!_consumeFreeSessionAllowance()) {
+        return;
+      }
+
+      if (_usedCachedRandomForLastGeneration) {
+        await _clearRandomQuizCache();
+      }
+
+      if (!mounted) return;
+      if (dialogContext != null && dialogContext.mounted) {
+        Navigator.of(dialogContext, rootNavigator: true).pop();
+      }
+
+      await _injectVisualAbstractQuestionIfNeeded(
+        effectiveTestMode: effectiveTestMode,
+      );
+
+      _addSavedSession(
+        _generatedQuestions,
+        activeCoverage,
+        sourceMode: effectiveSourceMode,
+      );
+
+      _isFocusMode = false;
+      _focusCategory = null;
+
+      unawaited(_primeMissingCachesAsNeeded());
+
+      final results = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => QuestionScreen(
+            questions: _generatedQuestions,
+            hasUnlimitedAccess: hasUnlimitedAccess || hasGraceAccess,
+            strictTimingEnabled: _strictTimingEnabled,
+            recordResults: true,
+            testMode: effectiveTestMode,
+            zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+          ),
+        ),
+      );
+
+      if (results is Map<String, dynamic> && mounted) {
+        if (results['nextAction'] == 'pause') {
+          await _savePausedSessionFromResult(results);
+          return;
+        }
+
+        final nextAction = results['nextAction'];
+        await _updateTestResults(results);
+        if (nextAction == 'playAgain') {
+          if (effectiveTestMode == 'timedExam') {
+            _startTimedExamMode();
+            return;
+          }
+          final replayCoverage =
+              !activeIsFocusMode && _cachedRandomQuizCoverage != null
+                  ? Map<String, String>.from(_cachedRandomQuizCoverage!)
+                  : activeCoverage;
+          if (replayCoverage != null) {
+            _showTestCoverageDialog(
+              replayCoverage,
+              isFocusMode: activeIsFocusMode,
+              focusCategory: activeFocusCategory,
+            );
+          }
+        } else if (nextAction == 'menu') {
+          setState(() {
+            currentScreen = 2;
+          });
+        }
+      } else if (results == 'playAgain' && mounted) {
+        if (effectiveTestMode == 'timedExam') {
+          _startTimedExamMode();
+          return;
+        }
+        final replayCoverage =
+            !activeIsFocusMode && _cachedRandomQuizCoverage != null
+                ? Map<String, String>.from(_cachedRandomQuizCoverage!)
+                : activeCoverage;
+        if (replayCoverage != null) {
+          _showTestCoverageDialog(
+            replayCoverage,
+            isFocusMode: activeIsFocusMode,
+            focusCategory: activeFocusCategory,
+          );
+        }
+      } else if (results == 'menu' && mounted) {
+        setState(() {
+          currentScreen = 2;
+        });
+      } else if (results != null && mounted) {
+        await _updateTestResults(results);
+      }
+    } finally {
+      _isStartingGeneratedSession = false;
+    }
   }
 
   bool _consumeFreeSessionAllowance() {
@@ -6211,10 +6643,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _zeroAdSessionsRemaining--;
       _persistZeroAdSessions();
       if (_zeroAdSessionsRemaining <= 0) {
-        unawaited(_primeRandomQuizCacheIfEligible(
-          force: true,
-          coverageOverride: _currentTestCoverage,
-        ));
+        unawaited(_primeMissingCachesAsNeeded());
       }
     }
 
@@ -6270,16 +6699,27 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               child: Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
+                  gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [PnleTheme.bgTop, PnleTheme.bgBottom],
+                    colors: [
+                      Color.lerp(_menuPastelPanel, _menuPastelLeafSoft, 0.2)!,
+                      _menuPastelPanel,
+                      Color.lerp(_menuPastelPanel, _menuPastelYellow, 0.16)!,
+                    ],
                   ),
                   borderRadius: BorderRadius.circular(28),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.3),
-                    width: 2,
+                    color: _menuPastelGlassBorder,
+                    width: 1.6,
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _menuPastelLeaf.withValues(alpha: 0.12),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -6290,15 +6730,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: PnleTheme.accent.withValues(alpha: 0.3),
+                            color: _menuPastelLeafSoft,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: PnleTheme.accent.withValues(alpha: 0.5),
+                              color: _menuPastelLeaf.withValues(alpha: 0.28),
                             ),
                           ),
                           child: const Icon(
                             Icons.history_rounded,
-                            color: PnleTheme.accent,
+                            color: _menuPastelLeaf,
                             size: 24,
                           ),
                         ),
@@ -6310,7 +6750,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               Text(
                                 'Saved Tests',
                                 style: GoogleFonts.outfit(
-                                  color: Colors.white,
+                                  color: _menuPastelText,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 22,
                                 ),
@@ -6320,8 +6760,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     ? 'Retrieving saved tests...'
                                     : '${_savedSessions.length}/$_maxSavedSessions tests saved',
                                 style: GoogleFonts.outfit(
-                                  color: Colors.white.withValues(alpha: 0.6),
+                                  color: _menuPastelTextSoft,
                                   fontSize: 13,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ],
@@ -6334,15 +6775,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.1),
+                              color: _menuPastelCream,
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.3),
+                                color: _menuPastelGlassBorder,
                               ),
                             ),
                             child: Icon(
                               Icons.close,
-                              color: Colors.white.withValues(alpha: 0.8),
+                              color: _menuPastelTextSoft,
                               size: 20,
                             ),
                           ),
@@ -6351,7 +6792,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 20),
                     Divider(
-                      color: Colors.white.withValues(alpha: 0.2),
+                      color: _menuPastelGlassBorder,
                       height: 1,
                       thickness: 1,
                     ),
@@ -6360,10 +6801,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.amber.withValues(alpha: 0.15),
+                        color: const Color(0xFFF7EFCF),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: Colors.amber.withValues(alpha: 0.4),
+                          color: const Color(0xFFD9C59C),
                           width: 1.5,
                         ),
                       ),
@@ -6372,7 +6813,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         children: [
                           Icon(
                             Icons.info_outline_rounded,
-                            color: Colors.amber.withValues(alpha: 0.8),
+                            color: const Color(0xFFB28D4B),
                             size: 20,
                           ),
                           const SizedBox(width: 10),
@@ -6380,9 +6821,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             child: Text(
                               'Saved tests are stored locally. They will be deleted if you reinstall the app or clear app data.',
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.8),
+                                color: _menuPastelText,
                                 fontSize: 13,
                                 height: 1.4,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
@@ -6397,13 +6839,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         child: Column(
                           children: [
                             const CircularProgressIndicator(
-                              color: PnleTheme.accent,
+                              color: _menuPastelLeaf,
                             ),
                             const SizedBox(height: 16),
                             Text(
                               'Retrieving saved tests...',
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.7),
+                                color: _menuPastelText,
                                 fontSize: 18,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -6413,8 +6855,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               'Please wait while local saved tests are loaded.',
                               textAlign: TextAlign.center,
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.5),
+                                color: _menuPastelTextSoft,
                                 fontSize: 14,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
@@ -6428,13 +6871,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             Icon(
                               Icons.folder_open_rounded,
                               size: 64,
-                              color: Colors.white.withValues(alpha: 0.3),
+                              color: _menuPastelTextSoft.withValues(alpha: 0.6),
                             ),
                             const SizedBox(height: 16),
                             Text(
                               'No saved tests yet',
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.7),
+                                color: _menuPastelText,
                                 fontSize: 18,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -6444,8 +6887,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               'Complete a quiz to save it here',
                               textAlign: TextAlign.center,
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.5),
+                                color: _menuPastelTextSoft,
                                 fontSize: 14,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
@@ -6476,7 +6920,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                 alignment: Alignment.centerRight,
                                 padding: const EdgeInsets.only(right: 20),
                                 decoration: BoxDecoration(
-                                  color: Colors.red.withValues(alpha: 0.8),
+                                  color:
+                                      PnleTheme.danger.withValues(alpha: 0.8),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(
@@ -6522,8 +6967,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                       MaterialPageRoute(
                                         builder: (_) => QuestionScreen(
                                           questions: questions,
-                                          hasAdFreeAccess:
-                                              hasAdFreeAccess || hasGraceAccess,
+                                          hasUnlimitedAccess:
+                                              hasUnlimitedAccess ||
+                                                  hasGraceAccess,
+                                          strictTimingEnabled:
+                                              _strictTimingEnabled,
                                           recordResults: false,
                                           testMode: 'previous',
                                           zeroAdSessionsRemaining:
@@ -6577,16 +7025,28 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       colors: [
-                                        Colors.white.withValues(alpha: 0.15),
-                                        Colors.white.withValues(alpha: 0.08),
+                                        _menuPastelCream,
+                                        Color.lerp(
+                                          _menuPastelCream,
+                                          _menuPastelLeafSoft,
+                                          0.2,
+                                        )!,
                                       ],
                                     ),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.2),
+                                      color: _menuPastelGlassBorder,
                                       width: 1.5,
                                     ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: _menuPastelLeaf.withValues(
+                                          alpha: 0.07,
+                                        ),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
                                   ),
                                   child: Row(
                                     children: [
@@ -6613,7 +7073,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                             Text(
                                               session.title,
                                               style: GoogleFonts.outfit(
-                                                color: Colors.white,
+                                                color: _menuPastelText,
                                                 fontWeight: FontWeight.w600,
                                                 fontSize: 15,
                                               ),
@@ -6633,25 +7093,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                                 Text(
                                                   '$questionCount questions',
                                                   style: GoogleFonts.outfit(
-                                                    color: Colors.white
-                                                        .withValues(alpha: 0.6),
+                                                    color: _menuPastelTextSoft,
                                                     fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
                                                 const SizedBox(width: 12),
                                                 Icon(
                                                   Icons.access_time_rounded,
                                                   size: 14,
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.6),
+                                                  color: _menuPastelTextSoft,
                                                 ),
                                                 const SizedBox(width: 4),
                                                 Text(
                                                   timeAgo,
                                                   style: GoogleFonts.outfit(
-                                                    color: Colors.white
-                                                        .withValues(alpha: 0.6),
+                                                    color: _menuPastelTextSoft,
                                                     fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
                                               ],
@@ -6661,8 +7120,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                       ),
                                       Icon(
                                         Icons.play_arrow_rounded,
-                                        color:
-                                            Colors.white.withValues(alpha: 0.7),
+                                        color: _menuPastelLeaf,
                                         size: 28,
                                       ),
                                     ],
@@ -6713,13 +7171,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   Color _savedSessionModeColor(String sourceMode) {
     switch (sourceMode) {
       case 'focusMode':
-        return const Color(0xFFFF8A80);
+        return PnleTheme.dangerSoft;
       case 'challenge':
-        return Colors.amber.shade300;
+        return PnleTheme.warning;
       case 'timedExam':
-        return const Color(0xFF6EE7FF);
+        return PnleTheme.info;
       case 'quickPractice':
-        return Colors.purple.shade200;
+        return PnleTheme.glowB;
       case 'randomQuiz':
       default:
         return PnleTheme.accent;
@@ -6754,8 +7212,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     final resultMode = results['testMode'] as String?;
+    final storedMode = resultMode ?? 'randomQuiz';
     final dynamicCorrectCount = results['correctCount'];
     final dynamicTotalCount = results['totalCount'];
+    final assessmentRaw = results['assessment'];
+    final sessionAssessment = assessmentRaw is Map
+        ? AcetAssessment.fromJson(Map<String, dynamic>.from(assessmentRaw))
+        : null;
+    final insights = _sessionInsights(results);
+    final elapsedSeconds = (insights['elapsedSeconds'] as num).toInt();
+    final timedOutCount = insights['timedOutCount'] as int;
 
     if (resultMode != null &&
         {'randomQuiz', 'focusMode', 'challenge', 'timedExam'}
@@ -6793,10 +7259,25 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final shouldRecord = results['recordResults'];
     if (shouldRecord is bool && !shouldRecord) return;
 
-    final correctCount = results['correctCount'] as Map<String, int>?;
-    final totalCount = results['totalCount'] as Map<String, int>?;
+    final correctCount = <String, int>{};
+    if (dynamicCorrectCount is Map) {
+      for (final entry in dynamicCorrectCount.entries) {
+        if (entry.key is String && entry.value is num) {
+          correctCount[entry.key as String] = (entry.value as num).toInt();
+        }
+      }
+    }
 
-    if (correctCount == null || totalCount == null) return;
+    final totalCount = <String, int>{};
+    if (dynamicTotalCount is Map) {
+      for (final entry in dynamicTotalCount.entries) {
+        if (entry.key is String && entry.value is num) {
+          totalCount[entry.key as String] = (entry.value as num).toInt();
+        }
+      }
+    }
+
+    if (correctCount.isEmpty || totalCount.isEmpty) return;
 
     // Only the first daily-target sessions affect today's readiness bucket,
     // but all sessions must still be recorded for 10-day analytics.
@@ -6855,11 +7336,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         0,
         _QuizActivityRecord(
           date: DateTime.now(),
+          mode: storedMode,
           questionCount: sessionQuestions,
           correctCount: sessionCorrect,
           scorePercent: sessionPercent,
+          elapsedSeconds: elapsedSeconds,
+          timedOutCount: timedOutCount,
           categoryCorrect: sessionCategoryCorrect,
           categoryTotal: sessionCategoryTotal,
+          assessment: sessionAssessment,
         ),
       );
       _pruneQuizActivityRecords();
@@ -6878,7 +7363,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (!hadChallengeUnlock && _hasUnlockedAdvancedModes) {
-      unawaited(_primeChallengeCacheIfEligible(force: true));
+      unawaited(_primeMissingCachesAsNeeded());
     }
 
     if (resultMode != null && resultMode.isNotEmpty) {
@@ -6896,21 +7381,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       Map<String, dynamic> results) async {
     if (!mounted) return;
 
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     final readiness = _readinessLabel();
     final readinessColor = _readinessColor();
     final weakestCategory = _getWeakestCategory();
     final tipCategory =
-        weakestCategory.isNotEmpty ? weakestCategory : 'Mental Ability';
+        weakestCategory.isNotEmpty ? weakestCategory : 'English';
     final competitiveness = _estimatedCompetitivenessBand();
     final competitivenessColor = competitiveness['color'] as Color;
+    final timedReadiness = _timedReadinessMetrics();
+    final timedReadinessColor = timedReadiness['color'] as Color;
     final insights = _sessionInsights(results);
     final sessionAccuracy = (insights['sessionAccuracy'] as num).toDouble();
     final secondsPerQuestion =
         (insights['secondsPerQuestion'] as num).toDouble();
     final questionsPerMinute =
         (insights['questionsPerMinute'] as num).toDouble();
-    final timedOutCount = (insights['timedOutCount'] as int);
+    final timedOutCount = insights['timedOutCount'] as int;
     final speedLabel = insights['speedLabel'] as String;
     final focusLabel = insights['focusLabel'] as String;
     final behaviorMessage = insights['behaviorMessage'] as String;
@@ -6920,309 +7407,394 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       context: context,
       useRootNavigator: true,
       barrierColor: Colors.black87,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF0B224E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        titlePadding: EdgeInsets.fromLTRB(
-          compact ? 16 : 20,
-          compact ? 14 : 18,
-          compact ? 16 : 20,
-          8,
-        ),
-        contentPadding: EdgeInsets.fromLTRB(
-          compact ? 16 : 20,
-          8,
-          compact ? 16 : 20,
-          compact ? 4 : 8,
-        ),
-        title: Text(
-          'Course Readiness Update',
-          style: GoogleFonts.outfit(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.symmetric(horizontal: compact ? 16 : 24),
+        child: Container(
+          padding: EdgeInsets.fromLTRB(
+            compact ? 16 : 20,
+            compact ? 16 : 18,
+            compact ? 16 : 20,
+            compact ? 14 : 16,
           ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Target Course: ${eligibility.toUpperCase()}',
-                style: GoogleFonts.outfit(
-                  color: PnleTheme.accent,
-                  fontWeight: FontWeight.w700,
-                  fontSize: compact ? 12 : 13,
-                ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_menuPastelPanel, _menuPastelLeafSoft, 0.18)!,
+                _menuPastelPanel,
+                Color.lerp(_menuPastelPanel, _menuPastelYellow, 0.16)!,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _menuPastelGlassBorder, width: 1.4),
+            boxShadow: [
+              BoxShadow(
+                color: _menuPastelLeaf.withValues(alpha: 0.12),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
               ),
-              SizedBox(height: compact ? 8 : 10),
-              Container(
-                padding: EdgeInsets.all(compact ? 10 : 12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Target Match Chart',
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: compact ? 11 : 12,
-                      ),
-                    ),
-                    SizedBox(height: compact ? 8 : 10),
-                    ...categories.map((category) {
-                      final score = _categoryPercent(category);
-                      final target = _targetForCategory(category);
-                      final met = score >= target;
-                      return Padding(
-                        padding: EdgeInsets.only(bottom: compact ? 8 : 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    category,
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontSize: compact ? 11 : 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                Text(
-                                  '${score.toStringAsFixed(0)}% / $target%',
-                                  style: GoogleFonts.outfit(
-                                    color: met
-                                        ? const Color(0xFF34D399)
-                                        : const Color(0xFFFFD166),
-                                    fontSize: compact ? 11 : 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: compact ? 5 : 6),
-                            LayoutBuilder(
-                              builder: (context, constraints) {
-                                final barWidth = constraints.maxWidth;
-                                final targetOffset =
-                                    (barWidth * (target / 100)).clamp(
-                                  0.0,
-                                  barWidth,
-                                );
-                                return Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    Container(
-                                      height: compact ? 6 : 8,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.12),
-                                        borderRadius:
-                                            BorderRadius.circular(999),
-                                      ),
-                                    ),
-                                    FractionallySizedBox(
-                                      widthFactor:
-                                          (score / 100).clamp(0.0, 1.0),
-                                      child: Container(
-                                        height: compact ? 6 : 8,
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            colors: met
-                                                ? const [
-                                                    Color(0xFF34D399),
-                                                    Color(0xFF7DD3FC),
-                                                  ]
-                                                : const [
-                                                    Color(0xFFFFC857),
-                                                    Color(0xFFFF6B6B),
-                                                  ],
-                                          ),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      left: targetOffset - 1,
-                                      top: compact ? -1 : -2,
-                                      bottom: compact ? -1 : -2,
-                                      child: Container(
-                                        width: 2,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.9),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-              SizedBox(height: compact ? 8 : 10),
-              if (!compact)
-                ...categories.map((category) {
-                  final score = _categoryPercent(category);
-                  final target = _targetForCategory(category);
-                  final met = score >= target;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      '$category: ${score.toStringAsFixed(0)}% / $target% ${met ? 'OK' : 'LOW'}',
-                      style: GoogleFonts.outfit(
-                        color: met
-                            ? const Color(0xFF34D399)
-                            : const Color(0xFFFFC857),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  );
-                }),
-              if (!compact) const SizedBox(height: 10),
-              Text(
-                readiness.toUpperCase(),
-                style: GoogleFonts.outfit(
-                  color: readinessColor,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                  letterSpacing: 0.4,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _readinessPrimaryFeedback(),
-                style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.88),
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Smart Feedback',
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _smartFeedbackSummary(),
-                style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.86),
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: competitivenessColor.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: competitivenessColor.withValues(alpha: 0.48),
+            ],
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'ACET Performance Update',
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelText,
+                    fontWeight: FontWeight.w700,
+                    fontSize: compact ? 18 : 20,
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.query_stats_rounded,
-                      color: competitivenessColor,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${competitiveness['label']} • ${competitiveness['tier']}',
+                SizedBox(height: compact ? 10 : 12),
+                Text(
+                  'Study Preference: ${programInterest.toUpperCase()} (optional)',
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelLeaf,
+                    fontWeight: FontWeight.w700,
+                    fontSize: compact ? 12 : 13,
+                  ),
+                ),
+                SizedBox(height: compact ? 8 : 10),
+                Container(
+                  padding: EdgeInsets.all(compact ? 10 : 12),
+                  decoration: BoxDecoration(
+                    color: _menuPastelCream,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _menuPastelGlassBorder),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Category Performance Snapshot',
                         style: GoogleFonts.outfit(
-                          color: Colors.white,
+                          color: _menuPastelText,
+                          fontWeight: FontWeight.w700,
+                          fontSize: compact ? 11 : 12,
+                        ),
+                      ),
+                      SizedBox(height: compact ? 8 : 10),
+                      ...categories.map((category) {
+                        final score = _categoryPercent(category);
+                        final target = _targetForCategory(category);
+                        final met = score >= target;
+                        return Padding(
+                          padding: EdgeInsets.only(bottom: compact ? 8 : 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      category,
+                                      style: GoogleFonts.outfit(
+                                        color: _menuPastelText,
+                                        fontSize: compact ? 11 : 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${score.toStringAsFixed(0)}% / $target%',
+                                    style: GoogleFonts.outfit(
+                                      color: met
+                                          ? _menuPastelAccentDeep
+                                          : const Color(0xFFBE8E75),
+                                      fontSize: compact ? 11 : 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: compact ? 5 : 6),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final barWidth = constraints.maxWidth;
+                                  final targetOffset =
+                                      (barWidth * (target / 100)).clamp(
+                                    0.0,
+                                    barWidth,
+                                  );
+                                  return Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Container(
+                                        height: compact ? 6 : 8,
+                                        decoration: BoxDecoration(
+                                          color: _menuPastelLeafSoft.withValues(
+                                              alpha: 0.72),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                        ),
+                                      ),
+                                      FractionallySizedBox(
+                                        widthFactor:
+                                            (score / 100).clamp(0.0, 1.0),
+                                        child: Container(
+                                          height: compact ? 6 : 8,
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: met
+                                                  ? const [
+                                                      Color(0xFF7EA468),
+                                                      Color(0xFFA6C0D4),
+                                                    ]
+                                                  : const [
+                                                      Color(0xFFE1B79F),
+                                                      Color(0xFFC9BADF),
+                                                    ],
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                        ),
+                                      ),
+                                      Positioned(
+                                        left: targetOffset - 1,
+                                        top: compact ? -1 : -2,
+                                        bottom: compact ? -1 : -2,
+                                        child: Container(
+                                          width: 2,
+                                          decoration: BoxDecoration(
+                                            color: _menuPastelTextSoft,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+                SizedBox(height: compact ? 8 : 10),
+                if (!compact)
+                  ...categories.map((category) {
+                    final score = _categoryPercent(category);
+                    final target = _targetForCategory(category);
+                    final met = score >= target;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        '$category: ${score.toStringAsFixed(0)}% / $target% ${met ? 'OK' : 'LOW'}',
+                        style: GoogleFonts.outfit(
+                          color: met
+                              ? _menuPastelAccentDeep
+                              : const Color(0xFFBE8E75),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                    );
+                  }),
+                if (!compact) const SizedBox(height: 10),
+                Text(
+                  readiness.toUpperCase(),
+                  style: GoogleFonts.outfit(
+                    color: readinessColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _readinessPrimaryFeedback(),
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Smart Feedback',
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelText,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _smartFeedbackSummary(),
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelTextSoft,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: timedReadinessColor.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: timedReadinessColor.withValues(alpha: 0.48),
                     ),
-                  ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.timer_rounded,
+                            color: timedReadinessColor,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              timedReadiness['label'] as String,
+                              style: GoogleFonts.outfit(
+                                color: _menuPastelText,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            timedReadiness['hasData'] as bool
+                                ? '${(timedReadiness['score'] as double).toStringAsFixed(1)}%'
+                                : 'Pending',
+                            style: GoogleFonts.outfit(
+                              color: _menuPastelText,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        timedReadiness['summary'] as String,
+                        style: GoogleFonts.outfit(
+                          color: _menuPastelTextSoft,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Session Intelligence',
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: competitivenessColor.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: competitivenessColor.withValues(alpha: 0.48),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.query_stats_rounded,
+                        color: competitivenessColor,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${competitiveness['label']} • ${competitiveness['tier']}',
+                          style: GoogleFonts.outfit(
+                            color: _menuPastelText,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Speed: $speedLabel (${secondsPerQuestion.toStringAsFixed(1)}s/question, ${questionsPerMinute.toStringAsFixed(2)} q/min)\nAccuracy: ${sessionAccuracy.toStringAsFixed(1)}%\nFocus: $focusLabel ($timedOutCount timeouts)',
-                style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.86),
-                  fontSize: 12,
-                  height: 1.3,
+                const SizedBox(height: 10),
+                Text(
+                  'Session Intelligence',
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelText,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                behaviorMessage,
-                style: GoogleFonts.outfit(
-                  color: const Color(0xFFFFC857),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                const SizedBox(height: 4),
+                Text(
+                  'Speed: $speedLabel (${secondsPerQuestion.toStringAsFixed(1)}s/question, ${questionsPerMinute.toStringAsFixed(2)} q/min)\nAccuracy: ${sessionAccuracy.toStringAsFixed(1)}%\nFocus: $focusLabel ($timedOutCount timeouts)',
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelTextSoft,
+                    fontSize: 12,
+                    height: 1.3,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _microTipForCategory(tipCategory),
-                style: GoogleFonts.outfit(
-                  color: const Color(0xFF9BE7FF),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                const SizedBox(height: 8),
+                Text(
+                  behaviorMessage,
+                  style: GoogleFonts.outfit(
+                    color: PnleTheme.warning,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Scores and competitiveness bands are estimates based on in-app trends and not official UST criteria.',
-                style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.62),
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
+                const SizedBox(height: 8),
+                Text(
+                  _microTipForCategory(tipCategory),
+                  style: GoogleFonts.outfit(
+                    color: const Color(0xFF7293AE),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-            child: Text(
-              'Continue',
-              style: GoogleFonts.outfit(
-                color: PnleTheme.accent,
-                fontWeight: FontWeight.w700,
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  'These readiness bands are in-app ACET estimates based on your recent accuracy, speed, and efficiency. They are not official admission cutoffs.',
+                  style: GoogleFonts.outfit(
+                    color: _menuPastelTextSoft,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                SizedBox(height: compact ? 12 : 14),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    onPressed: () =>
+                        Navigator.of(context, rootNavigator: true).pop(),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _menuPastelLeaf,
+                      foregroundColor: _menuPastelCream,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: Text(
+                      'Continue',
+                      style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -7311,21 +7883,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               child: Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF473410), Color(0xFF1C1408)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: _menuPastelPanel,
                   borderRadius: BorderRadius.circular(22),
-                  border:
-                      Border.all(color: const Color(0xFFFFD76B), width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFFD76B).withValues(alpha: 0.28),
-                      blurRadius: 16,
-                      spreadRadius: 2,
-                    ),
-                  ],
+                  border: Border.all(color: _menuPastelGlassBorder, width: 1.3),
                 ),
                 child: SafeArea(
                   child: ConstrainedBox(
@@ -7343,7 +7903,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                 Text(
                                   'Get More Sessions TODAY',
                                   style: GoogleFonts.outfit(
-                                    color: Colors.white,
+                                    color: _menuPastelText,
                                     fontWeight: FontWeight.w800,
                                     fontSize: 20,
                                   ),
@@ -7352,8 +7912,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                 Text(
                                   'Daily tasks reset every day.',
                                   style: GoogleFonts.outfit(
-                                    color: Colors.white.withValues(alpha: 0.75),
-                                    fontSize: 12,
+                                    color: _menuPastelTextSoft,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 const SizedBox(height: 14),
@@ -7383,12 +7944,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                       '$completedSessions/$_dailySessionTarget completed',
                                   actionLabel: rewardsLoading
                                       ? '...'
-                                      : _canClaimStreakRewardToday
-                                          ? 'Claim'
-                                          : 'Claimed',
+                                      : completedSessions < _dailySessionTarget
+                                          ? 'Locked'
+                                          : _canClaimStreakRewardToday
+                                              ? 'Claim'
+                                              : 'Claimed',
                                   enabled: !rewardsLoading &&
                                       _canClaimStreakRewardToday,
                                   claimed: !rewardsLoading &&
+                                      completedSessions >=
+                                          _dailySessionTarget &&
                                       !_canClaimStreakRewardToday &&
                                       _lastStreakRewardClaimDate ==
                                           _getTodayDateString(),
@@ -7524,7 +8089,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                 ),
                                 const SizedBox(height: 10),
                                 _sessionTaskTile(
-                                  icon: Icons.workspace_premium_rounded,
+                                  icon: Icons.verified_rounded,
                                   title:
                                       'Score 95%+ in Random/Focus/Challenge/Timed',
                                   subtitle: _dailyTaskHighScoreAchieved
@@ -7560,7 +8125,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             onPressed: () => Navigator.pop(context),
                             child: Text(
                               'Close',
-                              style: GoogleFonts.outfit(color: Colors.white70),
+                              style: GoogleFonts.outfit(
+                                color: _menuPastelTextSoft,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
@@ -7590,13 +8158,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
+        color: _menuPastelCream,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        border: Border.all(color: _menuPastelGlassBorder),
       ),
       child: Row(
         children: [
-          Icon(icon, color: Colors.white, size: 20),
+          Icon(icon, color: _menuPastelLeaf, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -7605,7 +8173,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 Text(
                   title,
                   style: GoogleFonts.outfit(
-                    color: Colors.white,
+                    color: _menuPastelText,
                     fontWeight: FontWeight.w700,
                     fontSize: 13,
                   ),
@@ -7614,8 +8182,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 Text(
                   subtitle,
                   style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    fontSize: 11,
+                    color: _menuPastelTextSoft,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -7627,13 +8196,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
+                    color: _menuPastelLeafSoft,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white24),
+                    border: Border.all(
+                      color: _menuPastelAccent.withValues(alpha: 0.3),
+                    ),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.check_circle_rounded,
-                    color: Color(0xFF8CFFB0),
+                    color: _menuPastelLeaf,
                     size: 20,
                   ),
                 )
@@ -7641,8 +8212,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   onPressed: enabled ? () => onAction() : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor:
-                        enabled ? PnleTheme.accent : Colors.white24,
-                    foregroundColor: enabled ? Colors.black : Colors.white70,
+                        enabled ? _menuPastelLeafSoft : _menuPastelPanel,
+                    foregroundColor:
+                        enabled ? _menuPastelText : _menuPastelTextSoft,
+                    disabledBackgroundColor: _menuPastelPanel,
+                    disabledForegroundColor: _menuPastelTextSoft,
+                    side: BorderSide(
+                      color: enabled
+                          ? _menuPastelAccent.withValues(alpha: 0.35)
+                          : _menuPastelGlassBorder,
+                    ),
+                    elevation: 0,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
@@ -7659,76 +8239,65 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // =========================
   // UI
   // =========================
+  static const Color _menuPastelMint = Color(0xFFD7EACB);
+  static const Color _menuPastelCream = Color(0xFFFCF6EB);
+  static const Color _menuPastelYellow = Color(0xFFF1E6A7);
+  static const Color _menuPastelSeafoam = Color(0xFFC9E1BD);
+  static const Color _menuPastelAccent = Color(0xFF95B97F);
+  static const Color _menuPastelAccentDeep = Color(0xFF6F8F60);
+  static const Color _menuPastelText = Color(0xFF5A7652);
+  static const Color _menuPastelTextSoft = Color(0xFF8AA081);
+  static const Color _menuPastelGlassFill = Color(0xEAFBF7EE);
+  static const Color _menuPastelGlassBorder = Color(0xA4C5D6AE);
+  static const Color _menuPastelPanel = Color(0xFFF9F3E7);
+  static const Color _menuPastelLeaf = Color(0xFF7EA468);
+  static const Color _menuPastelLeafSoft = Color(0xFFDDEBCE);
+
+  Widget _buildPastelMenuBackdrop() {
+    return Container(color: _menuPastelCream);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Set status bar to be transparent with light icons
+    // Set status bar to be transparent with dark icons for the pastel surface
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
       ),
     );
 
     return Scaffold(
+      backgroundColor: _menuPastelCream,
       body: Column(
         children: [
           Expanded(
             child: Stack(
               children: [
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: PnleTheme.appBackground,
-                  ),
-                ),
-                Positioned(
-                  top: -120,
-                  right: -80,
-                  child: Container(
-                    height: 240,
-                    width: 240,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          PnleTheme.glowA.withValues(alpha: 0.28),
-                          PnleTheme.glowA.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: -140,
-                  left: -60,
-                  child: Container(
-                    height: 260,
-                    width: 260,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          PnleTheme.glowB.withValues(alpha: 0.24),
-                          PnleTheme.glowB.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+                _buildPastelMenuBackdrop(),
                 _buildScreen(),
               ],
             ),
           ),
           // Banner Ad (only for free users) - positioned at bottom above nav bar
-          if (!hasAdFreeAccess &&
+          if (!hasUnlimitedAccess &&
               !hasGraceAccess &&
               _isBannerAdLoaded &&
               _bannerAd != null)
             Container(
-              alignment: Alignment.center,
-              width: _bannerAd!.size.width.toDouble(),
-              height: _bannerAd!.size.height.toDouble(),
-              child: AdWidget(ad: _bannerAd!),
+              color: _menuPastelCream,
+              padding: const EdgeInsets.only(top: 6, bottom: 4),
+              child: SizedBox(
+                height: 50,
+                child: Center(
+                  child: SizedBox(
+                    width: _bannerAd!.size.width.toDouble(),
+                    height: _bannerAd!.size.height.toDouble(),
+                    child: AdWidget(ad: _bannerAd!),
+                  ),
+                ),
+              ),
             ),
         ],
       ),
@@ -7750,6 +8319,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       nickname: _nickname,
       muteAllSounds: _muteAllSounds,
       notificationsEnabled: _notificationsEnabled,
+      strictTimingEnabled: _strictTimingEnabled,
       onNicknameChanged: (nickname) async {
         await _saveNickname(nickname);
       },
@@ -7758,6 +8328,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       },
       onNotificationsChanged: (enabled) async {
         return _setNotificationsEnabled(enabled);
+      },
+      onStrictTimingChanged: (enabled) async {
+        await _setStrictTimingEnabled(enabled);
       },
       embedded: true,
     );
@@ -7784,9 +8357,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return SingleChildScrollView(
       key: const PageStorageKey('home_screen'),
       controller: _homeScrollController,
-      child: _glassContainer(
-        borderRadius: 26,
+      child: Container(
         padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _menuPastelPanel,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(
+            color: _menuPastelGlassBorder,
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0x16809D6A),
+              blurRadius: 14,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
         child: _buildNormalHomeFlow(),
       ),
     );
@@ -7794,8 +8381,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   // ignore: unused_element
   void _showSpecializationSelectionDialog() {
-    final specializations = List<String>.from(_ustetCourses);
-    _isCoursePickerOpen = true;
+    final specializations = List<String>.from(_acetStudyPreferences);
 
     showDialog(
       context: context,
@@ -7806,24 +8392,25 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
           constraints: const BoxConstraints(maxWidth: 500, maxHeight: 700),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               colors: [
-                PnleTheme.bgTop,
-                PnleTheme.bgBottom,
+                Color.lerp(_menuPastelPanel, _menuPastelLeafSoft, 0.2)!,
+                _menuPastelPanel,
+                Color.lerp(_menuPastelPanel, _menuPastelYellow, 0.18)!,
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(28),
             border: Border.all(
-              color: PnleTheme.accent.withValues(alpha: 0.3),
-              width: 2,
+              color: _menuPastelGlassBorder,
+              width: 1.4,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 40,
-                spreadRadius: 10,
+                color: _menuPastelLeaf.withValues(alpha: 0.14),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
@@ -7839,13 +8426,24 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   child: Column(
                     children: [
                       Text(
-                        'What course are you aiming for?',
+                        'Optional: choose a study preference',
                         textAlign: TextAlign.center,
                         style: GoogleFonts.outfit(
-                          color: PnleTheme.accent,
+                          color: _menuPastelText,
                           fontWeight: FontWeight.w700,
                           fontSize: 20,
                           letterSpacing: 0.5,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'This only adjusts emphasis and coaching. It does not lock your quiz coverage.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          color: _menuPastelTextSoft,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
                           decoration: TextDecoration.none,
                         ),
                       ),
@@ -7864,28 +8462,32 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       String description = '';
                       IconData icon = Icons.book_rounded;
 
-                      // Course-based targets for USTET readiness mode
+                      // Optional study-interest clusters. They guide messaging only.
                       switch (spec) {
-                        case 'Nursing':
-                          description = 'Science-heavy and highly competitive';
-                          icon = Icons.local_hospital_rounded;
-                          break;
-                        case 'Engineering':
-                          description = 'Math-focused admission track';
-                          icon = Icons.engineering_rounded;
-                          break;
-                        case 'Business':
-                          description = 'Balanced math and communication';
-                          icon = Icons.business_center_rounded;
-                          break;
-                        case 'Arts':
-                          description = 'Language and reasoning priority';
-                          icon = Icons.palette_rounded;
-                          break;
-                        case 'Science':
+                        case 'General ACET':
                           description =
-                              'Science depth with strong math support';
-                          icon = Icons.science_rounded;
+                              'Balanced practice across all four ACET categories';
+                          icon = Icons.school_rounded;
+                          break;
+                        case 'English Priority':
+                          description =
+                              'Use this if you want extra emphasis on grammar, vocabulary, and reading accuracy';
+                          icon = Icons.spellcheck_rounded;
+                          break;
+                        case 'Mathematics Priority':
+                          description =
+                              'Use this if you want extra emphasis on quantitative speed and accuracy';
+                          icon = Icons.calculate_rounded;
+                          break;
+                        case 'Logical Reasoning Priority':
+                          description =
+                              'Use this if you want more argument analysis, deduction, and inference practice';
+                          icon = Icons.account_tree_rounded;
+                          break;
+                        case 'Mental Ability Priority':
+                          description =
+                              'Use this if you want more pattern, matrix, and abstract-rule practice';
+                          icon = Icons.psychology_alt_rounded;
                           break;
                       }
 
@@ -7904,15 +8506,20 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
-                                    Colors.white.withValues(alpha: 0.08),
-                                    Colors.white.withValues(alpha: 0.03),
+                                    _menuPastelCream,
+                                    Color.lerp(
+                                      _menuPastelCream,
+                                      _menuPastelYellow,
+                                      0.18,
+                                    )!,
                                   ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
                                 ),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color:
-                                      PnleTheme.accent.withValues(alpha: 0.2),
-                                  width: 1.5,
+                                  color: _menuPastelGlassBorder,
+                                  width: 1.2,
                                 ),
                               ),
                               child: Row(
@@ -7920,13 +8527,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: PnleTheme.accent
-                                          .withValues(alpha: 0.15),
+                                      color: _menuPastelLeafSoft,
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Icon(
                                       icon,
-                                      color: PnleTheme.accent,
+                                      color: _menuPastelLeaf,
                                       size: 22,
                                     ),
                                   ),
@@ -7939,7 +8545,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                         Text(
                                           displayName,
                                           style: GoogleFonts.outfit(
-                                            color: Colors.white,
+                                            color: _menuPastelText,
                                             fontWeight: FontWeight.w600,
                                             fontSize: 14,
                                           ),
@@ -7948,8 +8554,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                         Text(
                                           description,
                                           style: GoogleFonts.outfit(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.6),
+                                            color: _menuPastelTextSoft,
                                             fontWeight: FontWeight.w400,
                                             fontSize: 11,
                                           ),
@@ -7959,8 +8564,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   ),
                                   Icon(
                                     Icons.arrow_forward_ios_rounded,
-                                    color:
-                                        PnleTheme.accent.withValues(alpha: 0.5),
+                                    color: _menuPastelTextSoft,
                                     size: 16,
                                   ),
                                 ],
@@ -7977,329 +8581,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           ),
         ),
       ),
-    ).whenComplete(() {
-      _isCoursePickerOpen = false;
-    });
-  }
-
-  Widget _buildStudyHubAction({
-    required IconData icon,
-    required String label,
-    required String subtitle,
-    required VoidCallback? onTap,
-  }) {
-    final enabled = onTap != null;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: enabled
-                  ? [
-                      Colors.white.withValues(alpha: 0.16),
-                      Colors.white.withValues(alpha: 0.08),
-                    ]
-                  : [
-                      Colors.white.withValues(alpha: 0.07),
-                      Colors.white.withValues(alpha: 0.04),
-                    ],
-            ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: enabled
-                  ? Colors.white.withValues(alpha: 0.28)
-                  : Colors.white.withValues(alpha: 0.14),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: enabled
-                      ? PnleTheme.accent.withValues(alpha: 0.24)
-                      : Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  color: enabled
-                      ? PnleTheme.accent
-                      : Colors.white.withValues(alpha: 0.35),
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: GoogleFonts.outfit(
-                        color: enabled
-                            ? Colors.white
-                            : Colors.white.withValues(alpha: 0.45),
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white
-                            .withValues(alpha: enabled ? 0.72 : 0.4),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStudyHubMetric({
-    required String value,
-    required String label,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: GoogleFonts.outfit(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: GoogleFonts.outfit(
-                color: Colors.white.withValues(alpha: 0.72),
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStudyHubCard() {
-    final hasPaused = _pausedQuizSessions.isNotEmpty;
-    String pausedProgress = 'No paused session';
-    if (_isLoadingPausedQuizSessions) {
-      pausedProgress = 'Retrieving unfinished sessions...';
-    } else if (hasPaused && _pausedQuizSessions.length == 1) {
-      final single = _pausedQuizSessions.values.first;
-      pausedProgress =
-          '${_modeLabel(single.testMode)} • ${single.currentIndex + 1}/${single.questions.length}';
-    } else if (hasPaused) {
-      final count = _pausedQuizSessions.length;
-      pausedProgress = '$count unfinished modes available';
-    }
-    final mistakeCount = _mistakeQueue.length;
-    final mistakesSubtitle = _isLoadingMistakeQueue
-        ? 'Retrieving saved mistakes...'
-        : '$mistakeCount saved for review';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF2C3E68).withValues(alpha: 0.9),
-            const Color(0xFF1A2546).withValues(alpha: 0.9),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 12,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.hub_rounded, color: PnleTheme.accent, size: 22),
-              const SizedBox(width: 8),
-              Text(
-                'Study Hub',
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Jump right back into active study tasks.',
-            style: GoogleFonts.outfit(
-              color: Colors.white.withValues(alpha: 0.7),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _buildStudyHubMetric(
-                value: '$completedSessions/$_dailySessionTarget',
-                label: 'Today',
-              ),
-              const SizedBox(width: 8),
-              _buildStudyHubMetric(
-                value: '$currentStreak',
-                label: 'Streak',
-              ),
-              const SizedBox(width: 8),
-              _buildStudyHubMetric(
-                value: '$accumulatedQuizzesCompleted',
-                label: 'Total Quizzes',
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildStudyHubAction(
-            icon: Icons.play_circle_fill_rounded,
-            label: 'Continue Session',
-            subtitle: pausedProgress,
-            onTap: !_isLoadingPausedQuizSessions && hasPaused
-                ? _showContinueSessionsDialog
-                : null,
-          ),
-          const SizedBox(height: 10),
-          _buildStudyHubAction(
-            icon: Icons.fact_check_rounded,
-            label: 'Review Mistakes',
-            subtitle: mistakesSubtitle,
-            onTap: !_isLoadingMistakeQueue && mistakeCount > 0
-                ? _showReviewMistakesDialog
-                : null,
-          ),
-          const SizedBox(height: 10),
-          _buildStudyHubAction(
-            icon: Icons.bolt_rounded,
-            label: 'Start Quiz',
-            subtitle: _remainingSessionsTodayText(),
-            onTap: () {
-              setState(() {
-                currentScreen = 2;
-              });
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNormalHomeFlow() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: 20),
-        Text(
-          _getGreetingWithName(),
-          textAlign: TextAlign.center,
-          style: GoogleFonts.outfit(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-            fontSize: 28,
-            letterSpacing: 1.1,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          _getDailyMotivationalQuote(),
-          textAlign: TextAlign.center,
-          style: GoogleFonts.outfit(
-            color: Colors.white.withValues(alpha: 0.85),
-            fontWeight: FontWeight.w500,
-            fontSize: 14,
-            fontStyle: FontStyle.italic,
-            letterSpacing: 0.3,
-          ),
-        ),
-        const SizedBox(height: 28),
-
-        // Daily Streak Badge
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                PnleTheme.accent.withValues(alpha: 0.34),
-                PnleTheme.glowB.withValues(alpha: 0.22),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: PnleTheme.accent.withValues(alpha: 0.55)),
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.local_fire_department_rounded,
-                      color: Color(0xFFFFD166), size: 24),
-                  const SizedBox(width: 12),
-                  Text(
-                    '$currentStreak day streak!',
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        const SizedBox(height: 24),
-
-        _buildStudyHubCard(),
-        const SizedBox(height: 24),
-
-        if (accumulatedQuizzesCompleted > 0) const SizedBox(height: 14),
-      ],
     );
   }
 
   Widget _startQuizScreen() {
     final totalAvg = _calculateTotalAverage();
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     final totalWarmupBuckets = categories.length * 4;
     final effectiveFocusCategory = _recommendedFocusCategory();
     // Use accumulated stats that persist across sessions
@@ -8327,24 +8614,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withValues(alpha: 0.2),
-                      Colors.white.withValues(alpha: 0.1),
-                    ],
-                  ),
+                  color: _menuPastelCream,
                   borderRadius: BorderRadius.circular(16),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                  border: Border.all(color: _menuPastelGlassBorder),
                 ),
                 child: Column(
                   children: [
                     Text(
                       'YOUR STATS',
                       style: GoogleFonts.outfit(
-                        color: Colors.white.withValues(alpha: 0.7),
+                        color: _menuPastelText,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        fontSize: 13,
                         letterSpacing: 1.2,
                       ),
                     ),
@@ -8360,7 +8641,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         Container(
                           width: 1,
                           height: 40,
-                          color: Colors.white.withValues(alpha: 0.2),
+                          color: _menuPastelGlassBorder,
                         ),
                         _quickStat(
                           icon: Icons.question_answer_rounded,
@@ -8370,7 +8651,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         Container(
                           width: 1,
                           height: 40,
-                          color: Colors.white.withValues(alpha: 0.2),
+                          color: _menuPastelGlassBorder,
                         ),
                         _quickStat(
                           icon: Icons.emoji_events_rounded,
@@ -8390,21 +8671,22 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.2),
+                    color: const Color(0xFFF8E8E3),
                     borderRadius: BorderRadius.circular(10),
-                    border:
-                        Border.all(color: Colors.red.withValues(alpha: 0.6)),
+                    border: Border.all(
+                      color: PnleTheme.danger.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: Row(
                     children: [
                       const Icon(Icons.wifi_off_rounded,
-                          color: Colors.redAccent, size: 18),
+                          color: PnleTheme.dangerSoft, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Offline: locally seeded quiz sessions still work. Rewards, syncing, and online explanations resume after reconnecting.',
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: _menuPastelText,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -8421,13 +8703,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: _poolWarmupComplete
-                        ? const Color(0xFF34D399).withValues(alpha: 0.18)
-                        : const Color(0xFFFFD166).withValues(alpha: 0.18),
+                        ? const Color(0xFFEAF5E1)
+                        : const Color(0xFFF8F0D8),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _poolWarmupComplete
-                          ? const Color(0xFF34D399).withValues(alpha: 0.7)
-                          : const Color(0xFFFFD166).withValues(alpha: 0.7),
+                          ? PnleTheme.success.withValues(alpha: 0.35)
+                          : PnleTheme.warning.withValues(alpha: 0.35),
                     ),
                   ),
                   child: Row(
@@ -8438,8 +8720,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             ? Icons.verified_rounded
                             : Icons.hourglass_bottom_rounded,
                         color: _poolWarmupComplete
-                            ? const Color(0xFF34D399)
-                            : const Color(0xFFFFD166),
+                            ? PnleTheme.success
+                            : PnleTheme.warning,
                         size: 18,
                       ),
                       const SizedBox(width: 8),
@@ -8453,7 +8735,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                       : 'Offline pool warmed up. Random Quiz, Focus Mode, and Timed Exam can start from local question sets while syncing waits for internet.')
                                   : 'Offline pool warm-up in progress: $_poolWarmupReadyBuckets/$totalWarmupBuckets buckets ready.'),
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: _menuPastelText,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -8467,7 +8749,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           padding: const EdgeInsets.all(2),
                           child: Icon(
                             Icons.close_rounded,
-                            color: Colors.white.withValues(alpha: 0.8),
+                            color: _menuPastelTextSoft,
                             size: 16,
                           ),
                         ),
@@ -8480,15 +8762,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      PnleTheme.accent.withValues(alpha: 0.30),
-                      PnleTheme.glowB.withValues(alpha: 0.14),
-                    ],
-                  ),
+                  color: const Color(0xFFF5EFDE),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: PnleTheme.accent.withValues(alpha: 0.52)),
+                    color: _menuPastelAccent.withValues(alpha: 0.42),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -8496,12 +8774,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     Row(
                       children: [
                         const Icon(Icons.local_fire_department_rounded,
-                            color: Color(0xFFFFD166), size: 20),
+                            color: PnleTheme.warning, size: 20),
                         const SizedBox(width: 8),
                         Text(
                           'Today\'s Progress',
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: _menuPastelText,
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),
@@ -8513,16 +8791,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.14),
+                        color: _menuPastelCream,
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.28),
+                          color: _menuPastelGlassBorder,
                         ),
                       ),
                       child: Text(
-                        'Course Goal: ${eligibility.toUpperCase()}',
+                        'Study Preference: ${programInterest.toUpperCase()}',
                         style: GoogleFonts.outfit(
-                          color: Colors.white,
+                          color: _menuPastelText,
                           fontWeight: FontWeight.w700,
                           fontSize: 12,
                         ),
@@ -8538,16 +8816,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             Text(
                               'Sessions: $completedSessions/$_dailySessionTarget',
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.9),
+                                color: _menuPastelText,
                                 fontSize: 13,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               'Streak: $currentStreak ${currentStreak == 1 ? 'day' : 'days'}',
                               style: GoogleFonts.outfit(
-                                color: Colors.white.withValues(alpha: 0.9),
+                                color: _menuPastelText,
                                 fontSize: 13,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
@@ -8556,13 +8836,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: PnleTheme.accent,
+                            color: _menuPastelLeafSoft,
+                            border: Border.all(
+                              color: _menuPastelAccent.withValues(alpha: 0.35),
+                            ),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
                             _remainingSessionsTodayText(),
                             style: GoogleFonts.outfit(
-                              color: Colors.black,
+                              color: _menuPastelText,
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
                             ),
@@ -8578,21 +8861,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Container(
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFFE39A), Color(0xFFE9A83E)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: const Color(0xFFF5E8C8),
                   borderRadius: BorderRadius.circular(16),
                   border:
-                      Border.all(color: const Color(0xFFFFF1C2), width: 1.2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFE9A83E).withValues(alpha: 0.45),
-                      blurRadius: 18,
-                      spreadRadius: 2,
-                    ),
-                  ],
+                      Border.all(color: const Color(0xFFD9C59C), width: 1.2),
                 ),
                 child: Material(
                   color: Colors.transparent,
@@ -8611,7 +8883,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           child: Row(
                             children: [
                               const Icon(
-                                Icons.workspace_premium_rounded,
+                                Icons.flag_rounded,
                                 color: Color(0xFF533700),
                                 size: 22,
                               ),
@@ -8649,18 +8921,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF2E7D32)
-                                        .withValues(alpha: 0.95),
+                                    color: _menuPastelLeafSoft,
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.35),
+                                      color: _menuPastelAccent.withValues(
+                                          alpha: 0.35),
                                     ),
                                   ),
                                   child: Text(
                                     '+$_claimableSessionsCountNow',
                                     style: GoogleFonts.outfit(
-                                      color: Colors.white,
+                                      color: _menuPastelText,
                                       fontWeight: FontWeight.w700,
                                       fontSize: 9,
                                       letterSpacing: 0.2,
@@ -8687,9 +8958,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 'SELECT QUIZ MODE',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.7),
+                  color: _menuPastelText,
                   fontWeight: FontWeight.bold,
-                  fontSize: 12,
+                  fontSize: 13,
                   letterSpacing: 1.2,
                 ),
               ),
@@ -8702,10 +8973,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 title: 'Random Quiz',
                 description: 'Mixed questions from all categories',
                 gradient: canTakeQuiz
-                    ? _modeFadeGradient()
-                    : LinearGradient(
-                        colors: [Colors.grey.shade600, Colors.grey.shade700],
+                    ? _modeFadeGradientWithColors(
+                        const Color(0xFFDCEBCF),
+                        const Color(0xFFC9DDB6),
+                      )
+                    : _modeFadeGradientWithColors(
+                        const Color(0xFFF3E6DA),
+                        const Color(0xFFE8D6C9),
+                        strength: 0.72,
                       ),
+                accentColor: const Color(0xFF7CA66C),
+                iconBackgroundColor: const Color(0xFF9FC88A),
                 onTap: canTakeQuiz
                     ? () async {
                         await _startOrResumeMode(
@@ -8749,10 +9027,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ? 'Target: $effectiveFocusCategory'
                     : 'Adaptive focus practice',
                 gradient: _modeFadeGradientWithColors(
-                  PnleTheme.glowB,
-                  PnleTheme.accent,
+                  const Color(0xFFE8DDF1),
+                  const Color(0xFFD8CAE6),
                   strength: 0.9,
                 ),
+                accentColor: const Color(0xFF8C79A8),
+                iconBackgroundColor: const Color(0xFFB6A4CE),
                 onTap: (canTakeQuiz &&
                         _hasUnlockedAdvancedModes &&
                         effectiveFocusCategory.isNotEmpty)
@@ -8798,10 +9078,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ? 'Retrieving saved tests...'
                     : '5 questions • Perfect for breaks',
                 gradient: _modeFadeGradientWithColors(
-                  PnleTheme.bgTop,
-                  PnleTheme.glowB,
+                  const Color(0xFFF6E2D7),
+                  const Color(0xFFEFCFC0),
                   strength: 0.8,
                 ),
+                accentColor: const Color(0xFFBE8E75),
+                iconBackgroundColor: const Color(0xFFE1B79F),
                 onTap: _isLoadingSavedSessions
                     ? null
                     : (_hasSavedTestsData ? () => _startQuickPractice() : null),
@@ -8819,10 +9101,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 description:
                     'Advanced mixed-difficulty simulation • Does not count toward daily session objective',
                 gradient: _modeFadeGradientWithColors(
-                  PnleTheme.accent,
-                  PnleTheme.accentDeep,
+                  const Color(0xFFF4E2BA),
+                  const Color(0xFFE7CF9B),
                   strength: 0.86,
                 ),
+                accentColor: const Color(0xFFB28D4B),
+                iconBackgroundColor: const Color(0xFFD8BD79),
                 onTap: (canTakeQuiz && _hasUnlockedAdvancedModes)
                     ? () => _startOrResumeMode(
                           mode: 'challenge',
@@ -8847,10 +9131,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 description:
                     'Exam pressure mode • strict timer with auto-next on timeout',
                 gradient: _modeFadeGradientWithColors(
-                  PnleTheme.glowB,
-                  PnleTheme.bgTop,
+                  const Color(0xFFDDEAF2),
+                  const Color(0xFFCBDBE8),
                   strength: 0.86,
                 ),
+                accentColor: const Color(0xFF7293AE),
+                iconBackgroundColor: const Color(0xFFA6C0D4),
                 onTap: canTakeQuiz
                     ? () async {
                         await _startOrResumeMode(
@@ -8875,10 +9161,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       ? 'Retrieving saved tests...'
                       : '${_savedSessions.length} saved ${_savedSessions.length == 1 ? 'test' : 'tests'} available',
                   gradient: _modeFadeGradientWithColors(
-                    PnleTheme.bgBottom,
-                    PnleTheme.glowB,
+                    const Color(0xFFEEDFE4),
+                    const Color(0xFFE0CFD6),
                     strength: 0.74,
                   ),
+                  accentColor: const Color(0xFFAA7E8F),
+                  iconBackgroundColor: const Color(0xFFD7B2BF),
                   onTap: _isLoadingSavedSessions ? null : _showSavedTestsDialog,
                   badge: _isLoadingSavedSessions
                       ? '...'
@@ -8903,12 +9191,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }) {
     return Column(
       children: [
-        Icon(icon, color: PnleTheme.accent, size: 24),
+        Icon(icon, color: _menuPastelLeaf, size: 24),
         const SizedBox(height: 8),
         Text(
           value,
           style: GoogleFonts.outfit(
-            color: Colors.white,
+            color: _menuPastelText,
             fontWeight: FontWeight.bold,
             fontSize: 18,
           ),
@@ -8917,8 +9205,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         Text(
           label,
           style: GoogleFonts.outfit(
-            color: Colors.white.withValues(alpha: 0.6),
-            fontSize: 11,
+            color: _menuPastelTextSoft,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -8930,6 +9219,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     required String title,
     required String description,
     required Gradient gradient,
+    Color accentColor = _menuPastelAccent,
+    Color iconBackgroundColor = _menuPastelLeaf,
     VoidCallback? onTap,
     bool isPrimary = false,
     String? badge,
@@ -8951,23 +9242,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               gradient: isLocked
                   ? LinearGradient(
                       colors: [
-                        Colors.grey.withValues(alpha: 0.3),
-                        Colors.grey.withValues(alpha: 0.2),
+                        const Color(0xFFF0ECE3),
+                        const Color(0xFFE8E3D8),
                       ],
                     )
                   : gradient,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isLocked
-                    ? Colors.white.withValues(alpha: 0.2)
-                    : Colors.white.withValues(alpha: 0.3),
+                    ? _menuPastelAccent.withValues(alpha: 0.18)
+                    : accentColor.withValues(alpha: 0.34),
                 width: isPrimary ? 2 : 1,
               ),
               boxShadow: isPrimary && !isLocked
                   ? [
                       BoxShadow(
-                        color: PnleTheme.accent.withValues(alpha: 0.3),
-                        blurRadius: 12,
+                        color: accentColor.withValues(alpha: 0.16),
+                        blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
                     ]
@@ -8979,13 +9270,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: isLocked
-                        ? Colors.white.withValues(alpha: 0.1)
-                        : Colors.white.withValues(alpha: 0.2),
+                        ? _menuPastelLeafSoft.withValues(alpha: 0.65)
+                        : iconBackgroundColor,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     isLocked ? Icons.lock_rounded : icon,
-                    color: isLocked ? Colors.white54 : Colors.white,
+                    color: isLocked ? _menuPastelTextSoft : Colors.white,
                     size: 28,
                   ),
                 ),
@@ -9000,7 +9291,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             child: Text(
                               title,
                               style: GoogleFonts.outfit(
-                                color: Colors.white,
+                                color: _menuPastelText,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
                               ),
@@ -9017,13 +9308,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.92),
+                                    color: _menuPastelPanel,
+                                    border: Border.all(
+                                      color: accentColor.withValues(alpha: 0.3),
+                                    ),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
                                     badge,
                                     style: GoogleFonts.outfit(
-                                      color: Colors.black,
+                                      color: _menuPastelText,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 10,
                                     ),
@@ -9039,17 +9333,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             ? 'Complete more quizzes to unlock'
                             : description,
                         style: GoogleFonts.outfit(
-                          color: Colors.white.withValues(alpha: 0.85),
-                          fontSize: 12,
+                          color: _menuPastelTextSoft,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
                 ),
                 if (!isLocked)
-                  const Icon(
+                  Icon(
                     Icons.arrow_forward_ios_rounded,
-                    color: Colors.white,
+                    color: accentColor,
                     size: 18,
                   ),
               ],
@@ -9074,13 +9369,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     double strength = 1.0,
   }) {
     final s = strength.clamp(0.0, 1.0);
+    final start = Color.lerp(_menuPastelCream, from, 0.14) ?? _menuPastelCream;
+    final mid = Color.lerp(_menuPastelPanel, to, 0.16) ?? _menuPastelPanel;
+    final end =
+        Color.lerp(_menuPastelLeafSoft, to, 0.08) ?? _menuPastelLeafSoft;
     return LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        from.withValues(alpha: 0.85 * s),
-        to.withValues(alpha: 0.78 * s),
-        Colors.white.withValues(alpha: 0.18 * s),
+        start.withValues(alpha: 0.98),
+        mid.withValues(alpha: 0.98),
+        end.withValues(alpha: 0.98 - (0.04 * (1 - s))),
       ],
     );
   }
@@ -9096,26 +9395,36 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            PnleTheme.bgTop.withValues(alpha: 0.96),
-            PnleTheme.bgBottom.withValues(alpha: 0.92),
-          ],
-        ),
+        color: _menuPastelCream,
         border: Border(
           top: BorderSide(
-            color: PnleTheme.accent.withValues(alpha: 0.35),
+            color: _menuPastelAccent.withValues(alpha: 0.3),
             width: 1,
           ),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x1488A36F),
+            blurRadius: 14,
+            offset: const Offset(0, -4),
+          ),
+        ],
       ),
       child: BottomNavigationBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        selectedItemColor: PnleTheme.accent,
-        unselectedItemColor: Colors.white.withValues(alpha: 0.85),
+        selectedItemColor: _menuPastelText,
+        unselectedItemColor: _menuPastelTextSoft,
+        selectedLabelStyle: GoogleFonts.outfit(
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
+          letterSpacing: 0.2,
+        ),
+        unselectedLabelStyle: GoogleFonts.outfit(
+          fontWeight: FontWeight.w600,
+          fontSize: 11,
+          letterSpacing: 0.15,
+        ),
         currentIndex: currentScreen,
         type: BottomNavigationBarType.fixed,
         items: List.generate(
@@ -9125,25 +9434,45 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             return BottomNavigationBarItem(
               icon: isSelected
                   ? Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
-                        gradient: _modeFadeGradient(),
+                        color: const Color(0xFFF0EFD9),
+                        border: Border.all(
+                          color: _menuPastelAccent.withValues(alpha: 0.3),
+                          width: 1,
+                        ),
                         borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
-                            color: PnleTheme.accent.withValues(alpha: 0.45),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
+                            color: const Color(0x1290AB79),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
                       child: Icon(
                         navItems[index]['icon'] as IconData,
                         size: 24,
-                        color: PnleTheme.bgBottom,
+                        color: _menuPastelText,
                       ),
                     )
-                  : Icon(navItems[index]['icon'] as IconData),
+                  : Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        navItems[index]['icon'] as IconData,
+                        size: 24,
+                        color: _menuPastelTextSoft,
+                      ),
+                    ),
               label: navItems[index]['label'] as String,
             );
           },
@@ -9168,9 +9497,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     return Stack(
       children: [
-        _glassContainer(
-          borderRadius: 26,
+        Container(
           padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _menuPastelPanel,
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(
+              color: _menuPastelGlassBorder,
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0x16809D6A),
+                blurRadius: 14,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
           child: ListView(
             key: const PageStorageKey('daily_performance_screen'),
             controller: _dailyScrollController,
@@ -9180,7 +9523,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 'Daily Progress',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _menuPastelText,
                   fontWeight: FontWeight.w700,
                   fontSize: 28,
                   letterSpacing: 1.1,
@@ -9191,7 +9534,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 _formatDate(DateTime.now()),
                 textAlign: TextAlign.center,
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.7),
+                  color: _menuPastelTextSoft,
                   fontWeight: FontWeight.w500,
                   fontSize: 14,
                 ),
@@ -9212,14 +9555,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 Icon(
                   Icons.insert_chart_outlined_rounded,
                   size: 80,
-                  color: Colors.white.withValues(alpha: 0.3),
+                  color: _menuPastelTextSoft.withValues(alpha: 0.35),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   'No data yet',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.7),
+                    color: _menuPastelText,
                     fontWeight: FontWeight.w600,
                     fontSize: 20,
                   ),
@@ -9229,7 +9572,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   'Start your first quiz today to\ntrack your progress!',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.outfit(
-                    color: Colors.white.withValues(alpha: 0.5),
+                    color: _menuPastelTextSoft,
                     fontSize: 14,
                   ),
                 ),
@@ -9400,56 +9743,320 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         .toList();
   }
 
-  double _calculateDayCourseReadinessPercent(Map<String, dynamic> day) {
-    final quizzes = (day['quizzes'] as int?) ?? 0;
-    if (quizzes > 0 && quizzes < 4) {
-      return _calculateDayOverallAverage(day).clamp(0.0, 100.0);
-    }
-
-    final categoryCorrectRaw = day['categoryCorrect'];
-    final categoryTotalRaw = day['categoryTotal'];
-
-    if (categoryCorrectRaw is Map && categoryTotalRaw is Map) {
-      final categories = _categoriesForEligibility();
-      double normalizedSum = 0;
-      int evaluatedCount = 0;
-      for (final category in categories) {
-        final total = (categoryTotalRaw[category] as num?)?.toInt() ?? 0;
-        if (total <= 0) continue;
-        evaluatedCount++;
-        final correct = (categoryCorrectRaw[category] as num?)?.toInt() ?? 0;
-        final percent = (correct / total) * 100;
-        final target = _targetForCategory(category);
-        final normalized = target <= 0 ? 0.0 : ((percent / target) * 100);
-        normalizedSum += normalized.clamp(0.0, 100.0);
-      }
-      if (evaluatedCount > 0) {
-        return (normalizedSum / evaluatedCount).clamp(0.0, 100.0);
-      }
-    }
-
-    final fallbackAvg = _calculateDayOverallAverage(day);
-    final categories = _categoriesForEligibility();
-    if (categories.isEmpty) {
-      return fallbackAvg.clamp(0.0, 100.0);
-    }
-
-    final avgTarget = categories
-            .map((category) => _targetForCategory(category))
-            .reduce((a, b) => a + b) /
-        categories.length;
-    if (avgTarget <= 0) {
-      return fallbackAvg.clamp(0.0, 100.0);
-    }
-
-    // Fallback keeps historical days target-sensitive when category splits are missing.
-    return ((fallbackAvg / avgTarget) * 100).clamp(0.0, 100.0);
+  Widget _buildStudyHubAction({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: enabled ? _menuPastelCream : const Color(0xFFF9F5EC),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: enabled
+                  ? _menuPastelAccent.withValues(alpha: 0.54)
+                  : _menuPastelTextSoft.withValues(alpha: 0.22),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0x1288A672),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: enabled ? _menuPastelLeaf : _menuPastelLeafSoft,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: enabled
+                      ? Colors.white
+                      : _menuPastelTextSoft.withValues(alpha: 0.7),
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: GoogleFonts.outfit(
+                        color: enabled
+                            ? _menuPastelText
+                            : _menuPastelTextSoft.withValues(alpha: 0.8),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.outfit(
+                        color: enabled
+                            ? _menuPastelTextSoft
+                            : _menuPastelTextSoft.withValues(alpha: 0.65),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
-  bool _isDayCourseReady(Map<String, dynamic> day) {
-    final quizzes = (day['quizzes'] as int?) ?? 0;
-    if (quizzes < 4) return false;
-    return _calculateDayCourseReadinessPercent(day) >= 99.9;
+  Widget _buildStudyHubMetric({
+    required String value,
+    required String label,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: _menuPastelLeafSoft,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _menuPastelAccent.withValues(alpha: 0.36)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: GoogleFonts.outfit(
+                color: _menuPastelText,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: GoogleFonts.outfit(
+                color: _menuPastelTextSoft,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStudyHubCard() {
+    final hasPaused = _pausedQuizSessions.isNotEmpty;
+    String pausedProgress = 'No paused session';
+    if (_isLoadingPausedQuizSessions) {
+      pausedProgress = 'Retrieving unfinished sessions...';
+    } else if (hasPaused && _pausedQuizSessions.length == 1) {
+      final single = _pausedQuizSessions.values.first;
+      pausedProgress =
+          '${_modeLabel(single.testMode)} • ${single.currentIndex + 1}/${single.questions.length}';
+    } else if (hasPaused) {
+      final count = _pausedQuizSessions.length;
+      pausedProgress = '$count unfinished modes available';
+    }
+
+    final mistakeCount = _mistakeQueue.length;
+    final mistakesSubtitle = _isLoadingMistakeQueue
+        ? 'Retrieving saved mistakes...'
+        : '$mistakeCount saved for review';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFFF7F1E3),
+        border: Border.all(color: _menuPastelGlassBorder, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x128DA774),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.hub_rounded,
+                color: _menuPastelLeaf,
+                size: 22,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Study Hub',
+                style: GoogleFonts.outfit(
+                  color: _menuPastelText,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Jump right back into active study tasks.',
+            style: GoogleFonts.outfit(
+              color: _menuPastelTextSoft,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildStudyHubMetric(
+                value: '$completedSessions/$_dailySessionTarget',
+                label: 'Today',
+              ),
+              const SizedBox(width: 8),
+              _buildStudyHubMetric(
+                value: '$currentStreak',
+                label: 'Streak',
+              ),
+              const SizedBox(width: 8),
+              _buildStudyHubMetric(
+                value: '$accumulatedQuizzesCompleted',
+                label: 'Total Quizzes',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildStudyHubAction(
+            icon: Icons.play_circle_fill_rounded,
+            label: 'Continue Session',
+            subtitle: pausedProgress,
+            onTap: !_isLoadingPausedQuizSessions && hasPaused
+                ? _showContinueSessionsDialog
+                : null,
+          ),
+          const SizedBox(height: 10),
+          _buildStudyHubAction(
+            icon: Icons.fact_check_rounded,
+            label: 'Review Mistakes',
+            subtitle: mistakesSubtitle,
+            onTap: !_isLoadingMistakeQueue && mistakeCount > 0
+                ? _showReviewMistakesDialog
+                : null,
+          ),
+          const SizedBox(height: 10),
+          _buildStudyHubAction(
+            icon: Icons.bolt_rounded,
+            label: 'Start Quiz',
+            subtitle: _remainingSessionsTodayText(),
+            onTap: () {
+              setState(() {
+                currentScreen = 2;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNormalHomeFlow() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 20),
+        Text(
+          _getGreetingWithName(),
+          textAlign: TextAlign.center,
+          style: GoogleFonts.outfit(
+            color: _menuPastelText,
+            fontWeight: FontWeight.w700,
+            fontSize: 28,
+            letterSpacing: 1.1,
+            shadows: [
+              Shadow(
+                color: Colors.white.withValues(alpha: 0.4),
+                blurRadius: 6,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          _getDailyMotivationalQuote(),
+          textAlign: TextAlign.center,
+          style: GoogleFonts.outfit(
+            color: _menuPastelTextSoft,
+            fontWeight: FontWeight.w500,
+            fontSize: 14,
+            fontStyle: FontStyle.italic,
+            letterSpacing: 0.3,
+          ),
+        ),
+        const SizedBox(height: 28),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF2EAB9),
+            borderRadius: BorderRadius.circular(12),
+            border:
+                Border.all(color: _menuPastelAccent.withValues(alpha: 0.56)),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0x1290AB79),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.local_fire_department_rounded,
+                      color: Color(0xFFBEA94F), size: 24),
+                  const SizedBox(width: 12),
+                  Text(
+                    '$currentStreak day streak!',
+                    style: GoogleFonts.outfit(
+                      color: _menuPastelText,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        const SizedBox(height: 24),
+        _buildStudyHubCard(),
+        const SizedBox(height: 24),
+        if (accumulatedQuizzesCompleted > 0) const SizedBox(height: 14),
+      ],
+    );
   }
 
   double _calculateDayOverallAverage(Map<String, dynamic> day) {
@@ -9471,12 +10078,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final tenDayActivity = _buildTenDayActivity();
     final activeDays =
         tenDayActivity.where((day) => (day['quizzes'] as int) > 0).length;
-    final goalPassDays =
-        tenDayActivity.where((day) => _isDayCourseReady(day)).length;
     final totalQuizzes = tenDayActivity.fold<int>(
       0,
       (sum, day) => sum + (day['quizzes'] as int),
     );
+    final strongDays = tenDayActivity
+        .where((day) => _calculateDayAcetPerformanceIndex(day) >= 82)
+        .length;
+
     return Stack(
       children: [
         SingleChildScrollView(
@@ -9495,7 +10104,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       style: GoogleFonts.outfit(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: _menuPastelText,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -9504,16 +10113,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: 14,
-                        color: Colors.white.withValues(alpha: 0.7),
+                        color: _menuPastelTextSoft,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Target Course: ${eligibility.toUpperCase()}',
+                      'Analysis uses ACET area weighting, session completion, and subject coverage.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.86),
+                        color: _menuPastelText,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -9544,7 +10153,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       color: Colors.white.withValues(alpha: 0.2),
                     ),
                     _build10DayStatItem(
-                        '$goalPassDays', 'Goal-Pass Days', Icons.flag_rounded),
+                        '$strongDays', 'Strong Days', Icons.flag_rounded),
                   ],
                 ),
               ),
@@ -9562,7 +10171,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       children: [
                         const Icon(
                           Icons.trending_up_rounded,
-                          color: Color(0xFF34D399),
+                          color: PnleTheme.success,
                           size: 20,
                         ),
                         const SizedBox(width: 8),
@@ -9571,7 +10180,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           style: GoogleFonts.outfit(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _menuPastelText,
                           ),
                         ),
                       ],
@@ -9599,11 +10208,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Daily Course Readiness',
+                          'Daily ACET Performance Index',
                           style: GoogleFonts.outfit(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _menuPastelText,
                           ),
                         ),
                       ],
@@ -9627,15 +10236,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       style: GoogleFonts.outfit(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: _menuPastelText,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Overall = day accuracy, Target match = alignment with your selected course targets.',
+                      'This index blends weighted accuracy, completion of your daily sessions, and coverage across the four ACET areas.',
                       style: GoogleFonts.outfit(
                         fontSize: 11,
-                        color: Colors.white.withValues(alpha: 0.68),
+                        color: _menuPastelTextSoft,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -9647,39 +10256,40 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       final correct = day['correct'] as int;
                       final hasActivity = quizzes > 0;
                       final dailyTarget = _dailySessionTarget;
-                      final isComplete =
-                          quizzes >= dailyTarget; // Must complete target tests
+                      final weightedAccuracy =
+                          _calculateDayWeightedAcetAccuracy(day);
+                      final performanceIndex =
+                          _calculateDayAcetPerformanceIndex(day);
+                      final coverageCount = _countPracticedAcetAreas(day);
 
                       // Calculate percentage and status
                       String statusText;
-                      Color statusColor;
+                      final statusColor = _dayAcetPerformanceBandColor(day);
                       if (!hasActivity) {
                         statusText = 'No session data for this day.';
-                        statusColor = Colors.white.withValues(alpha: 0.4);
-                      } else if (!isComplete) {
-                        final dayOverallAvg = _calculateDayOverallAverage(day);
+                      } else if (quizzes < dailyTarget) {
                         final missingSessions = dailyTarget - quizzes;
                         final accuracyData = questions > 0
                             ? '${correct.clamp(0, questions)}/$questions correct'
-                            : '${dayOverallAvg.toStringAsFixed(0)}% average so far';
+                            : '${weightedAccuracy.toStringAsFixed(0)}% weighted accuracy so far';
                         statusText =
-                            'Incomplete: $quizzes/$dailyTarget sessions. Need $missingSessions more to evaluate readiness. Accuracy: $accuracyData.';
-                        statusColor = const Color(0xFFFFA726);
+                            'In progress: $quizzes/$dailyTarget sessions. Need $missingSessions more for a full day read. Weighted accuracy: ${weightedAccuracy.toStringAsFixed(0)}%. Subtests touched: $coverageCount/4. Detail: $accuracyData.';
                       } else {
-                        final dayOverallAvg = _calculateDayOverallAverage(day);
-                        final readinessPercent =
-                            _calculateDayCourseReadinessPercent(day);
                         final accuracyData = questions > 0
                             ? '${correct.clamp(0, questions)}/$questions correct'
-                            : '${dayOverallAvg.toStringAsFixed(0)}% average';
-                        if (_isDayCourseReady(day)) {
+                            : '${weightedAccuracy.toStringAsFixed(0)}% weighted accuracy';
+                        if (performanceIndex >= 82) {
                           statusText =
-                              'Ready: $dailyTarget/$dailyTarget sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (met).';
-                          statusColor = const Color(0xFF34D399);
+                              'Strong day: $dailyTarget/$dailyTarget sessions completed. Performance index ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
+                        } else if (performanceIndex >= 74) {
+                          statusText =
+                              'On-track day: $dailyTarget/$dailyTarget sessions completed. Performance index ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
+                        } else if (performanceIndex >= 66) {
+                          statusText =
+                              'Developing day: sessions completed, but the performance index is ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
                         } else {
                           statusText =
-                              'Not ready: $dailyTarget/$dailyTarget sessions completed. Accuracy: $accuracyData (${dayOverallAvg.toStringAsFixed(0)}%). Target alignment: ${readinessPercent.toStringAsFixed(0)}% (needs 100%).';
-                          statusColor = const Color(0xFFFF6B6B);
+                              'Recovery day: sessions completed, but the performance index is ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
                         }
                       }
 
@@ -9688,12 +10298,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.06),
+                          color: _menuPastelCream,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: hasActivity
                                 ? statusColor.withValues(alpha: 0.45)
-                                : Colors.white.withValues(alpha: 0.14),
+                                : _menuPastelGlassBorder,
                           ),
                         ),
                         child: Column(
@@ -9702,7 +10312,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             Text(
                               _formatShortMonthDay(date),
                               style: GoogleFonts.outfit(
-                                color: Colors.white,
+                                color: _menuPastelText,
                                 fontWeight: FontWeight.w700,
                                 fontSize: 13,
                               ),
@@ -9735,8 +10345,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // Helper method to build feature items
   Widget _buildReadinessLineChart(List<Map<String, dynamic>> tenDayActivity) {
     final points = tenDayActivity
-        .map(
-            (day) => _calculateDayCourseReadinessPercent(day).clamp(0.0, 100.0))
+        .map((day) => _calculateDayAcetPerformanceIndex(day).clamp(0.0, 100.0))
         .toList();
 
     final labels = tenDayActivity
@@ -9752,9 +10361,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
+                color: _menuPastelCream,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                border: Border.all(color: _menuPastelGlassBorder),
               ),
               child: CustomPaint(
                 painter: _ReadinessLinePainter(points),
@@ -9773,7 +10382,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: 9,
-                        color: Colors.white.withValues(alpha: 0.65),
+                        color: _menuPastelTextSoft,
                       ),
                     ),
                   ),
@@ -9791,7 +10400,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       children: [
         Icon(
           icon,
-          color: PnleTheme.accent.withValues(alpha: 0.8),
+          color: _menuPastelLeaf,
           size: 16,
         ),
         const SizedBox(height: 4),
@@ -9800,14 +10409,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           style: GoogleFonts.outfit(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: _menuPastelText,
           ),
         ),
         Text(
           label,
           style: GoogleFonts.outfit(
             fontSize: 11,
-            color: Colors.white.withValues(alpha: 0.6),
+            color: _menuPastelTextSoft,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -9824,15 +10434,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
+          color: _menuPastelCream,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          border: Border.all(color: _menuPastelGlassBorder),
         ),
         child: Column(
           children: [
             Icon(
               Icons.trending_up_rounded,
-              color: Colors.white.withValues(alpha: 0.5),
+              color: _menuPastelTextSoft,
               size: 28,
             ),
             const SizedBox(height: 8),
@@ -9841,7 +10451,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               style: GoogleFonts.outfit(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
-                color: Colors.white.withValues(alpha: 0.7),
+                color: _menuPastelText,
               ),
             ),
             const SizedBox(height: 4),
@@ -9850,7 +10460,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               textAlign: TextAlign.center,
               style: GoogleFonts.outfit(
                 fontSize: 12,
-                color: Colors.white.withValues(alpha: 0.5),
+                color: _menuPastelTextSoft,
               ),
             ),
           ],
@@ -9862,27 +10472,33 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final firstHalf = tenDayActivity.take(5).toList();
     final secondHalf = tenDayActivity.skip(5).toList();
 
-    final firstHalfQuizzes =
-        firstHalf.fold<int>(0, (sum, day) => sum + (day['quizzes'] as int));
-    final secondHalfQuizzes =
-        secondHalf.fold<int>(0, (sum, day) => sum + (day['quizzes'] as int));
+    final firstHalfIndex = firstHalf.isEmpty
+        ? 0.0
+        : firstHalf
+                .map(_calculateDayAcetPerformanceIndex)
+                .reduce((a, b) => a + b) /
+            firstHalf.length;
+    final secondHalfIndex = secondHalf.isEmpty
+        ? 0.0
+        : secondHalf
+                .map(_calculateDayAcetPerformanceIndex)
+                .reduce((a, b) => a + b) /
+            secondHalf.length;
 
     final firstHalfActiveDays =
         firstHalf.where((day) => (day['quizzes'] as int) > 0).length;
     final secondHalfActiveDays =
         secondHalf.where((day) => (day['quizzes'] as int) > 0).length;
 
-    // Calculate percentage change
-    final quizzesChange = firstHalfQuizzes > 0
-        ? ((secondHalfQuizzes - firstHalfQuizzes) / firstHalfQuizzes * 100)
+    final indexChange = firstHalfIndex > 0
+        ? ((secondHalfIndex - firstHalfIndex) / firstHalfIndex * 100)
             .toStringAsFixed(1)
         : '0.0';
 
-    final isImproving = secondHalfQuizzes >= firstHalfQuizzes;
+    final isImproving = secondHalfIndex >= firstHalfIndex;
     final trendIcon =
         isImproving ? Icons.trending_up_rounded : Icons.trending_down_rounded;
-    final trendColor =
-        isImproving ? const Color(0xFF34D399) : const Color(0xFFFF6B6B);
+    final trendColor = isImproving ? PnleTheme.success : PnleTheme.danger;
 
     return Column(
       children: [
@@ -9893,10 +10509,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
+                  color: _menuPastelCream,
                   borderRadius: BorderRadius.circular(12),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  border: Border.all(color: _menuPastelGlassBorder),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -9905,26 +10520,26 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       'First 5 Days',
                       style: GoogleFonts.outfit(
                         fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.7),
+                        color: _menuPastelTextSoft,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Row(
                       children: [
                         Text(
-                          '$firstHalfQuizzes',
+                          firstHalfIndex.toStringAsFixed(0),
                           style: GoogleFonts.outfit(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _menuPastelText,
                           ),
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'quizzes',
+                          'index',
                           style: GoogleFonts.outfit(
                             fontSize: 11,
-                            color: Colors.white.withValues(alpha: 0.6),
+                            color: _menuPastelTextSoft,
                           ),
                         ),
                       ],
@@ -9933,7 +10548,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       '$firstHalfActiveDays active days',
                       style: GoogleFonts.outfit(
                         fontSize: 11,
-                        color: Colors.white.withValues(alpha: 0.5),
+                        color: _menuPastelTextSoft,
                       ),
                     ),
                   ],
@@ -9963,7 +10578,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     Row(
                       children: [
                         Text(
-                          '$secondHalfQuizzes',
+                          secondHalfIndex.toStringAsFixed(0),
                           style: GoogleFonts.outfit(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -9972,7 +10587,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'quizzes',
+                          'index',
                           style: GoogleFonts.outfit(
                             fontSize: 11,
                             color: trendColor.withValues(alpha: 0.7),
@@ -10016,8 +10631,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   children: [
                     Text(
                       isImproving
-                          ? 'Uptrend: You\'re improving!'
-                          : 'Downtrend: Slight decrease',
+                          ? 'ACET trend is improving'
+                          : 'ACET trend slipped slightly',
                       style: GoogleFonts.outfit(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
@@ -10025,7 +10640,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     Text(
-                      '$quizzesChange% change from first to last 5 days',
+                      '$indexChange% change in your ACET performance index from the first to the last 5 days',
                       style: GoogleFonts.outfit(
                         fontSize: 11,
                         color: trendColor.withValues(alpha: 0.8),
@@ -10041,6 +10656,75 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     );
   }
 
+  double _calculateDayWeightedAcetAccuracy(Map<String, dynamic> day) {
+    final categoryCorrectRaw = day['categoryCorrect'];
+    final categoryTotalRaw = day['categoryTotal'];
+
+    if (categoryCorrectRaw is! Map || categoryTotalRaw is! Map) {
+      return _calculateDayOverallAverage(day).clamp(0.0, 100.0);
+    }
+
+    final categories = _categoriesForProgramInterest();
+    double weightedScore = 0.0;
+    double weightSum = 0.0;
+
+    for (final category in categories) {
+      final total = (categoryTotalRaw[category] as num?)?.toInt() ?? 0;
+      if (total <= 0) continue;
+
+      final correct = (categoryCorrectRaw[category] as num?)?.toInt() ?? 0;
+      final weight =
+          (categoryScores[category]?['weight'] as num?)?.toDouble() ??
+              (1 / categories.length);
+      weightedScore += ((correct / total) * 100) * weight;
+      weightSum += weight;
+    }
+
+    if (weightSum <= 0) {
+      return _calculateDayOverallAverage(day).clamp(0.0, 100.0);
+    }
+
+    return (weightedScore / weightSum).clamp(0.0, 100.0);
+  }
+
+  int _countPracticedAcetAreas(Map<String, dynamic> day) {
+    final categoryTotalRaw = day['categoryTotal'];
+    if (categoryTotalRaw is! Map) return 0;
+
+    return _categoriesForProgramInterest().where((category) {
+      return ((categoryTotalRaw[category] as num?)?.toInt() ?? 0) > 0;
+    }).length;
+  }
+
+  double _calculateDayAcetPerformanceIndex(Map<String, dynamic> day) {
+    final weightedAccuracy = _calculateDayWeightedAcetAccuracy(day);
+    final quizzes = (day['quizzes'] as int?) ?? 0;
+    final completionRatio =
+        (quizzes / _dailySessionTarget).clamp(0.0, 1.0).toDouble();
+    final coverageRatio = (_countPracticedAcetAreas(day) / 4).clamp(0.0, 1.0);
+
+    return (weightedAccuracy * 0.55) +
+        (completionRatio * 100 * 0.25) +
+        (coverageRatio * 100 * 0.20);
+  }
+
+  Color _dayAcetPerformanceBandColor(Map<String, dynamic> day) {
+    final quizzes = (day['quizzes'] as int?) ?? 0;
+    if (quizzes <= 0) {
+      return _menuPastelTextSoft;
+    }
+
+    if (quizzes < _dailySessionTarget) {
+      return PnleTheme.warning;
+    }
+
+    final index = _calculateDayAcetPerformanceIndex(day);
+    if (index >= 82) return PnleTheme.success;
+    if (index >= 74) return const Color(0xFF7BC4FF);
+    if (index >= 66) return PnleTheme.accent;
+    return PnleTheme.danger;
+  }
+
   Widget _objectiveCard({
     required String text,
     required double progress,
@@ -10054,9 +10738,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     );
     final percentage = (progress * 100).toStringAsFixed(0);
 
-    return _glassContainer(
+    return Container(
       padding: const EdgeInsets.all(14),
-      borderRadius: 14,
+      decoration: BoxDecoration(
+        color: _menuPastelCream,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _menuPastelGlassBorder),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -10069,7 +10757,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
-                    color: Colors.white,
+                    color: _menuPastelText,
                   ),
                 ),
               ),
@@ -10077,20 +10765,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      (barColor ?? Colors.grey).withValues(alpha: 0.8),
-                      (barColor ?? Colors.grey).withValues(alpha: 0.6),
-                    ],
-                  ),
+                  color: (barColor ?? Colors.grey).withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: (barColor ?? Colors.grey).withValues(alpha: 0.4),
+                  ),
                 ),
                 child: Text(
                   '$percentage%',
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.w600,
                     fontSize: 12,
-                    color: Colors.white,
+                    color: barColor ?? _menuPastelText,
                   ),
                 ),
               ),
@@ -10102,7 +10788,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             child: LinearProgressIndicator(
               value: progress.clamp(0.0, 1.0),
               minHeight: 8,
-              backgroundColor: Colors.white.withValues(alpha: 0.12),
+              backgroundColor: _menuPastelLeafSoft.withValues(alpha: 0.65),
               valueColor:
                   AlwaysStoppedAnimation<Color>(barColor ?? Colors.grey),
             ),
@@ -10118,7 +10804,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               style: GoogleFonts.outfit(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: trailingColor ?? Colors.white.withValues(alpha: 0.8),
+                color: trailingColor ?? _menuPastelTextSoft,
               ),
             ),
           ),
@@ -10130,7 +10816,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   double _calculateTotalAverage() {
     double totalWeightedScore = 0.0;
 
-    for (final cat in _categoriesForEligibility()) {
+    for (final cat in _categoriesForProgramInterest()) {
       final data = categoryScores[cat];
       if (data == null) continue;
 
@@ -10153,57 +10839,42 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     EdgeInsetsGeometry? margin,
     double borderRadius = 16,
   }) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          margin: margin,
-          padding: padding,
-          decoration: BoxDecoration(
-            color: PnleTheme.glassFill,
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(
-              color: PnleTheme.glassBorder,
-              width: 1,
-            ),
-          ),
-          child: child,
+    return Container(
+      margin: margin,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: _menuPastelPanel,
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(
+          color: _menuPastelGlassBorder,
+          width: 1.2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x1289A36F),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
+      child: child,
     );
   }
-
-// TODO: Re-enable when Firestore daily limit check is working
-/*
-void _showLimitReachedDialog() {
-  showDialog(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Daily Limit Reached'),
-      content: const Text(
-        'Free users can only create 4 sessions per day.\n'
-        'Unlimited access available in this build configuration.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('OK'),
-        ),
-      ],
-    ),
-  );
-}
-*/
 
   void _showTestCoverageDialog(
     Map<String, String> coverage, {
     bool isFocusMode = false,
     String? focusCategory,
   }) {
+    final modeAccent =
+        isFocusMode ? const Color(0xFF8C79A8) : _menuPastelAccentDeep;
+    final modeAccentSoft =
+        isFocusMode ? const Color(0xFFF1EAF8) : _menuPastelLeafSoft;
+    final modeBorder =
+        isFocusMode ? const Color(0xFFD8CAE6) : _menuPastelGlassBorder;
+
     // Store the test coverage for use in prompt generation
     _currentTestCoverage = coverage;
-    !isFocusMode && _coverageMatchesCachedRandom(coverage);
 
     // Store focus mode parameters
     _isFocusMode = isFocusMode;
@@ -10217,39 +10888,83 @@ void _showLimitReachedDialog() {
         return Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.all(16),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      PnleTheme.bgTop.withValues(alpha: 0.95),
-                      PnleTheme.bgBottom.withValues(alpha: 0.95),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: isFocusMode
-                        ? const Color(0xFFFF6B6B).withValues(alpha: 0.6)
-                        : PnleTheme.accent.withValues(alpha: 0.6),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: isFocusMode
-                          ? const Color(0xFFFF6B6B).withValues(alpha: 0.3)
-                          : PnleTheme.accent.withValues(alpha: 0.3),
-                      blurRadius: 20,
-                      spreadRadius: 2,
-                    ),
-                  ],
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.lerp(_menuPastelPanel, modeAccentSoft, 0.35)!,
+                  _menuPastelPanel,
+                  const Color(0xFFF0F5EC),
+                ],
+                stops: const [0.0, 0.55, 1.0],
+              ),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: modeBorder, width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: modeAccent.withValues(alpha: 0.12),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
                 ),
-                child: SingleChildScrollView(
+              ],
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -14,
+                  left: -8,
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          modeAccentSoft.withValues(alpha: 0.68),
+                          modeAccentSoft.withValues(alpha: 0.0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 10,
+                  top: 82,
+                  child: Container(
+                    width: 88,
+                    height: 88,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          Color(0x55E6EFF7),
+                          Color(0x00E6EFF7),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 28,
+                  bottom: 108,
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          Color(0x55F6EDC9),
+                          Color(0x00F6EDC9),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -10257,10 +10972,10 @@ void _showLimitReachedDialog() {
                         isFocusMode ? 'FOCUS MODE' : 'RANDOM QUIZ',
                         textAlign: TextAlign.center,
                         style: GoogleFonts.outfit(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          letterSpacing: 2,
+                          color: _menuPastelText,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                          letterSpacing: 1.8,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -10268,10 +10983,8 @@ void _showLimitReachedDialog() {
                         isFocusMode ? focusCategory ?? '' : 'Test Coverage',
                         textAlign: TextAlign.center,
                         style: GoogleFonts.outfit(
-                          color: isFocusMode
-                              ? const Color(0xFFFF6B6B)
-                              : PnleTheme.accent,
-                          fontWeight: FontWeight.bold,
+                          color: modeAccent,
+                          fontWeight: FontWeight.w800,
                           fontSize: 22,
                         ),
                       ),
@@ -10280,39 +10993,24 @@ void _showLimitReachedDialog() {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                const Color(0xFFFF6B6B).withValues(alpha: 0.3),
-                                const Color(0xFFFF6B6B).withValues(alpha: 0.15),
-                              ],
-                            ),
+                            color: modeAccentSoft,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: const Color(0xFFFF6B6B)
-                                  .withValues(alpha: 0.6),
-                              width: 1.5,
+                              color: modeAccent.withValues(alpha: 0.28),
+                              width: 1.2,
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFFFF6B6B)
-                                    .withValues(alpha: 0.2),
-                                blurRadius: 8,
-                                spreadRadius: 1,
-                              ),
-                            ],
                           ),
                           child: Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFFF6B6B)
-                                      .withValues(alpha: 0.3),
+                                  color: modeAccent.withValues(alpha: 0.16),
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Icon(
+                                child: Icon(
                                   Icons.gps_fixed,
-                                  color: Colors.white,
+                                  color: modeAccent,
                                   size: 20,
                                 ),
                               ),
@@ -10321,9 +11019,9 @@ void _showLimitReachedDialog() {
                                 child: Text(
                                   '10 questions from $focusCategory + 5 mixed questions',
                                   style: GoogleFonts.outfit(
-                                    color: Colors.white,
+                                    color: _menuPastelText,
                                     fontSize: 13,
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
@@ -10333,20 +11031,29 @@ void _showLimitReachedDialog() {
                       ],
                       const SizedBox(height: 24),
                       ...coverage.entries.map((e) => _coverageItem(
-                          e.key, e.value,
-                          isFocusMode: isFocusMode,
-                          focusCategory: focusCategory)),
+                            e.key,
+                            e.value,
+                            isFocusMode: isFocusMode,
+                            focusCategory: focusCategory,
+                          )),
                       const SizedBox(height: 24),
                       // CREATE TEST BUTTON
                       Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          gradient: const LinearGradient(
-                            colors: [PnleTheme.accent, PnleTheme.accentDeep],
+                          gradient: LinearGradient(
+                            colors: [
+                              _menuPastelAccentDeep,
+                              Color.lerp(
+                                _menuPastelAccentDeep,
+                                const Color(0xFFAAC29A),
+                                0.45,
+                              )!,
+                            ],
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: PnleTheme.accent.withValues(alpha: 0.4),
+                              color: modeAccent.withValues(alpha: 0.24),
                               blurRadius: 12,
                               offset: const Offset(0, 4),
                             ),
@@ -10360,98 +11067,75 @@ void _showLimitReachedDialog() {
                                 barrierColor: Colors.black87,
                                 builder: (_) => Dialog(
                                   backgroundColor: Colors.transparent,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(24),
-                                    child: BackdropFilter(
-                                      filter: ImageFilter.blur(
-                                          sigmaX: 12, sigmaY: 12),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(20),
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            colors: [
-                                              PnleTheme.bgTop
-                                                  .withValues(alpha: 0.96),
-                                              PnleTheme.bgBottom
-                                                  .withValues(alpha: 0.93),
-                                            ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          ),
-                                          borderRadius:
-                                              BorderRadius.circular(24),
-                                          border: Border.all(
-                                            color: const Color(0xFFFFB74D)
-                                                .withValues(alpha: 0.65),
-                                            width: 1.6,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: const Color(0xFFFFB74D)
-                                                  .withValues(alpha: 0.25),
-                                              blurRadius: 16,
-                                              spreadRadius: 1,
-                                            ),
-                                          ],
-                                        ),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                const Icon(
-                                                  Icons.warning_amber_rounded,
-                                                  color: Color(0xFFFFB74D),
-                                                  size: 22,
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Text(
-                                                    'No Session Credits',
-                                                    style: GoogleFonts.outfit(
-                                                      color: Colors.white,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 18,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                              'No session credits left. Watch an ad or claim streak rewards to continue.',
-                                              style: GoogleFonts.outfit(
-                                                color: Colors.white
-                                                    .withValues(alpha: 0.88),
-                                                height: 1.4,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 18),
-                                            Align(
-                                              alignment: Alignment.centerRight,
-                                              child: ElevatedButton(
-                                                onPressed: () => Navigator.pop(
-                                                    dialogContext),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor:
-                                                      PnleTheme.accent,
-                                                  foregroundColor:
-                                                      PnleTheme.bgBottom,
-                                                ),
-                                                child: Text(
-                                                  'OK',
-                                                  style: GoogleFonts.outfit(
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: BoxDecoration(
+                                      color: _menuPastelPanel,
+                                      borderRadius: BorderRadius.circular(24),
+                                      border: Border.all(
+                                        color: const Color(0xFFD9C59C),
+                                        width: 1.4,
                                       ),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.warning_amber_rounded,
+                                              color: Color(0xFFB28D4B),
+                                              size: 22,
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'No Session Credits',
+                                                style: GoogleFonts.outfit(
+                                                  color: _menuPastelText,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 18,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          'No session credits left. Watch an ad or claim streak rewards to continue.',
+                                          style: GoogleFonts.outfit(
+                                            color: _menuPastelTextSoft,
+                                            height: 1.4,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 18),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: ElevatedButton(
+                                            onPressed: () => Navigator.pop(
+                                              dialogContext,
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: modeAccentSoft,
+                                              foregroundColor: _menuPastelText,
+                                              side: BorderSide(
+                                                color: modeAccent.withValues(
+                                                    alpha: 0.28),
+                                              ),
+                                              elevation: 0,
+                                            ),
+                                            child: Text(
+                                              'OK',
+                                              style: GoogleFonts.outfit(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -10466,9 +11150,10 @@ void _showLimitReachedDialog() {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (!mounted) return;
                               _showGenerationDialog(
-                                modeLabel: isFocusMode
-                                    ? 'FOCUS MODE${focusCategory != null ? ' • $focusCategory' : ''}'
-                                    : 'RANDOM QUIZ',
+                                modeLabel: _buildGenerationModeLabel(
+                                  isFocusMode: isFocusMode,
+                                  focusCategory: focusCategory,
+                                ),
                               );
                             });
                           },
@@ -10489,7 +11174,7 @@ void _showLimitReachedDialog() {
                               Text(
                                 'CREATE TEST',
                                 style: GoogleFonts.outfit(
-                                  color: PnleTheme.bgBottom,
+                                  color: _menuPastelCream,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 17,
                                   letterSpacing: 1,
@@ -10498,7 +11183,7 @@ void _showLimitReachedDialog() {
                               const SizedBox(width: 8),
                               const Icon(
                                 Icons.arrow_forward_rounded,
-                                color: PnleTheme.bgBottom,
+                                color: _menuPastelCream,
                                 size: 20,
                               ),
                             ],
@@ -10507,7 +11192,6 @@ void _showLimitReachedDialog() {
                       ),
                       const SizedBox(height: 16),
                       const SizedBox(height: 16),
-                      // CLOSE button
                       TextButton(
                         onPressed: () => Navigator.pop(context),
                         style: TextButton.styleFrom(
@@ -10519,8 +11203,8 @@ void _showLimitReachedDialog() {
                         child: Text(
                           'Close',
                           style: GoogleFonts.outfit(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            fontWeight: FontWeight.w600,
+                            color: _menuPastelTextSoft,
+                            fontWeight: FontWeight.w700,
                             fontSize: 15,
                           ),
                         ),
@@ -10529,7 +11213,7 @@ void _showLimitReachedDialog() {
                     ],
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         );
@@ -10546,40 +11230,59 @@ void _showLimitReachedDialog() {
     return Icons.lightbulb_rounded;
   }
 
+  Color _coverageAccentColor(String category, {bool isFocusCategory = false}) {
+    if (isFocusCategory) return const Color(0xFF8C79A8);
+    if (category.contains('English')) return _menuPastelAccentDeep;
+    if (category.contains('Mathematics')) return const Color(0xFF7293AE);
+    if (category.contains('Logical')) return const Color(0xFF9582AF);
+    if (category.contains('Mental')) return const Color(0xFFB28D4B);
+    return _menuPastelAccentDeep;
+  }
+
+  Color _coverageAccentSoft(String category, {bool isFocusCategory = false}) {
+    if (isFocusCategory) return const Color(0xFFF1EAF8);
+    if (category.contains('English')) return _menuPastelLeafSoft;
+    if (category.contains('Mathematics')) return const Color(0xFFE8F0F7);
+    if (category.contains('Logical')) return const Color(0xFFF1EAF8);
+    if (category.contains('Mental')) return const Color(0xFFF7EFCF);
+    return _menuPastelCream;
+  }
+
   Widget _coverageItem(String category, String topic,
       {bool isFocusMode = false, String? focusCategory}) {
     final isFocusCategory = isFocusMode && category == focusCategory;
     final accentColor =
-        isFocusMode ? const Color(0xFFFF6B6B) : PnleTheme.accent;
+        _coverageAccentColor(category, isFocusCategory: isFocusCategory);
+    final accentSoft =
+        _coverageAccentSoft(category, isFocusCategory: isFocusCategory);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: isFocusCategory
-            ? LinearGradient(
-                colors: [
-                  const Color(0xFFFF6B6B).withValues(alpha: 0.25),
-                  const Color(0xFFFF6B6B).withValues(alpha: 0.15),
-                ],
-              )
-            : LinearGradient(
-                colors: [
-                  Colors.white.withValues(alpha: 0.15),
-                  Colors.white.withValues(alpha: 0.08),
-                ],
-              ),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(
+              _menuPastelCream,
+              accentSoft,
+              isFocusCategory ? 0.82 : 0.58,
+            )!,
+            _menuPastelCream,
+          ],
+        ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isFocusCategory
-              ? const Color(0xFFFF6B6B).withValues(alpha: 0.6)
-              : Colors.white.withValues(alpha: 0.25),
+              ? accentColor.withValues(alpha: 0.34)
+              : _menuPastelGlassBorder,
           width: isFocusCategory ? 2 : 1,
         ),
         boxShadow: isFocusCategory
             ? [
                 BoxShadow(
-                  color: const Color(0xFFFF6B6B).withValues(alpha: 0.2),
+                  color: accentColor.withValues(alpha: 0.12),
                   blurRadius: 8,
                   spreadRadius: 1,
                 ),
@@ -10592,7 +11295,7 @@ void _showLimitReachedDialog() {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.2),
+              color: accentSoft,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: accentColor.withValues(alpha: 0.4),
@@ -10617,7 +11320,7 @@ void _showLimitReachedDialog() {
                         style: GoogleFonts.outfit(
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
-                          color: Colors.white,
+                          color: _menuPastelText,
                           letterSpacing: 0.3,
                         ),
                       ),
@@ -10629,13 +11332,13 @@ void _showLimitReachedDialog() {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFF6B6B),
+                          color: accentColor.withValues(alpha: 0.18),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
                           '10Q',
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: accentColor,
                             fontWeight: FontWeight.bold,
                             fontSize: 11,
                           ),
@@ -10657,8 +11360,9 @@ void _showLimitReachedDialog() {
                       child: Text(
                         topic,
                         style: GoogleFonts.outfit(
-                          color: Colors.white.withValues(alpha: 0.9),
+                          color: _menuPastelTextSoft,
                           fontSize: 13,
+                          fontWeight: FontWeight.w600,
                           height: 1.4,
                         ),
                       ),
@@ -10689,11 +11393,12 @@ void _showLimitReachedDialog() {
   }
 
   String _buildFastPromptFromCoverage(Map<String, String> coverage) {
-    final mentalAbilityTopic =
-        coverage['Mental Ability'] ?? 'General mental ability topics';
-    final englishTopic = coverage['English'] ?? 'General english topics';
+    final englishTopic = coverage['English'] ?? 'General English topics';
     final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
-    final scienceTopic = coverage['Science'] ?? 'General science topics';
+    final logicalReasoningTopic =
+        coverage['Logical Reasoning'] ?? 'General logical reasoning topics';
+    final mentalAbilityTopic = coverage['Mental Ability / Abstract'] ??
+        'General mental ability and abstract topics';
 
     final questionCount = _examConfigService
             .getModeConfig(_activeExamId, 'randomQuiz')
@@ -10705,13 +11410,13 @@ void _showLimitReachedDialog() {
       mode: 'randomQuiz',
       values: {
         'questionCount': '$questionCount',
-        'mentalAbilityTopic': mentalAbilityTopic,
         'englishTopic': englishTopic,
         'mathTopic': mathTopic,
-        'scienceTopic': scienceTopic,
+        'logicalReasoningTopic': logicalReasoningTopic,
+        'mentalAbilityTopic': mentalAbilityTopic,
       },
       fallbackTemplate:
-          'Generate {{questionCount}} USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-2 Mental Ability questions specifically about this key area: {{mentalAbilityTopic}}\nQ3-7 English questions specifically about this key area: {{englishTopic}}\nQ8-11 Mathematics questions specifically about this key area: {{mathTopic}}\nQ12-15 Science questions specifically about this key area: {{scienceTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\n- No direct recall or pure definition items; require interpretation, application, comparison, inference, or computation\n- Mental Ability items must use patterns, series, analogy, classification, spatial reasoning, or logic\n- English items may include grammar, vocabulary, sentence logic, paragraph logic, or reading; only 2-3 items should be passage-based and each passage should be 60-120 words; do not use cross-reference words like previous, above, below, earlier, or as mentioned\n- Math items must involve arithmetic, algebra, geometry, word problems, or quantitative reasoning with actual solving required\n- Science items must involve biology, chemistry, physics, or earth science with interpretation, mechanism reasoning, experiment reasoning, or data analysis\n- Choices must be short phrases or short clauses with balanced length and tone\n- At least one wrong choice must be as long as or longer than the correct choice\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+          'Generate {{questionCount}} ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 English questions specifically about this key area: {{englishTopic}}\nQ5-8 Mathematics questions specifically about this key area: {{mathTopic}}\nQ9-12 Logical Reasoning questions specifically about this key area: {{logicalReasoningTopic}}\nQ13-15 Mental Ability / Abstract questions specifically about this key area: {{mentalAbilityTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, calculation, or pattern recognition\n- No direct recall or pure definition items; require interpretation, application, comparison, inference, computation, or pattern analysis\n- English items may include vocabulary, grammar, sentence logic, short reading, or editing\n- Mathematics items must involve arithmetic, algebra, geometry, word problems, or quantitative reasoning with actual solving required\n- Logical Reasoning items must involve analogies, deductions, sequences, conclusions, or conditional logic\n- Mental Ability / Abstract items must involve symbolic, numeric, alphabetic, matrix, or transformation patterns described in text\n- Choices must be short phrases or short clauses with balanced length and tone\n- At least one wrong choice must be as long as or longer than the correct choice\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
     );
   }
 
@@ -10723,7 +11428,7 @@ void _showLimitReachedDialog() {
     final focusTopic = _currentTestCoverage?[focusCategory] ??
         _pickRandomKeyArea(focusCategory);
 
-    final categories = _categoriesForEligibility();
+    final categories = _categoriesForProgramInterest();
     final otherCategories =
         categories.where((cat) => cat != focusCategory).toList();
     final otherText = otherCategories.map((cat) {
@@ -10746,7 +11451,7 @@ void _showLimitReachedDialog() {
         'otherText': otherText,
       },
       fallbackTemplate:
-          'Generate {{questionCount}} USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-10 focus category: {{focusCategory}}\nQ1-10 key area: {{focusTopic}}\nQ11-15 mixed from: {{otherText}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\n- Use practical USTET-style scenarios with application and analysis\n- Q1-10 must strongly match the focus category and focus topic while still being real exam items, not lesson labels\n- Q11-15 must be mixed supporting questions from the listed other categories\n- Keep wording concise and academically accurate\n- Keep choices similar in length and tone\n- Make distractors plausible based on common student misconceptions\n- Avoid giveaway wording like always, never, or obvious textbook clues\n- Vary stem style using analysis, inference, best answer, comparison, or problem-solving\n- Do not make the correct answer obviously longest or shortest by wording\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only when needed; avoid LaTeX and backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+          'Generate {{questionCount}} ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-10 focus category: {{focusCategory}}\nQ1-10 key area: {{focusTopic}}\nQ11-15 mixed from: {{otherText}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\n- Use practical ACET-style scenarios with application and analysis\n- Q1-10 must strongly match the focus category and focus topic while still being real exam items, not lesson labels\n- Q11-15 must be mixed supporting questions from the listed other categories\n- Keep wording concise and academically accurate\n- Keep choices similar in length and tone\n- Make distractors plausible based on common student misconceptions\n- Avoid giveaway wording like always, never, or obvious textbook clues\n- Vary stem style using analysis, inference, best answer, comparison, or problem-solving\n- Do not make the correct answer obviously longest or shortest by wording\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only when needed; avoid LaTeX and backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
     );
   }
 
@@ -10755,10 +11460,10 @@ void _showLimitReachedDialog() {
   }
 
   String _buildFastChallengeModePrompt(String focusCategory) {
-    final mentalAbilityTopic = _pickRandomKeyArea('Mental Ability');
     final englishTopic = _pickRandomKeyArea('English');
     final mathTopic = _pickRandomKeyArea('Mathematics');
-    final scienceTopic = _pickRandomKeyArea('Science');
+    final logicalReasoningTopic = _pickRandomKeyArea('Logical Reasoning');
+    final mentalAbilityTopic = _pickRandomKeyArea('Mental Ability / Abstract');
 
     final questionCount = _examConfigService
             .getModeConfig(_activeExamId, 'challenge')
@@ -10770,13 +11475,13 @@ void _showLimitReachedDialog() {
       mode: 'challenge',
       values: {
         'questionCount': '$questionCount',
-        'mentalAbilityTopic': mentalAbilityTopic,
         'englishTopic': englishTopic,
         'mathTopic': mathTopic,
-        'scienceTopic': scienceTopic,
+        'logicalReasoningTopic': logicalReasoningTopic,
+        'mentalAbilityTopic': mentalAbilityTopic,
       },
       fallbackTemplate:
-          'Generate {{questionCount}} hard USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 Mental Ability questions specifically about this key area: {{mentalAbilityTopic}}\nQ5-8 English questions specifically about this key area: {{englishTopic}}\nQ9-12 Mathematics questions specifically about this key area: {{mathTopic}}\nQ13-15 Science questions specifically about this key area: {{scienceTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with one clearly correct answer\n- Challenge items must be harder than random mode and should require deeper analysis, multi-step reasoning, stronger inference, or more careful comparison\n- No direct recall or pure definition items\n- Mental Ability items should emphasize harder patterns, layered analogy, logic chains, or less obvious series\n- English items should emphasize inference, sentence logic, paragraph logic, grammar traps, vocabulary in context, or deeper reading analysis\n- Math items should emphasize multi-step arithmetic, algebra, geometry, quantitative reasoning, or word problems that require careful setup\n- Science items should emphasize mechanism reasoning, interpretation of scenarios, experiment logic, cause-and-effect, or data analysis\n- Keep wording concise but cognitively demanding\n- Choices must be similar in length and tone\n- At least one incorrect choice must be as long as or longer than the correct answer\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+          'Generate {{questionCount}} hard ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 English questions specifically about this key area: {{englishTopic}}\nQ5-8 Mathematics questions specifically about this key area: {{mathTopic}}\nQ9-12 Logical Reasoning questions specifically about this key area: {{logicalReasoningTopic}}\nQ13-15 Mental Ability / Abstract questions specifically about this key area: {{mentalAbilityTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with one clearly correct answer\n- Challenge items must be harder than random mode and should require deeper analysis, multi-step reasoning, stronger inference, or more careful comparison\n- No direct recall or pure definition items\n- English items should emphasize difficult context clues, grammar traps, editing, sentence logic, and compact reading tasks\n- Mathematics items should emphasize multi-step arithmetic, algebra, geometry, or data tasks that require careful setup\n- Logical Reasoning items should emphasize layered deductions, assumptions, conclusions, argument evaluation, or elimination under constraints\n- Mental Ability / Abstract items should emphasize multi-rule patterns, matrix logic, transformations, symbolic mapping, or abstract sequence analysis\n- Keep wording concise but cognitively demanding\n- Choices must be similar in length and tone\n- At least one incorrect choice must be as long as or longer than the correct answer\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
     );
   }
 
@@ -10797,11 +11502,12 @@ void _showLimitReachedDialog() {
   }
 
   String _buildTimedModePromptFromCoverage(Map<String, String> coverage) {
-    final mentalAbilityTopic =
-        coverage['Mental Ability'] ?? 'General mental ability topics';
-    final englishTopic = coverage['English'] ?? 'General english topics';
+    final englishTopic = coverage['English'] ?? 'General English topics';
     final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
-    final scienceTopic = coverage['Science'] ?? 'General science topics';
+    final logicalReasoningTopic =
+        coverage['Logical Reasoning'] ?? 'General logical reasoning topics';
+    final mentalAbilityTopic = coverage['Mental Ability / Abstract'] ??
+        'General mental ability and abstract topics';
 
     final questionCount = _examConfigService
             .getModeConfig(_activeExamId, 'timedExam')
@@ -10813,13 +11519,13 @@ void _showLimitReachedDialog() {
       mode: 'timedExam',
       values: {
         'questionCount': '$questionCount',
-        'mentalAbilityTopic': mentalAbilityTopic,
         'englishTopic': englishTopic,
         'mathTopic': mathTopic,
-        'scienceTopic': scienceTopic,
+        'logicalReasoningTopic': logicalReasoningTopic,
+        'mentalAbilityTopic': mentalAbilityTopic,
       },
       fallbackTemplate:
-          'Generate {{questionCount}} timed-practice USTET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-2 Mental Ability questions specifically about this key area: {{mentalAbilityTopic}}\nQ3-7 English questions specifically about this key area: {{englishTopic}}\nQ8-11 Mathematics questions specifically about this key area: {{mathTopic}}\nQ12-15 Science questions specifically about this key area: {{scienceTopic}}\n\nRules:\nExactly 4 choices per question\nCorrect answer must be one of A/B/C/D\nNever write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\nDo not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\nEach item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\nTimed mode items must be medium difficulty, concise, and realistically answerable under time pressure\nPrefer shorter stems, faster recognition, shorter computation, and clean wording\nNo direct recall or pure definition items\nMental Ability items should favor series, patterns, analogy, classification, or quick logic\nEnglish items should favor concise grammar, vocabulary in context, sentence logic, short reading, or paragraph logic\nMath items should favor shorter arithmetic, algebra, geometry, or word problems that can be solved quickly but still require thinking\nScience items should favor brief interpretation, mechanism reasoning, practical science scenarios, or simple data reasoning\nChoices must be short phrases or short clauses with balanced length and tone\nAt least one wrong choice must be as long as or longer than the correct choice\nUse plausible distractors based on common student misconceptions\nAvoid giveaway wording patterns\nDo not make the correct answer obviously longest or shortest\nRandomize answer letters across A/B/C/D without obvious streaks\nUse Unicode math symbols only; no LaTeX or backslashes\nNo markdown, no asterisks, no extra text\nReturn JSON only',
+          'Generate {{questionCount}} timed-practice ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 English questions specifically about this key area: {{englishTopic}}\nQ5-8 Mathematics questions specifically about this key area: {{mathTopic}}\nQ9-12 Logical Reasoning questions specifically about this key area: {{logicalReasoningTopic}}\nQ13-15 Mental Ability / Abstract questions specifically about this key area: {{mentalAbilityTopic}}\n\nRules:\nExactly 4 choices per question\nCorrect answer must be one of A/B/C/D\nNever write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\nDo not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\nEach item must be a real exam-style question with a clear answer based on reasoning, interpretation, calculation, or pattern recognition\nTimed mode items must be medium difficulty, concise, and realistically answerable under time pressure\nPrefer shorter stems, faster recognition, shorter computation, and clean wording\nNo direct recall or pure definition items\nEnglish items should favor concise context clues, grammar, sentence logic, or short reading tasks\nMathematics items should favor shorter arithmetic, algebra, geometry, or data tasks that still require genuine solving\nLogical Reasoning items should favor direct but nontrivial deductions, analogy recognition, ordering, or condition-based elimination\nMental Ability / Abstract items should favor concise sequence, matrix, transformation, or symbolic pattern recognition\nChoices must be short phrases or short clauses with balanced length and tone\nAt least one wrong choice must be as long as or longer than the correct choice\nUse plausible distractors based on common student misconceptions\nAvoid giveaway wording patterns\nDo not make the correct answer obviously longest or shortest\nRandomize answer letters across A/B/C/D without obvious streaks\nUse Unicode math symbols only; no LaTeX or backslashes\nNo markdown, no asterisks, no extra text\nReturn JSON only',
     );
   }
 }
@@ -10836,7 +11542,7 @@ class _ReadinessLinePainter extends CustomPainter {
     }
 
     final gridPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.12)
+      ..color = const Color(0xFFBFD0AE).withValues(alpha: 0.34)
       ..strokeWidth = 1;
 
     for (int i = 1; i <= 4; i++) {
@@ -10872,14 +11578,14 @@ class _ReadinessLinePainter extends CustomPainter {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          const Color(0xFF34D399).withValues(alpha: 0.32),
-          const Color(0xFF34D399).withValues(alpha: 0.02),
+          PnleTheme.success.withValues(alpha: 0.32),
+          PnleTheme.success.withValues(alpha: 0.02),
         ],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     final linePaint = Paint()
       ..shader = const LinearGradient(
-        colors: [Color(0xFF34D399), Color(0xFF22D3EE)],
+        colors: [PnleTheme.success, PnleTheme.info],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
@@ -10889,9 +11595,9 @@ class _ReadinessLinePainter extends CustomPainter {
     canvas.drawPath(areaPath, areaPaint);
     canvas.drawPath(linePath, linePaint);
 
-    final dotPaint = Paint()..color = const Color(0xFF34D399);
+    final dotPaint = Paint()..color = PnleTheme.success;
     final dotStroke = Paint()
-      ..color = Colors.white
+      ..color = _MenuScreenState._menuPastelCream
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
 
@@ -10906,7 +11612,7 @@ class _ReadinessLinePainter extends CustomPainter {
         text: TextSpan(
           text: pctText,
           style: const TextStyle(
-            color: Colors.white,
+            color: _MenuScreenState._menuPastelText,
             fontSize: 9,
             fontWeight: FontWeight.w600,
           ),

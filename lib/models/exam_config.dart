@@ -5,6 +5,8 @@ class QuizModeConfig {
   final bool? autoNextOnTimeout;
   final bool usesMixedCategories;
   final bool usesSingleCategory;
+  final bool visualOddOneOutTestEnabled;
+  final String? localQuestionAssetPath;
 
   const QuizModeConfig({
     required this.modeId,
@@ -13,17 +15,21 @@ class QuizModeConfig {
     this.autoNextOnTimeout,
     this.usesMixedCategories = false,
     this.usesSingleCategory = false,
+    this.visualOddOneOutTestEnabled = false,
+    this.localQuestionAssetPath,
   });
 
   factory QuizModeConfig.fromJson(String modeId, Map<String, dynamic> json) {
     return QuizModeConfig(
       modeId: modeId,
       questionCount: (json['questionCount'] as num?)?.toInt() ?? 15,
-      timePerQuestionSeconds:
-          (json['timePerQuestionSeconds'] as num?)?.toInt(),
+      timePerQuestionSeconds: (json['timePerQuestionSeconds'] as num?)?.toInt(),
       autoNextOnTimeout: json['autoNextOnTimeout'] as bool?,
       usesMixedCategories: json['usesMixedCategories'] as bool? ?? false,
       usesSingleCategory: json['usesSingleCategory'] as bool? ?? false,
+      visualOddOneOutTestEnabled:
+          json['visualOddOneOutTestEnabled'] as bool? ?? false,
+      localQuestionAssetPath: json['localQuestionAssetPath'] as String?,
     );
   }
 }
@@ -48,9 +54,8 @@ class ExamConfig {
   });
 
   factory ExamConfig.fromJson(String examId, Map<String, dynamic> json) {
-    final rawModes =
-        (json['modes'] as Map?)?.cast<String, dynamic>() ??
-            const <String, dynamic>{};
+    final rawModes = (json['modes'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
 
     final parsedModes = <String, QuizModeConfig>{};
     for (final entry in rawModes.entries) {

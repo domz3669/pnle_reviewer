@@ -1,7 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'config/pnle_theme.dart';
+
+const _onboardCream = Color(0xFFFCF6EB);
+const _onboardPanel = Color(0xFFF9F3E7);
+const _onboardText = Color(0xFF5A7652);
+const _onboardTextSoft = Color(0xFF8AA081);
+const _onboardBorder = Color(0xA4C5D6AE);
+const _onboardLeaf = Color(0xFF7EA468);
+const _onboardLeafSoft = Color(0xFFDDEBCE);
+const _onboardSky = Color(0xFF7293AE);
+const _onboardSkySoft = Color(0xFFE6EFF7);
+const _onboardWarm = Color(0xFFC28D74);
+const _onboardWarmSoft = Color(0xFFF4E3D9);
+const _onboardButter = Color(0xFFB28D4B);
+const _onboardButterSoft = Color(0xFFF7EFCF);
 
 class OnboardingScreen extends StatefulWidget {
   final ValueChanged<String> onComplete;
@@ -41,7 +54,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             'Please enter your nickname to continue.',
             style: GoogleFonts.outfit(),
           ),
-          backgroundColor: Colors.red.shade700,
+          backgroundColor: _onboardWarm,
         ),
       );
       return;
@@ -60,8 +73,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return PopScope(
       canPop: false,
       child: Scaffold(
+        backgroundColor: _onboardCream,
         body: Container(
-          decoration: const BoxDecoration(gradient: PnleTheme.appBackground),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color.lerp(_onboardPanel, _onboardLeafSoft, 0.24)!,
+                _onboardPanel,
+                Color.lerp(_onboardPanel, _onboardSkySoft, 0.22)!,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
           child: Column(
             children: [
               Expanded(
@@ -72,31 +96,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   children: [
                     _buildOnboardingPage(
                       icon: Icons.quiz_rounded,
-                      title: 'Welcome to USTET Reviewer 2027',
+                      title: 'Welcome to ACET Reviewer 2027',
                       description:
-                          'Master your USTET preparation with high-quality questions and expert explanations.',
-                      color: PnleTheme.accent,
+                          'Master your ACET preparation with high-quality questions and expert explanations.',
+                      color: _onboardLeaf,
+                      softColor: _onboardLeafSoft,
                     ),
                     _buildOnboardingPage(
                       icon: Icons.assessment_outlined,
                       title: '4 Daily Sessions',
                       description:
                           'Complete 4 quiz sessions each day to build comprehensive exam knowledge across all categories.',
-                      color: const Color(0xFF34D399),
+                      color: _onboardButter,
+                      softColor: _onboardButterSoft,
                     ),
                     _buildOnboardingPage(
                       icon: Icons.trending_up_outlined,
                       title: 'Track Your Progress',
                       description:
-                          'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your USTET subject areas.',
-                      color: const Color(0xFF0891B2),
+                          'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your ACET subject areas.',
+                      color: _onboardSky,
+                      softColor: _onboardSkySoft,
                     ),
                     _buildOnboardingPage(
                       icon: Icons.lightbulb_outline,
                       title: 'Coach Explanations',
                       description:
                           'Get clear coaching notes for every question with practical step-by-step guidance.',
-                      color: const Color(0xFFFF6B6B),
+                      color: _onboardWarm,
+                      softColor: _onboardWarmSoft,
                     ),
                     _buildGetStartedPage(),
                   ],
@@ -120,8 +148,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(4),
                               color: _currentPage == index
-                                  ? PnleTheme.accent
-                                  : Colors.white.withValues(alpha: 0.3),
+                                  ? _onboardLeaf
+                                  : _onboardBorder.withValues(alpha: 0.55),
                             ),
                           ),
                         ),
@@ -141,10 +169,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      Colors.white.withValues(alpha: 0.15),
+                                  backgroundColor: _onboardCream,
+                                  foregroundColor: _onboardText,
+                                  side: const BorderSide(color: _onboardBorder),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 24,
@@ -154,7 +183,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 child: Text(
                                   'Back',
                                   style: GoogleFonts.outfit(
-                                    color: Colors.white,
+                                    color: _onboardText,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -169,9 +198,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 );
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: PnleTheme.accent,
+                                backgroundColor: _onboardLeaf,
+                                foregroundColor: _onboardCream,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 24,
@@ -181,7 +211,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               child: Text(
                                 'Next',
                                 style: GoogleFonts.outfit(
-                                  color: Colors.black,
+                                  color: _onboardCream,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -206,6 +236,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     required String title,
     required String description,
     required Color color,
+    required Color softColor,
   }) {
     return Padding(
       padding: const EdgeInsets.all(32),
@@ -218,19 +249,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
-                colors: [color, color.withValues(alpha: 0.5)],
+                colors: [
+                  softColor,
+                  Color.lerp(softColor, _onboardCream, 0.28)!,
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
+              border: Border.all(color: color.withValues(alpha: 0.2)),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.12),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-            child: Icon(icon, size: 64, color: Colors.white),
+            child: Icon(icon, size: 64, color: color),
           ),
           const SizedBox(height: 32),
           Text(
             title,
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
-              color: Colors.white,
+              color: _onboardText,
               fontWeight: FontWeight.bold,
               fontSize: 28,
               letterSpacing: 0.5,
@@ -241,7 +283,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             description,
             textAlign: TextAlign.center,
             style: GoogleFonts.outfit(
-              color: Colors.white.withValues(alpha: 0.8),
+              color: _onboardTextSoft,
               fontSize: 16,
               height: 1.6,
               letterSpacing: 0.2,
@@ -282,15 +324,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               shape: BoxShape.circle,
                               gradient: LinearGradient(
                                 colors: [
-                                  PnleTheme.accent,
-                                  PnleTheme.accent.withValues(alpha: 0.5),
+                                  _onboardLeafSoft,
+                                  Color.lerp(
+                                    _onboardLeafSoft,
+                                    _onboardCream,
+                                    0.28,
+                                  )!,
                                 ],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                               ),
+                              border: Border.all(
+                                color: _onboardLeaf.withValues(alpha: 0.2),
+                              ),
                             ),
-                            child: const Icon(Icons.rocket_launch_rounded,
-                                size: 64, color: Colors.white),
+                            child: const Icon(
+                              Icons.rocket_launch_rounded,
+                              size: 64,
+                              color: _onboardLeaf,
+                            ),
                           ),
                           const SizedBox(height: 24),
                         ],
@@ -298,7 +350,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           'Ready to Start!',
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
-                            color: Colors.white,
+                            color: _onboardText,
                             fontWeight: FontWeight.bold,
                             fontSize: keyboardVisible ? 24 : 28,
                             letterSpacing: 0.5,
@@ -311,9 +363,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.2),
+                                color: _onboardBorder,
                               ),
-                              color: Colors.white.withValues(alpha: 0.05),
+                              color: _onboardCream,
                             ),
                             child: Column(
                               children: [
@@ -362,26 +414,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             }
                           },
                           onTapOutside: (_) => FocusScope.of(context).unfocus(),
-                          style: GoogleFonts.outfit(color: Colors.white),
+                          style: GoogleFonts.outfit(color: _onboardText),
                           decoration: InputDecoration(
                             labelText: 'Nickname (required)',
-                            labelStyle:
-                                GoogleFonts.outfit(color: Colors.white70),
+                            labelStyle: GoogleFonts.outfit(
+                              color: _onboardTextSoft,
+                            ),
                             hintText: 'Ex. Nika or Miko',
-                            hintStyle:
-                                GoogleFonts.outfit(color: Colors.white38),
+                            hintStyle: GoogleFonts.outfit(
+                              color: _onboardTextSoft.withValues(alpha: 0.55),
+                            ),
                             filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.08),
+                            fillColor: _onboardCream,
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: Colors.white.withValues(alpha: 0.25),
-                              ),
+                              borderSide:
+                                  const BorderSide(color: _onboardBorder),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide:
-                                  const BorderSide(color: PnleTheme.accent),
+                              borderSide: const BorderSide(color: _onboardLeaf),
                             ),
                           ),
                         ),
@@ -396,18 +448,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                   }
                                 : null,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: PnleTheme.accent,
-                              disabledBackgroundColor:
-                                  Colors.white.withValues(alpha: 0.16),
+                              backgroundColor: _onboardLeaf,
+                              foregroundColor: _onboardCream,
+                              disabledBackgroundColor: _onboardPanel,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                             child: Text(
                               'Get Started',
                               style: GoogleFonts.outfit(
-                                color: isReady ? Colors.black : Colors.white54,
+                                color:
+                                    isReady ? _onboardCream : _onboardTextSoft,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
                               ),
@@ -433,7 +486,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }) {
     return Row(
       children: [
-        Icon(icon, color: PnleTheme.accent, size: 20),
+        Icon(icon, color: _onboardLeaf, size: 20),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -442,7 +495,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Text(
                 title,
                 style: GoogleFonts.outfit(
-                  color: Colors.white,
+                  color: _onboardText,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
@@ -450,7 +503,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Text(
                 description,
                 style: GoogleFonts.outfit(
-                  color: Colors.white.withValues(alpha: 0.7),
+                  color: _onboardTextSoft,
                   fontSize: 11,
                 ),
               ),

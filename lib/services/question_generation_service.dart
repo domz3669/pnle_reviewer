@@ -13,7 +13,7 @@ class QuestionGenerationService {
       ExamDrivenConfigService.instance;
   late final GenerativeModel model;
 
-  QuestionGenerationService({required this.apiKey, this.examId = 'ustet'}) {
+  QuestionGenerationService({required this.apiKey, this.examId = 'acet'}) {
     model = GenerativeModel(
       model: 'gemini-2.5-flash-lite',
       apiKey: apiKey,
@@ -26,7 +26,7 @@ class QuestionGenerationService {
 
   Future<List<Question>> generateQuestions(
     String prompt,
-    String eligibility, {
+    String programInterest, {
     Map<int, String>? categoryMap,
   }) async {
     Exception? lastError;
@@ -34,7 +34,11 @@ class QuestionGenerationService {
     for (int attempt = 1; attempt <= _maxRetries; attempt++) {
       try {
         debugPrint('Gemini Flash attempt $attempt/$_maxRetries...');
-        return await _doGenerateQuestions(prompt, eligibility, categoryMap: categoryMap);
+        return await _doGenerateQuestions(
+          prompt,
+          programInterest,
+          categoryMap: categoryMap,
+        );
       } catch (e) {
         lastError = e is Exception ? e : Exception(e.toString());
         debugPrint('Attempt $attempt failed: $e');
@@ -44,20 +48,20 @@ class QuestionGenerationService {
       }
     }
 
-    throw lastError ?? Exception('Question generation failed after $_maxRetries attempts');
+    throw lastError ??
+        Exception('Question generation failed after $_maxRetries attempts');
   }
 
   Future<List<Question>> _doGenerateQuestions(
     String prompt,
-    String eligibility, {
+    String programInterest, {
     Map<int, String>? categoryMap,
   }) async {
     await _examConfigService.ensureLoaded();
 
     final systemPrompt = _examConfigService.systemPromptForExam(
       examId: examId,
-      fallback:
-          'You are a USTET item writer. '
+      fallback: 'You are an ACET item writer. '
           'Return VALID JSON ONLY. No markdown. No comments. '
           'Write real exam-style multiple-choice questions, not meta-questions and not topic-label questions. '
           'Never ask the student to identify the skill, category, competency, or lesson being tested. '
@@ -114,41 +118,46 @@ class QuestionGenerationService {
       throw Exception('Unexpected AI response format');
     }
 
-    // USTET default random distribution (15 questions):
-    // Q1-2 Language, Q3-7 Reading, Q8-11 Math, Q12-15 Science.
+    // Default random distribution (15 questions):
+    // Q1-4 English, Q5-8 Mathematics, Q9-12 Logical Reasoning,
+    // Q13-15 Mental Ability / Abstract.
 
-    final parsed = questionsJson.map((q) {
-      final num = q['number'] as int;
-      String category;
+    final parsed = questionsJson
+        .map((q) {
+          final num = q['number'] as int;
+          String category;
 
-      // If custom categoryMap is provided (e.g., for Challenge Mode), use it
-      if (categoryMap != null && categoryMap.containsKey(num)) {
-        category = categoryMap[num]!;
-      } else {
-        if (num >= 1 && num <= 2) {
-          category = 'Mental Ability';
-        } else if (num >= 3 && num <= 7) {
-          category = 'English';
-        } else if (num >= 8 && num <= 11) {
-          category = 'Mathematics';
-        } else {
-          category = 'Science';
-        }
-      }
+          // If custom categoryMap is provided (e.g., for Challenge Mode), use it
+          if (categoryMap != null && categoryMap.containsKey(num)) {
+            category = categoryMap[num]!;
+          } else {
+            if (num >= 1 && num <= 4) {
+              category = 'English';
+            } else if (num >= 5 && num <= 8) {
+              category = 'Mathematics';
+            } else if (num >= 9 && num <= 12) {
+              category = 'Logical Reasoning';
+            } else {
+              category = 'Mental Ability / Abstract';
+            }
+          }
 
-      return Question(
-        number: num,
-        category: category,
-        question: q['question'],
-        choices: List<String>.from(q['choices']),
-        answer: q['answer'],
-        explanation: q['explanation'],
-        source: 'gemini',
-      );
-    }).where((q) => !_hasCombinedChoice(q.choices)).toList();
+          return Question(
+            number: num,
+            category: category,
+            question: q['question'],
+            choices: List<String>.from(q['choices']),
+            answer: q['answer'],
+            explanation: q['explanation'],
+            source: 'gemini',
+          );
+        })
+        .where((q) => !_hasCombinedChoice(q.choices))
+        .toList();
 
     if (parsed.isEmpty) {
-      throw Exception('Generated choices contained invalid combined-option wording.');
+      throw Exception(
+          'Generated choices contained invalid combined-option wording.');
     }
 
     return parsed;
@@ -163,4 +172,3 @@ class QuestionGenerationService {
     return choices.any((c) => combinedPattern.hasMatch(c));
   }
 }
-
