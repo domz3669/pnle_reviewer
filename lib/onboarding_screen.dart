@@ -17,9 +17,7 @@ const _onboardButter = Color(0xFFB28D4B);
 const _onboardButterSoft = Color(0xFFF7EFCF);
 
 class OnboardingScreen extends StatefulWidget {
-  final Future<void> Function(String) onComplete;
-
-  const OnboardingScreen({super.key, required this.onComplete});
+  const OnboardingScreen({super.key});
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -68,7 +66,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       await prefs.setBool('onboarding_complete', true);
       await prefs.setString('user_nickname', nickname);
       if (!mounted) return;
-      await widget.onComplete(nickname);
+      Navigator.of(context).pop(nickname);
     } finally {
       if (mounted) {
         setState(() {

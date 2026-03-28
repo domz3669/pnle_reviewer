@@ -693,7 +693,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _loadPoolWarmupIndicatorPref();
     _loadPersonalizationPrefs();
     _applyMenuSystemUiStyle();
-    _checkOnboarding();
 
     // Kick off pre-generation immediately so first-time users can warm caches
     // even while RTDB restore/network permission prompts are in progress.
@@ -1019,37 +1018,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         duration: const Duration(seconds: 3),
       ),
     );
-  }
-
-  // =========================
-  // ONBOARDING & STREAK
-  // =========================
-  Future<void> _checkOnboarding() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    final isComplete = prefs.getBool('onboarding_complete') ?? false;
-    if (!isComplete) {
-      setState(() => showOnboarding = true);
-      try {
-        await showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          barrierColor: Colors.black87,
-          builder: (_) => OnboardingScreen(
-            onComplete: (nickname) async {
-              await _saveNickname(nickname);
-              if (!mounted) return;
-              Navigator.of(context, rootNavigator: true).pop();
-              _promptCourseTargetIfNeeded();
-            },
-          ),
-        );
-      } finally {
-        if (mounted) {
-          setState(() => showOnboarding = false);
-        }
-      }
-    }
   }
 
   Future<void> _loadPersonalizationPrefs() async {

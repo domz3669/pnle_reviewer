@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'menu_screen.dart';
+import 'onboarding_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'config/pnle_theme.dart';
@@ -108,6 +110,21 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // Show splash screen for 5 seconds
     await Future.delayed(const Duration(seconds: 5));
+
+    if (!mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+
+    if (!onboardingComplete) {
+      final nickname = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(builder: (context) => const OnboardingScreen()),
+      );
+      if (!mounted) return;
+      if (nickname == null || nickname.trim().isEmpty) {
+        return;
+      }
+    }
 
     if (!mounted) return;
     Navigator.pushReplacement(
