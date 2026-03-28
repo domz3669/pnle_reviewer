@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,7 +30,6 @@ import 'config/admob_ids.dart';
 import 'config/pnle_theme.dart';
 import 'generating_dialog.dart';
 import 'settings_screen.dart';
-import 'onboarding_screen.dart';
 import 'services/sound_service.dart';
 
 class _SavedSession {
@@ -686,13 +686,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _dailyScrollController = ScrollController();
     _quizScrollController = ScrollController();
     _historyScrollController = ScrollController();
-    _loadRewardedAd();
-    _loadMenuInterstitialAd();
-    _loadBannerAd();
-    _initRealtimeStatusListeners();
     _loadPoolWarmupIndicatorPref();
     _loadPersonalizationPrefs();
     _applyMenuSystemUiStyle();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _startMenuRuntimeServices();
+    });
 
     // Kick off pre-generation immediately so first-time users can warm caches
     // even while RTDB restore/network permission prompts are in progress.
@@ -719,6 +719,40 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _resetDailyCategoryScoresIfNeeded();
       unawaited(_primeMissingCachesAsNeeded());
       unawaited(_promptNicknameIfMissing());
+    });
+  }
+
+  void _startMenuRuntimeServices() {
+    Future<void>.delayed(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      try {
+        _initRealtimeStatusListeners();
+      } catch (e, st) {
+        debugPrint('Realtime listener setup failed: $e');
+        debugPrint('$st');
+      }
+    });
+
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      try {
+        if (Platform.isIOS) {
+          // Avoid burst-loading multiple ad formats during iOS startup transitions.
+          _loadBannerAd();
+          Future<void>.delayed(const Duration(milliseconds: 450), () {
+            if (!mounted) return;
+            _loadMenuInterstitialAd();
+            _loadRewardedAd();
+          });
+          return;
+        }
+        _loadRewardedAd();
+        _loadMenuInterstitialAd();
+        _loadBannerAd();
+      } catch (e, st) {
+        debugPrint('Ad startup preload failed: $e');
+        debugPrint('$st');
+      }
     });
   }
 
@@ -858,64 +892,73 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   void _initRealtimeStatusListeners() {
+    if (_connectionSubscription != null || _serverOffsetSubscription != null) {
+      return;
+    }
+
     _connectionSubscription =
         _rtdb.ref('.info/connected').onValue.listen((event) {
-      final connected = event.snapshot.value == true;
-      if (!mounted) {
-        _isOnline = connected;
-        return;
-      }
-
-      if (!_hasReceivedConnectionEvent) {
-        _hasReceivedConnectionEvent = true;
-        _isOnline = connected;
-        if (connected) {
-          unawaited(_restoreAllProgressFromRtdb());
-          unawaited(_syncAllProgressToRtdb());
-        }
-        return;
-      }
-
-      if (connected) {
-        _offlineStateTimer?.cancel();
-        _offlineStateTimer = null;
-        _internetProbeTimer?.cancel();
-
-        final changed = !_isOnline;
-        if (changed) {
-          setState(() {
-            _isOnline = true;
-          });
-          ScaffoldMessenger.of(context).clearSnackBars();
-          unawaited(_restoreAllProgressFromRtdb());
-          unawaited(_syncAllProgressToRtdb());
-        }
-        return;
-      }
-
-      _offlineStateTimer?.cancel();
-      _offlineStateTimer = Timer(const Duration(seconds: 4), () async {
+      try {
+        final connected = event.snapshot.value == true;
         if (!mounted) {
-          _isOnline = false;
+          _isOnline = connected;
           return;
         }
-        if (!_isOnline) return;
 
-        final hasInternet = await _verifyInternetConnectivity();
-        if (!mounted) return;
-        if (hasInternet) {
-          if (!_isOnline) {
-            setState(() {
-              _isOnline = true;
-            });
+        if (!_hasReceivedConnectionEvent) {
+          _hasReceivedConnectionEvent = true;
+          _isOnline = connected;
+          if (connected) {
+            unawaited(_restoreAllProgressFromRtdb());
+            unawaited(_syncAllProgressToRtdb());
           }
           return;
         }
 
-        setState(() {
-          _isOnline = false;
+        if (connected) {
+          _offlineStateTimer?.cancel();
+          _offlineStateTimer = null;
+          _internetProbeTimer?.cancel();
+
+          final changed = !_isOnline;
+          if (changed) {
+            setState(() {
+              _isOnline = true;
+            });
+            ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+            unawaited(_restoreAllProgressFromRtdb());
+            unawaited(_syncAllProgressToRtdb());
+          }
+          return;
+        }
+
+        _offlineStateTimer?.cancel();
+        _offlineStateTimer = Timer(const Duration(seconds: 4), () async {
+          if (!mounted) {
+            _isOnline = false;
+            return;
+          }
+          if (!_isOnline) return;
+
+          final hasInternet = await _verifyInternetConnectivity();
+          if (!mounted) return;
+          if (hasInternet) {
+            if (!_isOnline) {
+              setState(() {
+                _isOnline = true;
+              });
+            }
+            return;
+          }
+
+          setState(() {
+            _isOnline = false;
+          });
         });
-      });
+      } catch (e, st) {
+        debugPrint('Connection listener error: $e');
+        debugPrint('$st');
+      }
     });
 
     _serverOffsetSubscription =
