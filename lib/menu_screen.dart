@@ -692,6 +692,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _initRealtimeStatusListeners();
     _loadPoolWarmupIndicatorPref();
     _loadPersonalizationPrefs();
+    _applyMenuSystemUiStyle();
     _checkOnboarding();
 
     // Kick off pre-generation immediately so first-time users can warm caches
@@ -1028,26 +1029,26 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     final isComplete = prefs.getBool('onboarding_complete') ?? false;
     if (!isComplete) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        barrierColor: Colors.black87,
-        builder: (dialogContext) => OnboardingScreen(
-          onComplete: (nickname) async {
-            await _saveNickname(nickname);
-            if (!mounted) return;
-            if (dialogContext.mounted) {
-              Navigator.pop(dialogContext);
-            }
-            setState(() {
-              showOnboarding = false;
-            });
-            _promptCourseTargetIfNeeded();
-          },
-        ),
-      );
-      if (!mounted) return;
       setState(() => showOnboarding = true);
+      try {
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          barrierColor: Colors.black87,
+          builder: (_) => OnboardingScreen(
+            onComplete: (nickname) async {
+              await _saveNickname(nickname);
+              if (!mounted) return;
+              Navigator.of(context, rootNavigator: true).pop();
+              _promptCourseTargetIfNeeded();
+            },
+          ),
+        );
+      } finally {
+        if (mounted) {
+          setState(() => showOnboarding = false);
+        }
+      }
     }
   }
 
@@ -8257,9 +8258,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return Container(color: _menuPastelCream);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    // Set status bar to be transparent with dark icons for the pastel surface
+  void _applyMenuSystemUiStyle() {
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -8267,7 +8266,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         statusBarBrightness: Brightness.light,
       ),
     );
+  }
 
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _menuPastelCream,
       body: Column(

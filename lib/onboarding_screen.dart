@@ -17,7 +17,7 @@ const _onboardButter = Color(0xFFB28D4B);
 const _onboardButterSoft = Color(0xFFF7EFCF);
 
 class OnboardingScreen extends StatefulWidget {
-  final ValueChanged<String> onComplete;
+  final Future<void> Function(String) onComplete;
 
   const OnboardingScreen({super.key, required this.onComplete});
 
@@ -29,6 +29,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late PageController _pageController;
   int _currentPage = 0;
   final TextEditingController _nicknameController = TextEditingController();
+  String? _nicknameError;
+  bool _isSubmitting = false;
 
   static const int _totalPages = 5;
 
@@ -46,24 +48,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _completeOnboarding() async {
+    if (_isSubmitting) return;
+
     final nickname = _nicknameController.text.trim();
     if (nickname.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Please enter your nickname to continue.',
-            style: GoogleFonts.outfit(),
-          ),
-          backgroundColor: _onboardWarm,
-        ),
-      );
+      setState(() {
+        _nicknameError = 'Please enter your nickname to continue.';
+      });
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('onboarding_complete', true);
-    await prefs.setString('user_nickname', nickname);
-    widget.onComplete(nickname);
+    setState(() {
+      _isSubmitting = true;
+      _nicknameError = null;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('onboarding_complete', true);
+      await prefs.setString('user_nickname', nickname);
+      if (!mounted) return;
+      await widget.onComplete(nickname);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 
   @override
@@ -407,13 +419,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         TextField(
                           controller: _nicknameController,
                           textInputAction: TextInputAction.done,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) {
+                            final nextError =
+                                _nicknameController.text.trim().isEmpty
+                                    ? _nicknameError
+                                    : null;
+                            setState(() {
+                              _nicknameError = nextError;
+                            });
+                          },
                           onSubmitted: (_) {
-                            if (_nicknameController.text.trim().isNotEmpty) {
+                            if (!_isSubmitting &&
+                                _nicknameController.text.trim().isNotEmpty) {
                               _completeOnboarding();
                             }
                           },
                           onTapOutside: (_) => FocusScope.of(context).unfocus(),
+                          enabled: !_isSubmitting,
                           style: GoogleFonts.outfit(color: _onboardText),
                           decoration: InputDecoration(
                             labelText: 'Nickname (required)',
@@ -435,13 +457,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               borderRadius: BorderRadius.circular(10),
                               borderSide: const BorderSide(color: _onboardLeaf),
                             ),
+                            errorText: _nicknameError,
                           ),
                         ),
                         const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: isReady
+                            onPressed: isReady && !_isSubmitting
                                 ? () {
                                     FocusScope.of(context).unfocus();
                                     _completeOnboarding();
@@ -457,10 +480,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ),
                             ),
                             child: Text(
-                              'Get Started',
+                              _isSubmitting ? 'Saving...' : 'Get Started',
                               style: GoogleFonts.outfit(
-                                color:
-                                    isReady ? _onboardCream : _onboardTextSoft,
+                                color: isReady && !_isSubmitting
+                                    ? _onboardCream
+                                    : _onboardTextSoft,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
                               ),

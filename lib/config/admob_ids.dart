@@ -3,7 +3,7 @@ import 'dart:io';
 /// Centralized AdMob IDs for platform-specific configuration.
 /// Set [useTestAds] to true while testing to avoid policy violations.
 class AdMobIds {
-  static const bool useTestAds = true;
+  static const bool useTestAds = false;
 
   static const String androidAppId = 'ca-app-pub-9985022151393867~5701483111';
   static const String iosAppId = 'ca-app-pub-9985022151393867~4001388639';
