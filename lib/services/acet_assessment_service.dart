@@ -96,6 +96,7 @@ class AcetAssessmentService {
     final readinessLabel = _readinessLabel(
       accuracyPercent: accuracyPercent,
       averageTimePerQuestionSeconds: averageTimePerQuestionSeconds,
+      perCategoryStats: mergedCategoryStats,
     );
     final insightMessage = _insightMessage(
       accuracyPercent: accuracyPercent,
@@ -197,6 +198,7 @@ class AcetAssessmentService {
     final readinessLabel = _readinessLabel(
       accuracyPercent: accuracyPercent,
       averageTimePerQuestionSeconds: averageTimePerQuestionSeconds,
+      perCategoryStats: perCategoryStats,
     );
     final insightMessage = _insightMessage(
       accuracyPercent: accuracyPercent,
@@ -291,14 +293,21 @@ class AcetAssessmentService {
   String _readinessLabel({
     required double accuracyPercent,
     required double averageTimePerQuestionSeconds,
+    Map<String, AcetCategoryAssessment>? perCategoryStats,
   }) {
-    if (accuracyPercent >= 80 && averageTimePerQuestionSeconds <= 25) {
-      return 'ACET Ready';
+    // PNLE dual-threshold: 75% general average AND no subject below 60%
+    final hasSubjectBelow60 = perCategoryStats != null &&
+        perCategoryStats.values.any(
+          (stat) => stat.totalQuestions > 0 && stat.accuracyPercent < 60,
+        );
+
+    if (accuracyPercent >= 75 && !hasSubjectBelow60) {
+      return 'PNLE Ready';
     }
-    if (accuracyPercent >= 70 && averageTimePerQuestionSeconds <= 27) {
+    if (accuracyPercent >= 70 && !hasSubjectBelow60) {
       return 'Competitive';
     }
-    if (accuracyPercent >= 55) {
+    if (accuracyPercent >= 60) {
       return 'Developing';
     }
     return 'Not Ready';
@@ -332,7 +341,7 @@ class AcetAssessmentService {
     required Map<String, AcetCategoryAssessment> perCategoryStats,
   }) {
     if (accuracyPercent >= 75 && averageTimePerQuestionSeconds > 25) {
-      return 'You are accurate, but you need to answer faster for ACET.';
+      return 'You are accurate, but building speed will boost your efficiency score.';
     }
     if (accuracyPercent < 70 && fastAnswerCount > slowAnswerCount) {
       return 'You are fast, but careless mistakes are lowering your score.';
@@ -354,6 +363,6 @@ class AcetAssessmentService {
       return 'Focus on both speed and accuracy under time pressure.';
     }
 
-    return 'Keep building speed and control together to stay ACET-competitive.';
+    return 'Keep building speed and control together to stay competitive.';
   }
 }

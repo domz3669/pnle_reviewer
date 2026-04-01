@@ -19,28 +19,27 @@ import 'explanation_dialog.dart';
 import 'better_explanation_dialog.dart';
 import 'services/acet_assessment_service.dart';
 import 'services/review_service.dart';
-import 'services/gemini_service.dart';
-import 'services/gpt_service.dart';
+import 'services/gateway_service.dart';
 
-const String _reportingAppName = 'ACET Reviewer 2027';
-const _quizDialogCream = Color(0xFFFCF6EB);
-const _quizDialogPanel = Color(0xFFF9F3E7);
-const _quizDialogText = Color(0xFF5A7652);
-const _quizDialogTextSoft = Color(0xFF8AA081);
-const _quizDialogBorder = Color(0xA4C5D6AE);
-const _quizDialogLeaf = Color(0xFF7EA468);
-const _quizDialogLeafSoft = Color(0xFFDDEBCE);
-const _quizDialogSkySoft = Color(0xFFE6EFF7);
-const _quizDialogWarm = Color(0xFFC28D74);
-const _quizDialogWarmSoft = Color(0xFFF4E3D9);
-const _quizDialogButter = Color(0xFFB28D4B);
-const _quizDialogButterSoft = Color(0xFFF7EFCF);
-const _quizScreenBackground = Color(0xFFFCF6EB);
-const _quizScreenPanel = Color(0xFFF9F3E7);
-const _quizAnswerCorrect = Color(0xFF7EA468);
-const _quizAnswerCorrectDeep = Color(0xFF698C59);
-const _quizAnswerWrong = Color(0xFFC28D74);
-const _quizAnswerWrongDeep = Color(0xFFAE765F);
+const String _reportingAppName = 'PNLE Reviewer 2027';
+const _quizDialogCream = Color(0xFFEBF2FA);
+const _quizDialogPanel = Color(0xFFE0ECF5);
+const _quizDialogText = Color(0xFF2D5070);
+const _quizDialogTextSoft = Color(0xFF6B8FA8);
+const _quizDialogBorder = Color(0xA4A8C5D8);
+const _quizDialogLeaf = Color(0xFF5B8DB8);
+const _quizDialogLeafSoft = Color(0xFFC8DCE8);
+const _quizDialogSkySoft = Color(0xFFE0EBF5);
+const _quizDialogWarm = Color(0xFF8A7AA0);
+const _quizDialogWarmSoft = Color(0xFFE4E0EE);
+const _quizDialogButter = Color(0xFF5A7FA0);
+const _quizDialogButterSoft = Color(0xFFDDEAF5);
+const _quizScreenBackground = Color(0xFFEBF2FA);
+const _quizScreenPanel = Color(0xFFE0ECF5);
+const _quizAnswerCorrect = Color(0xFF5A9E6F);
+const _quizAnswerCorrectDeep = Color(0xFF488B5C);
+const _quizAnswerWrong = Color(0xFFBF616A);
+const _quizAnswerWrongDeep = Color(0xFFA34E56);
 
 class QuestionScreen extends StatefulWidget {
   final List<Question> questions;
@@ -128,6 +127,9 @@ class _QuestionScreenState extends State<QuestionScreen>
   InterstitialAd? _interstitialAd;
   bool _isInterstitialAdLoaded = false;
   bool _isSubmittingReport = false;
+
+  // Cooldown: minimum 2 minutes between end-quiz interstitials
+  static DateTime? _lastInterstitialShownAt;
 
   // Interstitial Ad for explain-limit unlock
   InterstitialAd? _explainInterstitialAd;
@@ -547,9 +549,11 @@ class _QuestionScreenState extends State<QuestionScreen>
   }
 
   Color _timeColorFromRatio(double ratio) {
-    if (ratio > 0.6) return _quizDialogLeaf;
-    if (ratio > 0.3) return _quizDialogButter;
-    return PnleTheme.danger;
+    // Smooth green → yellow → orange → red via HSL hue interpolation.
+    // Hue 120 = green, 60 = yellow, 30 = orange, 0 = red.
+    // Lightness 0.38 for darker shades against light background.
+    final hue = (ratio * 120.0).clamp(0.0, 120.0);
+    return HSLColor.fromAHSL(1.0, hue, 0.75, 0.38).toColor();
   }
 
   void _showQuizSnackBar(
@@ -766,6 +770,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                         Align(
                           alignment: Alignment.centerLeft,
                           child: AnimatedContainer(
+                            key: ValueKey('timer_bar_$currentIndex'),
                             duration: const Duration(milliseconds: 120),
                             width: barWidth,
                             decoration: BoxDecoration(
@@ -1697,15 +1702,15 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 gradient: (canTapExplain && hasExplainAccess)
                                     ? const LinearGradient(
                                         colors: [
-                                          Color(0xFFA8C795),
-                                          Color(0xFF7EA468),
+                                          Color(0xFFF5E6B0),
+                                          Color(0xFFE6C97A),
                                         ],
                                       )
                                     : (canTapExplain && !hasExplainAccess)
                                         ? const LinearGradient(
                                             colors: [
-                                              Color(0xFFF0D9A6),
-                                              Color(0xFFBE8E75),
+                                              Color(0xFFF5E6B0),
+                                              Color(0xFFD4B45A),
                                             ],
                                           )
                                         : LinearGradient(
@@ -1717,9 +1722,9 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color: (canTapExplain && hasExplainAccess)
-                                      ? _quizDialogLeaf.withValues(alpha: 0.5)
+                                      ? const Color(0xFFE6C97A).withValues(alpha: 0.6)
                                       : (canTapExplain && !hasExplainAccess)
-                                          ? _quizDialogWarm.withValues(
+                                          ? const Color(0xFFD4B45A).withValues(
                                               alpha: 0.75)
                                           : _quizDialogBorder,
                                   width: 1.5,
@@ -1727,8 +1732,8 @@ class _QuestionScreenState extends State<QuestionScreen>
                                 boxShadow: (canTapExplain && hasExplainAccess)
                                     ? [
                                         BoxShadow(
-                                          color: _quizDialogLeaf.withValues(
-                                              alpha: 0.2),
+                                          color: const Color(0xFFE6C97A).withValues(
+                                              alpha: 0.3),
                                           blurRadius: 8,
                                           spreadRadius: 1,
                                         ),
@@ -1736,8 +1741,8 @@ class _QuestionScreenState extends State<QuestionScreen>
                                     : (canTapExplain && !hasExplainAccess)
                                         ? [
                                             BoxShadow(
-                                              color: _quizDialogWarm.withValues(
-                                                  alpha: 0.18),
+                                              color: const Color(0xFFD4B45A).withValues(
+                                                  alpha: 0.25),
                                               blurRadius: 8,
                                               spreadRadius: 1,
                                             ),
@@ -1764,7 +1769,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                           : Icon(
                                               Icons.lightbulb_outline_rounded,
                                               color: canTapExplain
-                                                  ? _quizDialogCream
+                                                  ? const Color(0xFF3A2E00)
                                                   : _quizDialogTextSoft,
                                               size: 20,
                                             ),
@@ -1773,7 +1778,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                                         'Coach Note',
                                         style: GoogleFonts.outfit(
                                           color: canTapExplain
-                                              ? _quizDialogCream
+                                              ? const Color(0xFF3A2E00)
                                               : _quizDialogTextSoft,
                                           fontWeight: FontWeight.bold,
                                           fontSize: r.fontSize(11),
@@ -1888,6 +1893,12 @@ class _QuestionScreenState extends State<QuestionScreen>
     if (!_isInterstitialAdLoaded || _interstitialAd == null) {
       return;
     }
+    // Enforce 2-minute cooldown between interstitials (AdMob policy safety)
+    final lastShown = _lastInterstitialShownAt;
+    if (lastShown != null &&
+        DateTime.now().difference(lastShown).inSeconds < 120) {
+      return;
+    }
 
     final completer = Completer<void>();
     _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
@@ -1911,6 +1922,7 @@ class _QuestionScreenState extends State<QuestionScreen>
       },
     );
 
+    _lastInterstitialShownAt = DateTime.now();
     _interstitialAd!.show();
     await completer.future;
   }
@@ -2297,7 +2309,7 @@ class _QuestionScreenState extends State<QuestionScreen>
             return localExplanation;
           }
 
-          final service = GeminiService(apiKey: GEMINI_API_KEY);
+          final service = GatewayService();
           return await service.getExplanation(
             question: currentQuestion.question,
             choices: currentQuestion.choices,
@@ -2350,7 +2362,7 @@ class _QuestionScreenState extends State<QuestionScreen>
                     barrierColor: Colors.black87,
                     builder: (_) => BetterExplanationDialog(
                       onGenerate: () async {
-                        final service = GptService(apiKey: GPT_API_KEY);
+                        final service = GatewayService();
                         return await service.getBetterExplanation(
                           question: currentQuestion.question,
                           choices: currentQuestion.choices,

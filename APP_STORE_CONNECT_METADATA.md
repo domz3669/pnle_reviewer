@@ -1,35 +1,42 @@
-# ACET Reviewer 2027 - App Store Connect Metadata
+# PNLE Reviewer 2027 - App Store Connect Metadata
 
 ## App Name
-ACET Reviewer 2027
+PNLE Reviewer 2027
 
 ## Subtitle
-Practice, analytics, AI coach
+Nursing board exam prep & AI coach
 
 ## Promotional Text
-Prepare for ACET with native quiz modes, targeted practice, score breakdowns, saved sessions, and optional AI-generated Coach Note explanations after answering.
+Prepare for the Philippine Nursing Licensure Examination with native quiz modes, targeted practice by nursing subject, score breakdowns, saved sessions, and optional AI-generated Coach Note explanations after answering.
 
 ## Keywords
-acet,reviewer,exam,quiz,practice,college,entrance,test,math,reasoning,reading,language
+pnle,nursing,licensure,reviewer,exam,quiz,practice,board,nurse,philippines,nclex,review
 
 ## Category
 Education
 
 ## Description
-ACET Reviewer 2027 is a native mobile review app built for students preparing for ACET.
+PNLE Reviewer 2027 is a native mobile review app built for nursing graduates preparing for the Philippine Nursing Licensure Examination.
 
 The app focuses on fast, repeatable practice sessions with local question sets, post-quiz score breakdowns, progress history, saved sessions, and optional AI-assisted review guidance.
 
 What you can do:
-- Start Random Quiz sessions for mixed ACET practice
-- Use Focus Mode for targeted review by subject area
-- Train with Timed Exam mode for faster decision-making
+- Start Random Quiz sessions for mixed PNLE practice across all nursing subjects
+- Use Focus Mode for targeted review by nursing category
+- Train with Timed Exam mode for faster decision-making under exam conditions
 - Use Challenge Mode for advanced mixed practice when online generation is available
-- Review results with subtest breakdowns and session insights
+- Review results with subject breakdowns and session insights
 - Track recent performance history inside the app
 - Save sessions and continue them later
 - Request optional AI-generated Coach Note explanations after answering
 - Claim optional daily session rewards and ad-based session refills
+
+Subjects covered:
+- Fundamentals of Nursing including Professional Adjustments
+- Medical-Surgical Nursing (MSN)
+- Maternal and Child Health Nursing (MCHN)
+- Community Health Nursing (CHN)
+- Mental Health and Psychiatric Nursing
 
 Network behavior:
 - The app launches to a native home screen even without internet
@@ -40,7 +47,7 @@ AI disclosure:
 Coach Note is an optional feature that generates review guidance after a question is answered. It is user-invoked from inside a quiz and may require internet access unless a saved explanation is already available locally.
 
 ## App Review Notes
-ACET Reviewer 2027 is a native Flutter quiz app for ACET preparation. It is not a webview or browser wrapper.
+PNLE Reviewer 2027 is a native Flutter quiz app for Philippine Nursing Licensure Examination preparation. It is not a webview or browser wrapper.
 
 This build launches to the native home screen even when the device starts offline. Random Quiz, Focus Mode, and Timed Exam can start from local seeded question sets without internet. Internet access is only required for progress syncing, streak rewards, ads, Challenge Mode generation, report submission, and optional AI-generated Coach Note explanations requested during a quiz.
 
@@ -70,9 +77,9 @@ Coach Note disclosure:
 Coach Note is an optional AI-generated explanation feature requested by the user after answering a question. It is not required to use the core quiz modes.
 
 ## Screenshot Captions
-1. Practice with native ACET study modes built for daily review.
+1. Practice with native PNLE nursing study modes built for daily review.
 2. Answer timed multiple-choice questions in a focused test flow.
-3. Review scores, subtest breakdowns, and session insights after every run.
+3. Review scores, subject breakdowns, and session insights after every run.
 4. Track recent performance with native in-app progress history.
 5. Save sessions and continue unfinished tests later.
 6. Request optional AI Coach Note explanations after answering.

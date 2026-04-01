@@ -1,15 +1,19 @@
 {
   "schemaVersion": 1,
-  "defaultExamId": "acet",
+  "defaultExamId": "pnle",
   "exams": {
-    "acet": {
-      "appTitle": "ACET Reviewer 2027",
+    "pnle": {
+      "appTitle": "PNLE Reviewer 2027",
+      "examName": "Philippine Nurse Licensure Examination",
+      "examShortName": "PNLE",
+      "examYear": "2027",
       "language": "English",
       "categories": [
-        "English",
-        "Mathematics",
-        "Logical Reasoning",
-        "Mental Ability / Abstract"
+        "Maternal and Child Health Nursing (MCHN)",
+        "Community Health Nursing (CHN)",
+        "Medical-Surgical Nursing (MSN)",
+        "Mental Health and Psychiatric Nursing",
+        "Fundamentals of Nursing including Professional Adjustments"
       ],
       "modes": {
         "randomQuiz": {
@@ -20,9 +24,6 @@
           "questionCount": 15,
           "usesSingleCategory": true
         },
-        "quickPractice": {
-          "questionCount": 5
-        },
         "challenge": {
           "questionCount": 15
         },
@@ -30,13 +31,11 @@
           "questionCount": 15,
           "timePerQuestionSeconds": 30,
           "autoNextOnTimeout": true
-        },
-        "reviewMistakes": {
-          "questionCount": 15
         }
       },
       "dailySessionTarget": 4,
-      "savedTestsLimit": 30
+      "savedTestsLimit": 30,
+      "notes": "PNLE is officially administered as a five-part nursing licensure examination. The app categories are organized as reviewer subject clusters for user study flow."
     }
   }
 }

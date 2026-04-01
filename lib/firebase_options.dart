@@ -20,29 +20,29 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAg65dv4DYHn7B_Ys2AHfI-sfvGayZeHBU',
-    appId: '1:214718638699:android:648e865e895cfae4ac5f2e',
-    messagingSenderId: '214718638699',
-    projectId: 'upcat-ios',
-    storageBucket: 'upcat-ios.firebasestorage.app',
-    databaseURL: 'https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    apiKey: 'AIzaSyBunHIlRqFvMOlhgmxUE8OwK8nBuKE0P6k',
+    appId: '1:144149624587:android:d77cfed343741f1a26d40e',
+    messagingSenderId: '144149624587',
+    projectId: 'pnle-reviewer-ios',
+    storageBucket: 'pnle-reviewer-ios.firebasestorage.app',
+    databaseURL: 'https://pnle-reviewer-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBmj6TCl8g--Ay-PntRZv-pDVIGjCr4Dr8',
-    appId: '1:214718638699:ios:bf497385b6c9776aac5f2e',
-    messagingSenderId: '214718638699',
-    projectId: 'upcat-ios',
-    storageBucket: 'upcat-ios.firebasestorage.app',
-    databaseURL: 'https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    apiKey: 'AIzaSyDqwkTIYOp801fJuv1o7j834KcRBFnPsHg',
+    appId: '1:144149624587:ios:8dad19b37f33ae9b26d40e',
+    messagingSenderId: '144149624587',
+    projectId: 'pnle-reviewer-ios',
+    storageBucket: 'pnle-reviewer-ios.firebasestorage.app',
+    databaseURL: 'https://pnle-reviewer-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
   );
 
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyBtnjvefkmr7eCrI-xnPrRv6mxZwFqfWAA',
     appId: '1:14765051159:web:1f472f07eed3c00f76fb52',
     messagingSenderId: '14765051159',
-    projectId: 'upcat-ios',
-    storageBucket: 'upcat-ios.firebasestorage.app',
-    databaseURL: 'https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app/',
+    projectId: 'pnle-reviewer-ios',
+    storageBucket: 'pnle-reviewer-ios.firebasestorage.app',
+    databaseURL: 'https://pnle-reviewer-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
   );
 }

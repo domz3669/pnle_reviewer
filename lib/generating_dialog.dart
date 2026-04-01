@@ -6,18 +6,18 @@ import 'services/sound_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'config/pnle_theme.dart';
 
-const _dialogCream = Color(0xFFFCF6EB);
-const _dialogPanel = Color(0xFFF9F3E7);
-const _dialogText = Color(0xFF5A7652);
-const _dialogTextSoft = Color(0xFF8AA081);
-const _dialogBorder = Color(0xA4C5D6AE);
-const _dialogFocusAccent = Color(0xFF8C79A8);
-const _dialogFocusSoft = Color(0xFFF1EAF8);
-const _dialogRandomAccent = Color(0xFF7EA468);
-const _dialogRandomSoft = Color(0xFFDDEBCE);
-const _dialogWarmAccent = Color(0xFFC28D74);
-const _dialogSkySoft = Color(0xFFE6EFF7);
-const _dialogButterSoft = Color(0xFFF6EDC9);
+const _dialogCream = Color(0xFFEBF2FA);
+const _dialogPanel = Color(0xFFE0ECF5);
+const _dialogText = Color(0xFF2D5070);
+const _dialogTextSoft = Color(0xFF6B8FA8);
+const _dialogBorder = Color(0xA4A8C5D8);
+const _dialogFocusAccent = Color(0xFF6B82B8);
+const _dialogFocusSoft = Color(0xFFE0E8F5);
+const _dialogRandomAccent = Color(0xFF5B8DB8);
+const _dialogRandomSoft = Color(0xFFC8DCE8);
+const _dialogWarmAccent = Color(0xFF8A7AA0);
+const _dialogSkySoft = Color(0xFFE0EBF5);
+const _dialogButterSoft = Color(0xFFDDEAF5);
 
 class GeneratingTestDialog extends StatefulWidget {
   final Future<bool> Function() onGenerate;
@@ -631,8 +631,8 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                                           _accentSoft, _dialogSkySoft, 0.2)!,
                                     ]
                                   : [
-                                      _accentColor,
-                                      _accentColor.withOpacity(0.82)
+                                      const Color(0xFFE6C97A),
+                                      const Color(0xFFD4B45A),
                                     ],
                         ),
                         boxShadow: !isGenerating
@@ -640,7 +640,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                                 BoxShadow(
                                   color: hasError
                                       ? PnleTheme.danger.withOpacity(0.4)
-                                      : _accentColor.withOpacity(0.4),
+                                      : const Color(0xFFD4B45A).withOpacity(0.4),
                                   blurRadius: 12,
                                   offset: const Offset(0, 4),
                                 ),
@@ -674,7 +674,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                                 hasError
                                     ? Icons.refresh_rounded
                                     : Icons.play_arrow_rounded,
-                                color: hasError ? Colors.white : _dialogCream,
+                                color: hasError ? Colors.white : const Color(0xFF3A2E00),
                                 size: 24,
                               ),
                             if (!isGenerating) const SizedBox(width: 8),
@@ -689,7 +689,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                                     ? Colors.white
                                     : isGenerating
                                         ? _dialogTextSoft
-                                        : _dialogCream,
+                                        : const Color(0xFF3A2E00),
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
                                 letterSpacing: 1,
@@ -734,7 +734,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                   ),
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(
-                    color: const Color(0xFFD9C59C),
+                    color: const Color(0xFFA8BFD8),
                     width: 1.5,
                   ),
                 ),
@@ -744,12 +744,12 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF5E8C8),
+                        color: const Color(0xFFDDEAF5),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         Icons.warning_amber_rounded,
-                        color: const Color(0xFFB28D4B),
+                        color: const Color(0xFF5A7FA0),
                         size: 40,
                       ),
                     ),
@@ -812,7 +812,7 @@ class _GeneratingTestDialogState extends State<GeneratingTestDialog>
                               gradient: const LinearGradient(
                                 colors: [
                                   _dialogRandomAccent,
-                                  Color(0xFF92B57E),
+                                  Color(0xFF6B9DC0),
                                 ],
                               ),
                             ),

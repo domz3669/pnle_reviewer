@@ -4,18 +4,18 @@ import 'package:google_fonts/google_fonts.dart';
 import 'models/acet_assessment.dart';
 import 'services/sound_service.dart';
 
-const _resultsCream = Color(0xFFFCF6EB);
-const _resultsPanel = Color(0xFFF9F3E7);
-const _resultsText = Color(0xFF5A7652);
-const _resultsTextSoft = Color(0xFF8AA081);
-const _resultsBorder = Color(0xA4C5D6AE);
-const _resultsLeaf = Color(0xFF7EA468);
-const _resultsLeafSoft = Color(0xFFDDEBCE);
-const _resultsSkySoft = Color(0xFFE6EFF7);
-const _resultsWarm = Color(0xFFC28D74);
-const _resultsWarmSoft = Color(0xFFF4E3D9);
-const _resultsButter = Color(0xFFB28D4B);
-const _resultsButterSoft = Color(0xFFF7EFCF);
+const _resultsCream = Color(0xFFEBF2FA);
+const _resultsPanel = Color(0xFFE0ECF5);
+const _resultsText = Color(0xFF2D5070);
+const _resultsTextSoft = Color(0xFF6B8FA8);
+const _resultsBorder = Color(0xA4A8C5D8);
+const _resultsLeaf = Color(0xFF5B8DB8);
+const _resultsLeafSoft = Color(0xFFC8DCE8);
+const _resultsSkySoft = Color(0xFFE0EBF5);
+const _resultsWarm = Color(0xFF8A7AA0);
+const _resultsWarmSoft = Color(0xFFE4E0EE);
+const _resultsButter = Color(0xFF5A7FA0);
+const _resultsButterSoft = Color(0xFFDDEAF5);
 
 class AnimatedResultsDialog extends StatefulWidget {
   final AcetAssessment assessment;
@@ -87,15 +87,15 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
   String _modeTitle() {
     switch (widget.testMode) {
       case 'focusMode':
-        return 'ACET Focus Results';
+        return 'PNLE Focus Results';
       case 'challenge':
-        return 'ACET Challenge Results';
+        return 'PNLE Challenge Results';
       case 'timedExam':
-        return 'ACET Timed Results';
+        return 'PNLE Timed Results';
       case 'reviewMistakes':
-        return 'ACET Mistake Review';
+        return 'PNLE Mistake Review';
       default:
-        return 'ACET Practice Results';
+        return 'PNLE Practice Results';
     }
   }
 
@@ -116,7 +116,7 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
 
   Color _readinessColor() {
     switch (widget.assessment.readinessLabel) {
-      case 'ACET Ready':
+      case 'PNLE Ready':
         return _resultsLeaf;
       case 'Competitive':
         return const Color(0xFF7293AE);
@@ -577,7 +577,7 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Session summary based on your latest ACET performance.',
+                    'Session summary based on your latest PNLE practice.',
                     style: GoogleFonts.outfit(
                       color: _resultsTextSoft,
                       fontSize: 13,
@@ -663,18 +663,129 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                               value: widget.assessment.readinessLabel,
                               accent: readinessColor,
                             ),
-                            const SizedBox(height: 10),
-                            _compactSummaryTile(
-                              icon: Icons.track_changes_rounded,
-                              label: 'Benchmark',
-                              value: _benchmarkBand(),
-                              accent: _benchmarkColor(_benchmarkBand()),
-                            ),
                           ],
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(height: 14),
+                  // Benchmark Band + Session Time
+                  Builder(builder: (_) {
+                    final band = _benchmarkBand();
+                    final bandColor = _benchmarkColor(band);
+                    final totalMinutes = widget.elapsedSeconds ~/ 60;
+                    final totalSecs = widget.elapsedSeconds % 60;
+                    final timeStr = totalMinutes > 0
+                        ? '${totalMinutes}m ${totalSecs}s'
+                        : '${totalSecs}s';
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _compactSummaryTile(
+                            icon: Icons.workspace_premium_rounded,
+                            label: 'Benchmark',
+                            value: band,
+                            accent: bandColor,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _compactSummaryTile(
+                            icon: Icons.schedule_rounded,
+                            label: 'Session Time',
+                            value: timeStr,
+                            accent: const Color(0xFF7293AE),
+                          ),
+                        ),
+                      ],
+                    );
+                  }),
+                  // Speed Distribution
+                  if (widget.assessment.totalQuestions > 0) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: _resultsCream,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: _resultsBorder.withValues(alpha: 0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Answer Speed',
+                            style: GoogleFonts.outfit(
+                              color: _resultsText,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _speedBucketChip(
+                                  label: 'Fast',
+                                  count: widget.assessment.fastAnswerCount,
+                                  color: _resultsLeaf,
+                                  compact: compact,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _speedBucketChip(
+                                  label: 'Moderate',
+                                  count: widget.assessment.moderateAnswerCount,
+                                  color: _resultsButter,
+                                  compact: compact,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _speedBucketChip(
+                                  label: 'Slow',
+                                  count: widget.assessment.slowAnswerCount,
+                                  color: _resultsWarm,
+                                  compact: compact,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  // Timed-out warning
+                  if (widget.assessment.timedOutCount > 0) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF0F0),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE8B0B0)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.timer_off_rounded, color: Color(0xFFAA3344), size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '${widget.assessment.timedOutCount} question${widget.assessment.timedOutCount > 1 ? 's' : ''} timed out',
+                              style: GoogleFonts.outfit(
+                                color: const Color(0xFFAA3344),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   Text(
                     'Category Breakdown',
@@ -778,13 +889,14 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                                 onPressed: () =>
                                     widget.onResultAction('playAgain'),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _resultsLeaf,
-                                  foregroundColor: _resultsCream,
+                                  backgroundColor: const Color(0xFFFFF5E0),
+                                  foregroundColor: const Color(0xFF3A2E00),
                                   padding:
                                       const EdgeInsets.symmetric(vertical: 14),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(16),
                                   ),
+                                  side: const BorderSide(color: Color(0xFFE6C97A)),
                                 ),
                                 child: Text(
                                   'Play Again',
@@ -825,13 +937,14 @@ class _AnimatedResultsDialogState extends State<AnimatedResultsDialog>
                                 onPressed: () =>
                                     widget.onResultAction('playAgain'),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _resultsLeaf,
-                                  foregroundColor: _resultsCream,
+                                  backgroundColor: const Color(0xFFFFF5E0),
+                                  foregroundColor: const Color(0xFF3A2E00),
                                   padding:
                                       const EdgeInsets.symmetric(vertical: 14),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(16),
                                   ),
+                                  side: const BorderSide(color: Color(0xFFE6C97A)),
                                 ),
                                 child: Text(
                                   'Play Again',

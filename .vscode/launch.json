@@ -5,21 +5,36 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "cse_reviewer",
-            "request": "launch",
-            "type": "dart"
-        },
-        {
-            "name": "cse_reviewer (profile mode)",
+            "name": "pnle_reviewer",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "profile"
+            "toolArgs": [
+                "--dart-define=QUESTIONS_GATEWAY_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/generateQuestionsGateway",
+                "--dart-define=EXPLANATION_GATEWAY_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/generateExplanationGateway",
+                "--dart-define=REPORT_CONTENT_WEBHOOK_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/reportQuestion"
+            ]
         },
         {
-            "name": "cse_reviewer (release mode)",
+            "name": "pnle_reviewer (profile mode)",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "release"
+            "flutterMode": "profile",
+            "toolArgs": [
+                "--dart-define=QUESTIONS_GATEWAY_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/generateQuestionsGateway",
+                "--dart-define=EXPLANATION_GATEWAY_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/generateExplanationGateway",
+                "--dart-define=REPORT_CONTENT_WEBHOOK_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/reportQuestion"
+            ]
+        },
+        {
+            "name": "pnle_reviewer (release mode)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release",
+            "toolArgs": [
+                "--dart-define=QUESTIONS_GATEWAY_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/generateQuestionsGateway",
+                "--dart-define=EXPLANATION_GATEWAY_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/generateExplanationGateway",
+                "--dart-define=REPORT_CONTENT_WEBHOOK_URL=https://us-central1-pnle-reviewer-ios.cloudfunctions.net/reportQuestion"
+            ]
         }
     ]
 }

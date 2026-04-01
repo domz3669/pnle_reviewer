@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyCgby9Ie4Ier_-8bj7bV8-irrCsXikqEj0</string>
+	<string>AIzaSyDqwkTIYOp801fJuv1o7j834KcRBFnPsHg</string>
 	<key>GCM_SENDER_ID</key>
-	<string>1077986019184</string>
+	<string>144149624587</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.niotron.domingotambasacan.acetreviewer2027</string>
+	<string>com.niotron.domingotambasacan.pnleaireviewer2026</string>
 	<key>PROJECT_ID</key>
-	<string>acet-reviewer</string>
+	<string>pnle-reviewer-ios</string>
 	<key>STORAGE_BUCKET</key>
-	<string>acet-reviewer.firebasestorage.app</string>
+	<string>pnle-reviewer-ios.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -25,8 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:1077986019184:ios:2a2dffe3bc9ca19847f1b5</string>
-	<key>DATABASE_URL</key>
-	<string>https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app</string>
+	<string>1:144149624587:ios:8dad19b37f33ae9b26d40e</string>
 </dict>
 </plist>

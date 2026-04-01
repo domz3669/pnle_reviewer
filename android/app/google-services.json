@@ -1,22 +1,21 @@
 {
   "project_info": {
-    "project_number": "1077986019184",
-    "firebase_url": "https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app",
-    "project_id": "acet-reviewer",
-    "storage_bucket": "acet-reviewer.firebasestorage.app"
+    "project_number": "144149624587",
+    "project_id": "pnle-reviewer-ios",
+    "storage_bucket": "pnle-reviewer-ios.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1077986019184:android:7c588698ee96a57147f1b5",
+        "mobilesdk_app_id": "1:144149624587:android:d77cfed343741f1a26d40e",
         "android_client_info": {
-          "package_name": "com.niotron.domingotambasacan.acetreviewer2027"
+          "package_name": "com.niotron.domingotambasacan.AI_NLE_Reviewer"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyD-82MtseBIFqWzOuJluUdFieOBX0B3IQo"
+          "current_key": "AIzaSyBunHIlRqFvMOlhgmxUE8OwK8nBuKE0P6k"
         }
       ],
       "services": {

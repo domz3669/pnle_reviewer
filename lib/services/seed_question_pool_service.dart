@@ -64,7 +64,7 @@ class SeedQuestionPoolService {
 
   bool _looksCorruptedText(String? text) {
     if (text == null || text.isEmpty) return false;
-    return text.contains('�') ||
+    return text.contains('\u{FFFD}') ||
         text.contains('â€') ||
         text.contains('â€™') ||
         text.contains('â€œ') ||

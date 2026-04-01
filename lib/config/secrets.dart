@@ -1,19 +1,17 @@
 // ignore_for_file: constant_identifier_names
 
-// ⚠️ DEVELOPMENT ONLY
-// DO NOT COMMIT THIS FILE
-const String DEEPSEEK_API_KEY = String.fromEnvironment(
-	'DEEPSEEK_API_KEY',
+// ⚠️ GATEWAY CONFIGURATION
+// API keys are server-side only (Firebase Functions).
+// Authentication is handled by Firebase App Check (no secrets in client).
+// Only gateway URLs are needed client-side, set via --dart-define at build time.
+
+const String QUESTIONS_GATEWAY_URL = String.fromEnvironment(
+	'QUESTIONS_GATEWAY_URL',
 	defaultValue: '',
 );
 
-const String GEMINI_API_KEY = String.fromEnvironment(
-	'GEMINI_API_KEY',
-	defaultValue: '',
-);
-
-const String GPT_API_KEY = String.fromEnvironment(
-	'GPT_API_KEY',
+const String EXPLANATION_GATEWAY_URL = String.fromEnvironment(
+	'EXPLANATION_GATEWAY_URL',
 	defaultValue: '',
 );
 

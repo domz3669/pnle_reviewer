@@ -1,6 +1,10 @@
 import { initializeApp } from "firebase-admin/app";
+import { getAppCheck } from "firebase-admin/app-check";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import * as functions from "firebase-functions";
+import { onRequest } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
+import { request as httpsRequest, RequestOptions } from "https";
 
 // Initialize Firebase Admin SDK
 initializeApp();
@@ -414,3 +418,259 @@ function normalizeOptionalNumber(value: unknown): number | undefined {
 
   return undefined;
 }
+
+// =========================================================================
+// AI GATEWAY FUNCTIONS (v2) — Keep API keys server-side only
+// =========================================================================
+
+const deepseekApiKey = defineSecret("DEEPSEEK_API_KEY");
+const geminiApiKey = defineSecret("GEMINI_API_KEY");
+const gptApiKey = defineSecret("GPT_API_KEY");
+
+/** Verify Firebase App Check token from the request header. */
+async function verifyAppCheck(
+  req: functions.https.Request,
+): Promise<void> {
+  const appCheckToken = req.header("X-Firebase-AppCheck");
+  if (!appCheckToken) {
+    throw new Error("missing-app-check-token");
+  }
+  await getAppCheck().verifyToken(appCheckToken);
+}
+
+/** Minimal HTTPS POST helper using Node built-in https module. */
+function httpsPost(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options: RequestOptions = {
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body).toString(),
+        ...headers,
+      },
+    };
+    const req = httpsRequest(options, (res) => {
+      let data = "";
+      res.on("data", (chunk: Buffer) => (data += chunk.toString()));
+      res.on("end", () =>
+        resolve({ status: res.statusCode ?? 0, body: data }),
+      );
+    });
+    req.on("error", reject);
+    req.setTimeout(110_000, () => {
+      req.destroy(new Error("Gateway upstream timeout"));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+async function callDeepSeek(
+  apiKey: string,
+  systemPrompt: string,
+  prompt: string,
+  options: { temperature?: number; maxTokens?: number },
+): Promise<string> {
+  const res = await httpsPost(
+    "https://api.deepseek.com/v1/chat/completions",
+    { Authorization: `Bearer ${apiKey}` },
+    JSON.stringify({
+      model: "deepseek-chat",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt },
+      ],
+      temperature: options.temperature ?? 0.3,
+      ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+    }),
+  );
+  if (res.status !== 200) {
+    throw new Error(
+      `DeepSeek ${res.status}: ${res.body.substring(0, 200)}`,
+    );
+  }
+  const data = JSON.parse(res.body);
+  return data.choices[0].message.content;
+}
+
+async function callGemini(
+  apiKey: string,
+  systemPrompt: string,
+  prompt: string,
+  options: { temperature?: number; responseMimeType?: string },
+): Promise<string> {
+  const fullPrompt = systemPrompt
+    ? `${systemPrompt}\n\n${prompt}`
+    : prompt;
+
+  const genConfig: Record<string, unknown> = {
+    temperature: options.temperature ?? 0.3,
+  };
+  if (options.responseMimeType) {
+    genConfig.responseMimeType = options.responseMimeType;
+  }
+
+  const res = await httpsPost(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+    {},
+    JSON.stringify({
+      contents: [{ parts: [{ text: fullPrompt }] }],
+      generationConfig: genConfig,
+    }),
+  );
+  if (res.status !== 200) {
+    throw new Error(
+      `Gemini ${res.status}: ${res.body.substring(0, 200)}`,
+    );
+  }
+  const data = JSON.parse(res.body);
+  return data.candidates[0].content.parts[0].text;
+}
+
+async function callGpt(
+  apiKey: string,
+  prompt: string,
+  options: { maxTokens?: number },
+): Promise<string> {
+  const res = await httpsPost(
+    "https://api.openai.com/v1/chat/completions",
+    { Authorization: `Bearer ${apiKey}` },
+    JSON.stringify({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: options.maxTokens ?? 500,
+    }),
+  );
+  if (res.status !== 200) {
+    throw new Error(
+      `GPT ${res.status}: ${res.body.substring(0, 200)}`,
+    );
+  }
+  const data = JSON.parse(res.body);
+  return data.choices[0].message.content;
+}
+
+/**
+ * v2 HTTPS gateway for AI question generation.
+ * Keeps DeepSeek / Gemini API keys server-side.
+ */
+export const generateQuestionsGateway = onRequest(
+  {
+    region: "us-central1",
+    maxInstances: 20,
+    timeoutSeconds: 120,
+    secrets: [deepseekApiKey, geminiApiKey],
+    cors: true,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "method-not-allowed" });
+      return;
+    }
+
+    try {
+      await verifyAppCheck(req);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      functions.logger.error("App Check verification failed (questions):", msg);
+      res.status(401).json({ error: "unauthorized", detail: msg });
+      return;
+    }
+
+    const { provider, systemPrompt, prompt, temperature, maxTokens, responseMimeType } =
+      req.body ?? {};
+
+    if (!prompt || typeof prompt !== "string") {
+      res.status(400).json({ error: "missing-prompt" });
+      return;
+    }
+
+    try {
+      let content: string;
+      if (provider === "gemini") {
+        content = await callGemini(
+          geminiApiKey.value(),
+          systemPrompt ?? "",
+          prompt,
+          { temperature, responseMimeType },
+        );
+      } else {
+        content = await callDeepSeek(
+          deepseekApiKey.value(),
+          systemPrompt ?? "",
+          prompt,
+          { temperature, maxTokens },
+        );
+      }
+      res.status(200).json({ content });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "provider-error";
+      functions.logger.error("generateQuestionsGateway error:", message);
+      res.status(502).json({ error: message });
+    }
+  },
+);
+
+/**
+ * v2 HTTPS gateway for AI explanation generation.
+ * Keeps Gemini / GPT API keys server-side.
+ */
+export const generateExplanationGateway = onRequest(
+  {
+    region: "us-central1",
+    maxInstances: 10,
+    timeoutSeconds: 60,
+    secrets: [geminiApiKey, gptApiKey],
+    cors: true,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "method-not-allowed" });
+      return;
+    }
+
+    try {
+      await verifyAppCheck(req);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      functions.logger.error("App Check verification failed (explanation):", msg);
+      res.status(401).json({ error: "unauthorized", detail: msg });
+      return;
+    }
+
+    const { provider, prompt, maxTokens } = req.body ?? {};
+
+    if (!prompt || typeof prompt !== "string") {
+      res.status(400).json({ error: "missing-prompt" });
+      return;
+    }
+
+    try {
+      let content: string;
+      if (provider === "gpt") {
+        content = await callGpt(gptApiKey.value(), prompt, { maxTokens });
+      } else {
+        content = await callGemini(
+          geminiApiKey.value(),
+          "",
+          prompt,
+          { temperature: 0.3 },
+        );
+      }
+      res.status(200).json({ content });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "provider-error";
+      functions.logger.error("generateExplanationGateway error:", message);
+      res.status(502).json({ error: message });
+    }
+  },
+);

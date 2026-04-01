@@ -3,13 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'config/pnle_theme.dart';
 
-const _settingsCream = Color(0xFFFCF6EB);
-const _settingsPanel = Color(0xFFF9F3E7);
-const _settingsLeaf = Color(0xFF7EA468);
-const _settingsLeafSoft = Color(0xFFDDEBCE);
-const _settingsText = Color(0xFF5A7652);
-const _settingsTextSoft = Color(0xFF8AA081);
-const _settingsBorder = Color(0xA4C5D6AE);
+const _settingsCream = Color(0xFFEBF2FA);
+const _settingsPanel = Color(0xFFE0ECF5);
+const _settingsLeaf = Color(0xFF5B8DB8);
+const _settingsLeafSoft = Color(0xFFC8DCE8);
+const _settingsText = Color(0xFF2D5070);
+const _settingsTextSoft = Color(0xFF6B8FA8);
+const _settingsBorder = Color(0xA4A8C5D8);
 
 class SettingsScreen extends StatefulWidget {
   final String nickname;
@@ -137,20 +137,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          _buildSectionTitle('TEST MODE'),
-          _buildToggleTile(
-            icon: Icons.timer_rounded,
-            title: 'Strict ACET Timing',
-            subtitle: 'Use exam-speed timer and auto-next on timeout',
-            tileKey: const Key('toggle_strict_timing'),
-            value: _strictTimingEnabled,
-            onChanged: (value) async {
-              setState(() => _strictTimingEnabled = value);
-              await widget.onStrictTimingChanged?.call(value);
-            },
-          ),
-          const SizedBox(height: 24),
-
           // Information
           _buildSectionTitle('INFORMATION'),
           _buildSettingsTile(
@@ -271,8 +257,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onChanged: onChanged,
         activeThumbColor: _settingsLeaf,
         activeTrackColor: _settingsLeafSoft,
-        inactiveThumbColor: const Color(0xFFF8F1E6),
-        inactiveTrackColor: const Color(0xFFE6E8D7),
+        inactiveThumbColor: const Color(0xFFE8EFF6),
+        inactiveTrackColor: const Color(0xFFD8E2EC),
         secondary: Icon(icon, color: _settingsLeaf),
         title: Text(
           title,
@@ -376,7 +362,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildHelpItem('How does the daily system work?',
                   'Complete 4 quiz sessions daily to track your progress.'),
               _buildHelpItem('How are scores calculated?',
-                  'Scores currently weight the four ACET categories evenly: English 25%, Mathematics 25%, Logical Reasoning 25%, Mental Ability / Abstract 25%.'),
+                  'Scores currently weight the five PNLE categories evenly: MCHN 20%, CHN 20%, MSN 20%, Mental Health 20%, Fundamentals 20%.'),
               _buildHelpItem('When do streaks reset?',
                   'Missing a day resets your daily streak counter.'),
             ],
@@ -488,7 +474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: 'Privacy Policy',
         content: SingleChildScrollView(
           child: Text(
-            'ACET Reviewer 2027 stores quiz progress, scores, nickname, and session usage data so your study history and readiness insights can persist across sessions.\n\n'
+            'PNLE Reviewer 2027 stores quiz progress, scores, nickname, and session usage data so your study history and readiness insights can persist across sessions.\n\n'
             'The app uses Firebase to back up progress and Google Mobile Ads for ad delivery. Coach Note explanations use online generative AI services when you request them from a quiz.\n\n'
             'Offline quiz play can continue with local seeded question sets, while syncing, rewards, and AI explanations wait until internet access returns.\n\n'
             'We do not sell your personal data. Publish a full external privacy policy in App Store Connect and keep this summary aligned with it.',
@@ -508,7 +494,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       barrierColor: Colors.black87,
       builder: (context) => _buildGradientDialog(
         context: context,
-        title: 'About ACET Reviewer 2027',
+        title: 'About PNLE Reviewer 2027',
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,7 +509,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'A native ACET review app with local quiz modes, progress tracking, and optional AI-generated coaching notes.',
+                'A native PNLE review app with local quiz modes, progress tracking, and optional AI-generated coaching notes.',
                 style: GoogleFonts.outfit(
                   color: _settingsTextSoft,
                   fontWeight: FontWeight.w600,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'menu_screen.dart';
 import 'onboarding_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 import 'config/pnle_theme.dart';
 import 'services/sound_service.dart';
@@ -106,7 +108,21 @@ class _SplashScreenState extends State<SplashScreen> {
           options: DefaultFirebaseOptions.currentPlatform);
     } catch (e) {
       debugPrint('Firebase init error: $e');
-      // Continue without Firebase
+      // Continue — may already be initialized from hot restart
+    }
+
+    try {
+      // ✅ Activate App Check (debug provider for dev, platform providers for prod)
+      await FirebaseAppCheck.instance.activate(
+        androidProvider: kDebugMode
+            ? AndroidProvider.debug
+            : AndroidProvider.playIntegrity,
+        appleProvider: kDebugMode
+            ? AppleProvider.debug
+            : AppleProvider.appAttest,
+      );
+    } catch (e) {
+      debugPrint('App Check activation error: $e');
     }
 
     try {

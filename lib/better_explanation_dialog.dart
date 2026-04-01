@@ -4,16 +4,16 @@ import 'package:google_fonts/google_fonts.dart';
 import 'config/pnle_theme.dart';
 import 'utils/responsive.dart';
 
-const _deepCoachCream = Color(0xFFFCF6EB);
-const _deepCoachPanel = Color(0xFFF9F3E7);
-const _deepCoachText = Color(0xFF5A7652);
-const _deepCoachTextSoft = Color(0xFF8AA081);
-const _deepCoachBorder = Color(0xA4C5D6AE);
-const _deepCoachLeaf = Color(0xFF7EA468);
-const _deepCoachLeafSoft = Color(0xFFDDEBCE);
-const _deepCoachSkySoft = Color(0xFFE6EFF7);
-const _deepCoachWarm = Color(0xFFC28D74);
-const _deepCoachWarmSoft = Color(0xFFF4E3D9);
+const _deepCoachCream = Color(0xFFEBF2FA);
+const _deepCoachPanel = Color(0xFFE0ECF5);
+const _deepCoachText = Color(0xFF2D5070);
+const _deepCoachTextSoft = Color(0xFF6B8FA8);
+const _deepCoachBorder = Color(0xA4A8C5D8);
+const _deepCoachLeaf = Color(0xFF5B8DB8);
+const _deepCoachLeafSoft = Color(0xFFC8DCE8);
+const _deepCoachSkySoft = Color(0xFFE0EBF5);
+const _deepCoachWarm = Color(0xFF8A7AA0);
+const _deepCoachWarmSoft = Color(0xFFE4E0EE);
 
 class BetterExplanationDialog extends StatefulWidget {
   final Future<String> Function() onGenerate;

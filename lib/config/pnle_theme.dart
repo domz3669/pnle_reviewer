@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 
 class PnleTheme {
-  static const Color bgTop = Color(0xFF17408B);
-  static const Color bgBottom = Color(0xFF081F4D);
+  static const Color bgTop = Color(0xFF4A6E8A);
+  static const Color bgBottom = Color(0xFF2A4560);
 
-  static const Color glowA = Color(0xFFE7D08B);
-  static const Color glowB = Color(0xFF8AACF3);
+  static const Color glowA = Color(0xFFA8D0F0);
+  static const Color glowB = Color(0xFF6BA3D6);
 
-  static const Color accent = Color(0xFFD3A72C);
-  static const Color accentDeep = Color(0xFFB88917);
+  static const Color accent = Color(0xFF6BA3D6);
+  static const Color accentDeep = Color(0xFF4A85B8);
 
   static const Color glassFill = Color(0x1AFFFFFF);
-  static const Color glassBorder = Color(0x44D3A72C);
+  static const Color glassBorder = Color(0x446BA3D6);
 
   static const Color success = Color(0xFF6F95E8);
   static const Color successDeep = Color(0xFF466DBF);

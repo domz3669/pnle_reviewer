@@ -129,7 +129,9 @@
         "/^powershell -ExecutionPolicy Bypass -File \"scripts/convert_visual_abstract_excel_to_json\\.ps1\"$/": {
             "approve": true,
             "matchCommandLine": true
-        }
+        },
+        "robocopy": true,
+        "firebase": true
     },
     "chat.agent.maxRequests": 100
 }

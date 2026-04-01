@@ -1,4 +1,4 @@
-﻿import 'dart:math';
+import 'dart:math';
 import 'dart:async';
 import 'dart:ui';
 import 'dart:convert';
@@ -19,12 +19,10 @@ import 'question_screen.dart';
 import 'models/acet_assessment.dart';
 import 'models/question.dart';
 import 'models/pnle_key_areas.dart';
-import 'services/question_generation_service.dart';
-import 'services/deepseek_service.dart';
+import 'services/gateway_service.dart';
 import 'services/exam_driven_config_service.dart';
 import 'services/seed_question_pool_service.dart';
 import 'services/acet_assessment_service.dart';
-import 'services/local_visual_question_service.dart';
 import 'config/secrets.dart';
 import 'config/admob_ids.dart';
 import 'config/pnle_theme.dart';
@@ -400,40 +398,31 @@ class MenuScreen extends StatefulWidget {
 
 class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // Change this for future exam clones when reusing the app shell.
-  static const String _activeExamId = 'acet';
-  static const String _defaultVisualAbstractAssetPath =
-      'assets/Abstract Reasoning/visual_abstract_questions.json';
-  static const String _usedVisualAbstractPoolIdsPrefsKey =
-      'usedVisualAbstractPoolIds';
+  static const String _activeExamId = 'pnle';
 
   final ExamDrivenConfigService _examConfigService =
       ExamDrivenConfigService.instance;
   final AcetAssessmentService _acetAssessmentService =
       const AcetAssessmentService();
-  final LocalVisualQuestionService _localVisualQuestionService =
-      const LocalVisualQuestionService();
 
   // =========================
   // STATE
   // =========================
   int currentScreen = 0; // 0=Home, 1=Daily, 2=Quiz, 3=History, 4=Settings
-  String programInterest = 'General ACET';
+  String programInterest = 'General PNLE';
   static const String _selectedProgramInterestPrefsKey =
       'selected_program_interest';
   static const String _hasChosenProgramInterestPrefsKey =
       'has_chosen_program_interest';
   static const List<String> _acetStudyPreferences = [
-    'General ACET',
-    'English Priority',
-    'Mathematics Priority',
-    'Logical Reasoning Priority',
-    'Mental Ability Priority',
+    'General PNLE',
   ];
   static const Map<String, int> _acetReadinessThresholds = {
-    'English': 65,
-    'Mathematics': 65,
-    'Logical Reasoning': 65,
-    'Mental Ability / Abstract': 65,
+    'Maternal and Child Health Nursing (MCHN)': 60,
+    'Community Health Nursing (CHN)': 60,
+    'Medical-Surgical Nursing (MSN)': 60,
+    'Mental Health and Psychiatric Nursing': 60,
+    'Fundamentals of Nursing including Professional Adjustments': 60,
   };
   bool hasUnlimitedAccess = false;
   bool hasGraceAccess = false;
@@ -447,7 +436,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   static const int _maxExtraSessionAdChances = 2;
   static const Duration _extraSessionAdRefillDuration = Duration(hours: 2);
   Timer? _extraSessionAdRefillTicker;
-  int _zeroAdSessionsRemaining = 4; // First daily-target sessions are ad-free
+  int _freeSessionCreditsRemaining = 4; // First daily-target sessions are free credits
   bool _isLoadingDailyFreeTests = true;
   bool _isLoadingDailyTaskRewards = true;
   String? _lastStreakRewardClaimDate;
@@ -487,15 +476,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   FirebaseDatabase get _rtdb => FirebaseDatabase.instanceFor(
         app: Firebase.app(),
         databaseURL:
-            'https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app/',
+            'https://pnle-reviewer-ios-default-rtdb.asia-southeast1.firebasedatabase.app/',
       );
 
   // Category scoring targets across daily target sessions.
   Map<String, Map<String, dynamic>> categoryScores = {
-    'English': {'correct': 0, 'total': 16, 'weight': 0.25},
-    'Mathematics': {'correct': 0, 'total': 16, 'weight': 0.25},
-    'Logical Reasoning': {'correct': 0, 'total': 16, 'weight': 0.25},
-    'Mental Ability / Abstract': {'correct': 0, 'total': 16, 'weight': 0.25},
+    'Maternal and Child Health Nursing (MCHN)': {'correct': 0, 'total': 0, 'weight': 0.20},
+    'Community Health Nursing (CHN)': {'correct': 0, 'total': 0, 'weight': 0.20},
+    'Medical-Surgical Nursing (MSN)': {'correct': 0, 'total': 0, 'weight': 0.20},
+    'Mental Health and Psychiatric Nursing': {'correct': 0, 'total': 0, 'weight': 0.20},
+    'Fundamentals of Nursing including Professional Adjustments': {'correct': 0, 'total': 0, 'weight': 0.20},
   };
 
   late List<Question> _generatedQuestions;
@@ -536,7 +526,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   bool _poolWarmupChecked = false;
   bool _poolWarmupComplete = false;
   int _poolWarmupReadyBuckets = 0;
-  bool _showPoolWarmupIndicator = true;
+  bool _showPoolWarmupIndicator = false; // Permanently hidden
   static const String _poolWarmupIndicatorDismissedPrefsKey =
       'poolWarmupIndicatorDismissed';
   final Map<String, List<Question>> _cachedFocusQuestions = {};
@@ -546,9 +536,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   List<Question>? _cachedRandomQuizQuestions;
   Map<String, String>? _cachedRandomQuizCoverage;
   List<Question>? _cachedChallengeQuestions;
-  List<Question>? _visualAbstractQuestionPool;
-  final Set<String> _usedVisualAbstractPoolIds = <String>{};
-  bool _usedVisualAbstractPoolLoaded = false;
   static const String _randomQuizCachePrefsKey = 'cachedRandomQuizPayload';
   static const String _focusCachePrefsKey = 'cachedFocusQuizPayload';
   static const String _challengeCachePrefsKey = 'cachedChallengeQuizPayload';
@@ -614,11 +601,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   int _dailyTargetTotalForCategory(String category) {
-    return 16;
+    return 0;
   }
 
   double _defaultWeightForCategory(String category) {
-    return 0.25;
+    return 0.20;
   }
 
   void _ensurePnleCategoryScores() {
@@ -644,18 +631,20 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       completedSessions >= _dailySessionTarget &&
       _lastStreakRewardClaimDate != _getTodayDateString();
 
-  // Motivational quotes for daily encouragement
+  // Motivational quotes for daily encouragement (nursing-specific)
   final List<String> motivationalQuotes = [
-    'Every question you answer correctly brings you closer to success.',
-    'Consistency beats perfection. Keep practicing!',
-    'Your effort today is your achievement tomorrow.',
-    'Success is the sum of small efforts repeated day in and day out.',
-    'You are stronger than you think. Keep going!',
-    'Every mistake is a lesson in disguise for growth.',
-    'The best time to plant a tree was 20 years ago. The second best is now.',
-    "You've got this! Stay focused and believe in yourself.",
-    "One day or day one. You're choosing day one today.",
-    'Progress, not perfection. Every step counts!',
+    'Every question you master is one step closer to your nursing license.',
+    'Consistency beats perfection. Keep reviewing!',
+    'Your effort today builds the nurse you become tomorrow.',
+    'Each PNLE topic you conquer makes your practice safer.',
+    'Nurses who prepare with purpose pass with confidence.',
+    'Every mistake reviewed is a patient kept safer in the future.',
+    'The best nurses never stop learning. You are proving that today.',
+    'Stay focused — your patients are counting on the nurse you are becoming.',
+    'One more session today. One giant leap toward passing day.',
+    'Progress over perfection. Every question counts toward your goal!',
+    'Clinical judgment is built one practice question at a time.',
+    'The PNLE tests knowledge, but your dedication defines your career.',
   ];
   String _dailyMotivationalQuote = '';
   String _dailyMotivationalQuoteDate = '';
@@ -678,7 +667,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     remainingFreeTests = _dailySessionTarget;
-    _zeroAdSessionsRemaining = _dailySessionTarget;
+    _freeSessionCreditsRemaining = _dailySessionTarget;
     unawaited(_examConfigService.ensureLoaded());
     _ensurePnleCategoryScores();
     WidgetsBinding.instance.addObserver(this);
@@ -715,7 +704,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _loadCategoryScores();
       _loadMistakeQueue();
       _loadPausedQuizSession();
-      _loadZeroAdSessions();
+      _loadFreeSessionCredits();
       _resetDailyCategoryScoresIfNeeded();
       unawaited(_primeMissingCachesAsNeeded());
       unawaited(_promptNicknameIfMissing());
@@ -778,20 +767,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadPoolWarmupIndicatorPref() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final dismissed =
-          prefs.getBool(_poolWarmupIndicatorDismissedPrefsKey) ?? false;
-      if (!mounted) {
-        _showPoolWarmupIndicator = !dismissed;
-        return;
-      }
-      setState(() {
-        _showPoolWarmupIndicator = !dismissed;
-      });
-    } catch (e) {
-      debugPrint('Unable to load pool warmup indicator pref: $e');
-    }
+    // Pool warmup indicator permanently hidden
   }
 
   Future<void> _dismissPoolWarmupIndicator() async {
@@ -876,7 +852,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   // =========================
-  // APP LIFECYCLE â€” SYNC ON BACKGROUND
+  // APP LIFECYCLE — SYNC ON BACKGROUND
   // =========================
   /// Fires when user presses Home button (paused) or app is being killed (detached).
   /// We flush all progress to RTDB immediately so nothing is lost
@@ -996,7 +972,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final response = await http
           .get(
             Uri.parse(
-              'https://acet-reviewer-default-rtdb.asia-southeast1.firebasedatabase.app/.json',
+              'https://pnle-reviewer-ios-default-rtdb.asia-southeast1.firebasedatabase.app/.json',
             ),
           )
           .timeout(const Duration(seconds: 3));
@@ -2103,8 +2079,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'extraSessionAdChances': _extraSessionAdChances,
         'nextExtraSessionAdRefillAtMs':
             _nextExtraSessionAdRefillAt?.millisecondsSinceEpoch,
-        // Zero-ad sessions (lifetime counter)
-        'zeroAdSessionsRemaining': _zeroAdSessionsRemaining,
+        // Free session credits (lifetime counter)
+        'zeroAdSessionsRemaining': _freeSessionCreditsRemaining,
         'lastStreakRewardClaimDate': _lastStreakRewardClaimDate,
         // Daily task rewards and progress
         'dailyTaskResetDate': _getTodayDateString(),
@@ -2173,14 +2149,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
         if (categoryScores.containsKey(key)) {
           final localCorrect = categoryScores[key]!['correct'] as int;
+          final localTotal = categoryScores[key]!['total'] as int;
           categoryScores[key] = {
             'correct': max(localCorrect, remoteCorrect),
-            'total': max(
-              _dailyTargetTotalForCategory(key),
-              remoteTotal > 0
-                  ? remoteTotal
-                  : (categoryScores[key]!['total'] as int),
-            ),
+            'total': max(localTotal, remoteTotal),
             'weight': remoteWeight > 0
                 ? remoteWeight
                 : categoryScores[key]!['weight'],
@@ -2257,12 +2229,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     _ensurePnleCategoryScores();
 
-    // --- Zero-ad sessions (lifetime counter: min wins, preserves most progress) ---
+    // --- Free session credits (lifetime counter: min wins, preserves most progress) ---
     final remoteZeroAdSessions =
         (data['zeroAdSessionsRemaining'] as num?)?.toInt();
     if (remoteZeroAdSessions != null) {
-      _zeroAdSessionsRemaining =
-          min(_zeroAdSessionsRemaining, remoteZeroAdSessions);
+      _freeSessionCreditsRemaining =
+          min(_freeSessionCreditsRemaining, remoteZeroAdSessions);
     }
 
     // --- Quiz activity records (merge local + remote, dedupe, prune/cap) ---
@@ -2598,7 +2570,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               _pausedQuizSessions.values.map((s) => s.toJson()).toList()),
         );
       }
-      await prefs.setInt('zeroAdSessionsRemaining', _zeroAdSessionsRemaining);
+      await prefs.setInt('zeroAdSessionsRemaining', _freeSessionCreditsRemaining);
       await prefs.setString(
         'quizActivityRecords',
         jsonEncode(_quizActivityRecords.map((e) => e.toJson()).toList()),
@@ -2825,15 +2797,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
           if (categoryScores.containsKey(key)) {
             final currentCorrect = categoryScores[key]!['correct'] as int;
+            final currentTotal = categoryScores[key]!['total'] as int;
             // Max merge: never overwrite higher values from RTDB/Firestore restore
             categoryScores[key] = {
               'correct': max(currentCorrect, localCorrect),
-              'total': max(
-                _dailyTargetTotalForCategory(key),
-                localTotal > 0
-                    ? localTotal
-                    : (categoryScores[key]!['total'] as int),
-              ),
+              'total': max(currentTotal, localTotal),
               'weight': localWeight > 0
                   ? localWeight
                   : categoryScores[key]!['weight'],
@@ -2875,7 +2843,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final today = _currentDayStart();
 
       if (lastSessionDateStr == null) {
-        // First time â€” only set date, don't reset completedSessions
+        // First time — only set date, don't reset completedSessions
         // (may already be restored from RTDB/Firestore)
         await prefs.setString('lastSessionDate', today.toIso8601String());
         return;
@@ -2909,6 +2877,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('completedSessions', completedSessions);
+      // Also update lastSessionDate so daily reset detection works on reload
+      await prefs.setString(
+          'lastSessionDate', _currentDayStart().toIso8601String());
       // Sync to RTDB (survives reinstall)
       _syncAllProgressToRtdb();
     } catch (e) {
@@ -3389,21 +3360,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _normalizeSpecialization(String? value) {
-    if (value == null || value.isEmpty) return 'General ACET';
-    switch (value) {
-      case 'Nursing':
-        return 'English Priority';
-      case 'Engineering':
-        return 'Mathematics Priority';
-      case 'Business':
-        return 'Logical Reasoning Priority';
-      case 'Arts':
-        return 'English Priority';
-      case 'Science':
-        return 'Mental Ability Priority';
-    }
+    if (value == null || value.isEmpty) return 'General PNLE';
     if (_acetStudyPreferences.contains(value)) return value;
-    return 'General ACET';
+    return 'General PNLE';
   }
 
   // =========================
@@ -3457,7 +3416,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     );
   }
 
+  int _bannerLoadRetryCount = 0;
+  static const int _maxBannerLoadRetries = 3;
+
   void _loadBannerAd() {
+    _bannerAd?.dispose();
     _bannerAd = BannerAd(
       adUnitId: _bannerAdUnitId(),
       size: AdSize.banner,
@@ -3467,6 +3430,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           if (!mounted) return;
           setState(() {
             _isBannerAdLoaded = true;
+            _bannerLoadRetryCount = 0;
           });
         },
         onAdFailedToLoad: (ad, error) {
@@ -3480,6 +3444,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           debugPrint(
             'Menu banner ad failed to load (${error.code}: ${error.message})',
           );
+          if (!mounted) return;
+          if (_bannerLoadRetryCount >= _maxBannerLoadRetries) return;
+          _bannerLoadRetryCount++;
+          Future.delayed(const Duration(seconds: 2), () {
+            if (!mounted) return;
+            _loadBannerAd();
+          });
         },
       ),
     )..load();
@@ -3505,22 +3476,22 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return completer.future;
   }
 
-  /// Load zero-ad sessions remaining from SharedPreferences
-  Future<void> _loadZeroAdSessions() async {
+  /// Load Free session credits remaining from SharedPreferences
+  Future<void> _loadFreeSessionCredits() async {
     final prefs = await SharedPreferences.getInstance();
     final remaining = prefs.getInt('zeroAdSessionsRemaining');
     if (remaining != null && mounted) {
       setState(() {
-        _zeroAdSessionsRemaining = remaining;
+        _freeSessionCreditsRemaining = remaining;
       });
     }
     unawaited(_primeMissingCachesAsNeeded());
   }
 
-  /// Persist zero-ad sessions remaining to SharedPreferences and RTDB
-  Future<void> _persistZeroAdSessions() async {
+  /// Persist Free session credits remaining to SharedPreferences and RTDB
+  Future<void> _persistFreeSessionCredits() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('zeroAdSessionsRemaining', _zeroAdSessionsRemaining);
+    await prefs.setInt('zeroAdSessionsRemaining', _freeSessionCreditsRemaining);
     // Also sync to RTDB for cross-device/reinstall persistence
     _syncAllProgressToRtdb();
   }
@@ -3538,13 +3509,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       }
     }
 
-    // New day â€” reset category scores
+    // New day — reset category scores (both correct and total)
     if (mounted) {
       setState(() {
         for (final key in categoryScores.keys) {
           categoryScores[key] = {
             'correct': 0,
-            'total': categoryScores[key]!['total'],
+            'total': 0,
             'weight': categoryScores[key]!['weight'],
           };
         }
@@ -3622,21 +3593,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     });
   }
 
-  DeepSeekService _buildDeepSeekService({
+  GatewayService _buildGatewayService({
     required bool fastMode,
     int? tokenCap,
-    Duration? requestTimeoutOverride,
     int? maxRetriesOverride,
   }) {
-    return DeepSeekService(
-      apiKey: DEEPSEEK_API_KEY,
-      requestTimeout: requestTimeoutOverride ??
-          (fastMode
-              ? const Duration(seconds: 100)
-              : const Duration(seconds: 90)),
-      maxRetries: maxRetriesOverride ?? (fastMode ? 1 : 3),
+    return GatewayService(
       temperature: fastMode ? 0.2 : 0.3,
       maxTokens: tokenCap,
+      maxRetries: maxRetriesOverride ?? (fastMode ? 1 : 3),
     );
   }
 
@@ -3826,16 +3791,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         ? _buildFastFocusPrompt(category)
         : (useTimedMode ? _buildFastTimedModePrompt() : _buildFastPrompt());
 
-    // Build category map for Focus Mode if applicable
-    Map<int, String>? categoryMap;
+    // Build category map so every generated question gets a real PNLE category.
+    Map<int, String> categoryMap;
     if (useFocusMode && category != null) {
       categoryMap = _buildFocusCategoryMap(category);
+    } else {
+      categoryMap = _buildRandomCategoryMap();
     }
 
     if (useFocusMode && category != null) {
       final seededQuestions = await _takeSeedQuestions(
         'focusMode',
-        categoryMap!,
+        categoryMap,
       );
       if (seededQuestions.length >= 15) {
         debugPrint('[SeedPool] Focus mode served from pool ($category).');
@@ -3904,25 +3871,23 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (useGemini) {
       debugPrint(
           '[SeedPool] Falling back to live generation (Gemini-first flow).');
-      if (GEMINI_API_KEY.trim().isEmpty) {
+      if (QUESTIONS_GATEWAY_URL.trim().isEmpty) {
         return false;
       }
       try {
-        final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+        final service = GatewayService(temperature: 0.3);
         _generatedQuestions = await service.generateQuestions(
           prompt,
           programInterest,
+          provider: 'gemini',
           categoryMap: categoryMap,
         );
       } catch (e) {
-        if (DEEPSEEK_API_KEY.trim().isEmpty) {
-          return false;
-        }
-
-        final service = _buildDeepSeekService(fastMode: false);
+        final service = GatewayService(temperature: 0.3, maxRetries: 3);
         _generatedQuestions = await service.generateQuestions(
           prompt,
           programInterest,
+          provider: 'deepseek',
           categoryMap: categoryMap,
         );
       }
@@ -3937,23 +3902,22 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           unawaited(_primeMissingCachesAsNeeded());
         } else {
           try {
-            if (DEEPSEEK_API_KEY.trim().isEmpty) {
-              throw Exception('DeepSeek unavailable');
+            if (QUESTIONS_GATEWAY_URL.trim().isEmpty) {
+              throw Exception('Gateway unavailable');
             }
-            final service = _buildDeepSeekService(fastMode: true);
+            final service = _buildGatewayService(fastMode: true);
             _generatedQuestions = await service.generateQuestions(
               deepSeekPrompt,
               programInterest,
+              provider: 'deepseek',
               categoryMap: categoryMap,
             );
           } catch (_) {
-            if (GEMINI_API_KEY.trim().isEmpty) {
-              return false;
-            }
-            final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+            final service = GatewayService(temperature: 0.3);
             _generatedQuestions = await service.generateQuestions(
               prompt,
               programInterest,
+              provider: 'gemini',
               categoryMap: categoryMap,
             );
           }
@@ -3962,12 +3926,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         var servedFromCache = false;
         if ((_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
           final cachedQuestions = _cachedRandomQuizQuestions!;
-          final cachedVisualCount = cachedQuestions
-              .where((q) => (q.imageAssetPath?.isNotEmpty ?? false))
-              .length;
-          if (cachedVisualCount > 1) {
-            await _clearRandomQuizCache();
-          } else {
             _usedCachedRandomForLastGeneration = true;
             if (_cachedRandomQuizCoverage != null) {
               _currentTestCoverage =
@@ -3975,28 +3933,26 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             }
             _generatedQuestions = cachedQuestions.take(15).toList();
             servedFromCache = true;
-          }
         }
 
         if (!servedFromCache) {
           try {
-            if (DEEPSEEK_API_KEY.trim().isEmpty) {
-              throw Exception('DeepSeek unavailable');
+            if (QUESTIONS_GATEWAY_URL.trim().isEmpty) {
+              throw Exception('Gateway unavailable');
             }
-            final service = _buildDeepSeekService(fastMode: true);
+            final service = _buildGatewayService(fastMode: true);
             _generatedQuestions = await service.generateQuestions(
               deepSeekPrompt,
               programInterest,
+              provider: 'deepseek',
               categoryMap: categoryMap,
             );
           } catch (_) {
-            if (GEMINI_API_KEY.trim().isEmpty) {
-              return false;
-            }
-            final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+            final service = GatewayService(temperature: 0.3);
             _generatedQuestions = await service.generateQuestions(
               prompt,
               programInterest,
+              provider: 'gemini',
               categoryMap: categoryMap,
             );
           }
@@ -4118,16 +4074,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (_seedPoolReady) return;
     try {
       await _seedPoolService.ensureInitialized();
-      if (!mounted) {
-        _seedPoolReady = true;
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _seedPoolReady = true;
       });
-      unawaited(_refreshPoolWarmupStatus());
     } catch (e) {
-      debugPrint('Seed pool readiness check skipped: $e');
+      debugPrint('[SeedPool] Lazy init failed: $e');
     }
   }
 
@@ -4138,7 +4090,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     if (!_seedPoolReady || categoryMap.isEmpty || _isRefillingSeedPool) {
       return;
     }
-    if (GEMINI_API_KEY.trim().isEmpty && DEEPSEEK_API_KEY.trim().isEmpty) {
+    if (QUESTIONS_GATEWAY_URL.trim().isEmpty) {
       return;
     }
 
@@ -4196,7 +4148,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Future<void> _refillSeedPoolsIfNeeded() async {
     if (!_seedPoolReady || _isRefillingSeedPool) return;
-    if (GEMINI_API_KEY.trim().isEmpty && DEEPSEEK_API_KEY.trim().isEmpty) {
+    if (QUESTIONS_GATEWAY_URL.trim().isEmpty) {
       return;
     }
 
@@ -4258,18 +4210,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final prompt = _buildSeedRefillPrompt(mode, category, count);
 
     List<Question> generated = const [];
-    if (DEEPSEEK_API_KEY.trim().isNotEmpty) {
-      final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
+    if (QUESTIONS_GATEWAY_URL.trim().isNotEmpty) {
+      final service = _buildGatewayService(fastMode: true, tokenCap: 2200);
       generated = await service.generateQuestions(
         prompt,
         programInterest,
-        categoryMap: categoryMap,
-      );
-    } else if (GEMINI_API_KEY.trim().isNotEmpty) {
-      final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
-      generated = await service.generateQuestions(
-        prompt,
-        programInterest,
+        provider: 'deepseek',
         categoryMap: categoryMap,
       );
     }
@@ -4315,13 +4261,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       count: count,
       fallbackModeInstruction: modeInstruction,
       fallbackTemplate:
-          'Generate exactly {{count}} multiple-choice questions for ACET practice.\n\nCategory: {{category}}\n{{modeInstruction}}\n\nConstraints:\n- Return strict JSON array only (no markdown):\n[\n  {\n    "number": 1,\n    "category": "{{category}}",\n    "question": "...",\n    "choices": ["A", "B", "C", "D"],\n    "answer": "A",\n    "explanation": "2-3 sentence concise rationale",\n    "source": "seed_refill"\n  }\n]\n- Exactly 4 choices per question.\n- One correct answer only, answer must be A/B/C/D.\n- Keep questions age-appropriate for Filipino SHS and college admission prep.\n- Avoid duplicates and avoid requiring images or tables.',
+          'Generate exactly {{count}} multiple-choice questions for PNLE practice.\n\nCategory: {{category}}\n{{modeInstruction}}\n\nConstraints:\n- Return strict JSON array only (no markdown):\n[\n  {\n    "number": 1,\n    "category": "{{category}}",\n    "question": "...",\n    "choices": ["A", "B", "C", "D"],\n    "answer": "A",\n    "explanation": "2-3 sentence concise rationale",\n    "source": "seed_refill"\n  }\n]\n- Exactly 4 choices per question.\n- One correct answer only, answer must be A/B/C/D.\n- Keep questions appropriate for Filipino nursing licensure exam preparation.\n- Avoid duplicates and avoid requiring images or tables.',
     );
   }
 
   Future<void> _primeChallengeCacheIfEligible({bool force = false}) async {
     if (!_hasUnlockedAdvancedModes) return;
-    if (DEEPSEEK_API_KEY.trim().isEmpty) return;
+    if (QUESTIONS_GATEWAY_URL.trim().isEmpty) return;
 
     if (_isPrimingChallengeCache) {
       await _challengePrimeCompleter?.future;
@@ -4342,10 +4288,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final prompt = _buildFastChallengeModePrompt(focusCategory);
       final categoryMap = _buildChallengeCategoryMap(focusCategory);
 
-      final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
+      final service = _buildGatewayService(fastMode: true, tokenCap: 2200);
       final questions = await service.generateQuestions(
         prompt,
         programInterest,
+        provider: 'deepseek',
         categoryMap: categoryMap,
       );
 
@@ -4425,7 +4372,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           strictTimingEnabled: _strictTimingEnabled,
           recordResults: false,
           testMode: 'quickPractice',
-          zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+          zeroAdSessionsRemaining: _freeSessionCreditsRemaining,
         ),
       ),
     );
@@ -4466,7 +4413,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           strictTimingEnabled: _strictTimingEnabled,
           recordResults: session.recordResults,
           testMode: session.testMode,
-          zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+          zeroAdSessionsRemaining: _freeSessionCreditsRemaining,
           initialIndex: session.currentIndex,
           initialCorrectCount: session.correctCount,
           initialElapsedSeconds: session.elapsedSeconds,
@@ -4661,7 +4608,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           strictTimingEnabled: _strictTimingEnabled,
           recordResults: false,
           testMode: 'reviewMistakes',
-          zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+          zeroAdSessionsRemaining: _freeSessionCreditsRemaining,
         ),
       ),
     );
@@ -4792,7 +4739,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           item.timedOut
                               ? Icons.timer_off_rounded
                               : Icons.cancel_outlined,
-                          color: const Color(0xFFBE8E75),
+                          color: const Color(0xFFBF616A),
                           size: 18,
                         ),
                         title: Text(
@@ -4846,9 +4793,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               if (mounted) Navigator.pop(context);
                             },
                       style: OutlinedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF7E8E2),
-                        foregroundColor: const Color(0xFFBE8E75),
-                        side: const BorderSide(color: Color(0xFFE2C3B6)),
+                        backgroundColor: const Color(0xFFE4E0EE),
+                        foregroundColor: const Color(0xFF7A9AB8),
+                        side: const BorderSide(color: Color(0xFFBBCEE0)),
                       ),
                       child: Text(
                         'Clear',
@@ -5168,7 +5115,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             strictTimingEnabled: _strictTimingEnabled,
             recordResults: false,
             testMode: 'challenge',
-            zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+            zeroAdSessionsRemaining: _freeSessionCreditsRemaining,
           ),
         ),
       );
@@ -5257,32 +5204,27 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       late final List<Question> questions;
       if (useGemini) {
-        if (GEMINI_API_KEY.trim().isEmpty) {
+        if (QUESTIONS_GATEWAY_URL.trim().isEmpty) {
           throw Exception(
-              'Challenge mode is temporarily unavailable without a configured API key.');
+              'Challenge mode is temporarily unavailable without a configured gateway.');
         }
         try {
-          final service = QuestionGenerationService(apiKey: GEMINI_API_KEY);
+          final service = GatewayService(temperature: 0.3);
           questions = await service.generateQuestions(prompt, programInterest,
-              categoryMap: categoryMap);
+              provider: 'gemini', categoryMap: categoryMap);
         } catch (e) {
-          if (DEEPSEEK_API_KEY.trim().isEmpty) {
-            throw Exception(
-                'Challenge mode is temporarily unavailable while offline and no fallback key is configured.');
-          }
-
-          final service = _buildDeepSeekService(fastMode: false);
+          final service = GatewayService(temperature: 0.3, maxRetries: 3);
           questions = await service.generateQuestions(prompt, programInterest,
-              categoryMap: categoryMap);
+              provider: 'deepseek', categoryMap: categoryMap);
         }
       } else {
-        if (DEEPSEEK_API_KEY.trim().isEmpty) {
+        if (QUESTIONS_GATEWAY_URL.trim().isEmpty) {
           throw Exception(
-              'Challenge mode is temporarily unavailable while offline and no fallback key is configured.');
+              'Challenge mode is temporarily unavailable without a configured gateway.');
         }
-        final service = _buildDeepSeekService(fastMode: true, tokenCap: 2200);
+        final service = _buildGatewayService(fastMode: true, tokenCap: 2200);
         questions = await service.generateQuestions(prompt, programInterest,
-            categoryMap: categoryMap);
+            provider: 'deepseek', categoryMap: categoryMap);
       }
 
       if (!mounted) return;
@@ -5315,7 +5257,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               strictTimingEnabled: _strictTimingEnabled,
               recordResults: false,
               testMode: 'challenge',
-              zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+              zeroAdSessionsRemaining: _freeSessionCreditsRemaining,
             ),
           ),
         );
@@ -5394,11 +5336,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       accuracyPercent: record.scorePercent,
       averageTimePerQuestionSeconds: averageTime,
       efficiencyScore: (record.scorePercent * speedFactor).clamp(0.0, 100.0),
-      readinessLabel: record.scorePercent >= 80 && averageTime <= 25
-          ? 'ACET Ready'
-          : (record.scorePercent >= 70 && averageTime <= 27
-              ? 'Competitive'
-              : (record.scorePercent >= 55 ? 'Developing' : 'Not Ready')),
+      readinessLabel: (() {
+              // PNLE dual-threshold: 75% avg + no subject below 60%
+              final hasSubjectBelow60 = categoryStats.values.any(
+                (stat) => stat.totalQuestions > 0 && stat.accuracyPercent < 60,
+              );
+              if (record.scorePercent >= 75 && !hasSubjectBelow60) return 'PNLE Ready';
+              if (record.scorePercent >= 70 && !hasSubjectBelow60) return 'Competitive';
+              if (record.scorePercent >= 60) return 'Developing';
+              return 'Not Ready';
+            })(),
       fastAnswerCount: 0,
       moderateAnswerCount: 0,
       slowAnswerCount: 0,
@@ -5430,7 +5377,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   Color _readinessColorForLabel(String label) {
     switch (label) {
-      case 'ACET Ready':
+      case 'PNLE Ready':
         return PnleTheme.success;
       case 'Competitive':
         return PnleTheme.info;
@@ -5469,9 +5416,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     String summaryText;
     switch (label) {
-      case 'ACET Ready':
+      case 'PNLE Ready':
         summaryText =
-            'Recent timed runs show balanced speed and accuracy for ACET pressure.';
+            'Recent timed runs show balanced speed and accuracy for PNLE pressure.';
         break;
       case 'Competitive':
         summaryText =
@@ -5479,7 +5426,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         break;
       case 'Developing':
         summaryText =
-            'The foundation is building, but timed efficiency still needs work before full ACET pace feels stable.';
+            'The foundation is building, but timed efficiency still needs work before full PNLE pace feels stable.';
         break;
       default:
         summaryText =
@@ -5541,7 +5488,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   String _readinessPrimaryFeedback() {
     final summary = _recentAssessmentSummary();
     if (summary == null || summary.totalQuestions == 0) {
-      return 'Finish a few full sessions so the app can assess your ACET speed, accuracy, and efficiency.';
+      return 'Finish a few full sessions so the app can assess your PNLE speed, accuracy, and efficiency.';
     }
 
     final focusCategory = _recommendedFocusCategory();
@@ -5585,7 +5532,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     final weakestCategory = _getWeakestCategory();
-    return weakestCategory.isEmpty ? 'English' : weakestCategory;
+    return weakestCategory.isEmpty ? 'Fundamentals of Nursing including Professional Adjustments' : weakestCategory;
   }
 
   Map<String, dynamic> _estimatedCompetitivenessBand() {
@@ -5598,32 +5545,29 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       };
     }
 
-    final estimateScore = ((summary.efficiencyScore * 0.65) +
-            (summary.accuracyPercent * 0.20) +
-            ((100 -
-                    summary.averageTimePerQuestionSeconds.clamp(0.0, 40.0) *
-                        2) *
-                0.15))
-        .clamp(0.0, 100.0);
+    // PNLE dual-threshold: check if any subject is below 60%
+    final hasSubjectBelow60 = summary.perCategoryStats.values.any(
+      (stat) => stat.totalQuestions > 0 && stat.accuracyPercent < 60,
+    );
 
-    if (estimateScore >= 85) {
+    if (summary.accuracyPercent >= 75 && !hasSubjectBelow60) {
       return {
-        'label': 'ACET Ready',
-        'tier': 'High Efficiency',
+        'label': 'PNLE Ready',
+        'tier': 'Meets Passing Standard',
         'color': PnleTheme.success,
       };
     }
-    if (estimateScore >= 72) {
+    if (summary.accuracyPercent >= 70 && !hasSubjectBelow60) {
       return {
         'label': 'Competitive',
-        'tier': 'Balanced Pace',
+        'tier': 'Close to Passing',
         'color': PnleTheme.info,
       };
     }
-    if (estimateScore >= 58) {
+    if (summary.accuracyPercent >= 60) {
       return {
         'label': 'Developing',
-        'tier': 'Needs Sharper Pace',
+        'tier': hasSubjectBelow60 ? 'Has Weak Subject' : 'Needs Higher Average',
         'color': PnleTheme.warning,
       };
     }
@@ -5638,7 +5582,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   String _smartFeedbackSummary() {
     final summary = _recentAssessmentSummary();
     if (summary == null || summary.totalQuestions == 0) {
-      return 'Finish a few sessions to unlock ACET-specific speed and efficiency feedback.';
+      return 'Finish a few sessions to unlock PNLE-specific speed and efficiency feedback.';
     }
 
     final strong = summary.perCategoryStats.values
@@ -5655,10 +5599,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         .toList();
 
     if (weak.isEmpty) {
-      return 'Your recent ACET sessions are balanced. Protect that mix of speed and accuracy under pressure.';
+      return 'Your recent PNLE sessions are balanced. Protect that mix of speed and accuracy under pressure.';
     }
     if (strong.isEmpty) {
-      return 'Your main ACET gap is in ${weak.join(', ')}. Prioritize timed repetition in those categories.';
+      return 'Your main PNLE gap is in ${weak.join(', ')}. Prioritize timed repetition in those categories.';
     }
     return 'Strong areas: ${strong.join(', ')}. Priority repairs: ${weak.join(', ')}.';
   }
@@ -5760,7 +5704,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         : (timedOutCount >= 1 ? 'Moderate focus' : 'Strong focus');
 
     final behaviorMessage = secondsPerQuestion > 50
-        ? 'You spent too long on several items. In ACET, this can cost multiple answer opportunities.'
+        ? 'You spent too long on several items. In PNLE, this can cost multiple answer opportunities.'
         : (secondsPerQuestion < 25 && sessionAccuracy < 70
             ? 'You moved very fast but accuracy dropped. Slow down slightly on hard items.'
             : 'Your pacing is close to exam pace. Maintain skip-and-return discipline.');
@@ -5791,72 +5735,20 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F1E5),
+        color: const Color(0xFFEBF2FA),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: readinessColor.withValues(alpha: 0.55)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.school_rounded, color: _menuPastelText, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                'Study Preference',
-                style: GoogleFonts.outfit(
-                  color: _menuPastelText,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _showSpecializationSelectionDialog,
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: _menuPastelCream,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: _menuPastelGlassBorder),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      programInterest.toUpperCase(),
-                      style: GoogleFonts.outfit(
-                        color: _menuPastelText,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      Icons.edit_rounded,
-                      color: _menuPastelTextSoft,
-                      size: 16,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
+          // Study Preference removed for PNLE (single exam, no subject choice)
           Row(
             children: [
               Icon(Icons.flag_rounded, color: _menuPastelText, size: 18),
               const SizedBox(width: 8),
               Text(
-                'ACET Readiness',
+                'PNLE Readiness',
                 style: GoogleFonts.outfit(
                   color: _menuPastelText,
                   fontWeight: FontWeight.w700,
@@ -5907,7 +5799,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Recent Accuracy',
+                  'General Weighted Average',
                   style: GoogleFonts.outfit(
                     color: _menuPastelTextSoft,
                     fontSize: 12,
@@ -6011,7 +5903,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${competitiveness['label']} • ${competitiveness['tier']}',
+                    '${competitiveness['label']} · ${competitiveness['tier']}',
                     style: GoogleFonts.outfit(
                       color: _menuPastelText,
                       fontSize: 12,
@@ -6033,7 +5925,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 6),
           Text(
-            'These readiness bands are in-app ACET estimates based on your recent accuracy, speed, and efficiency. They are not official admission cutoffs.',
+            'These readiness bands are in-app PNLE estimates based on your recent accuracy, speed, and efficiency. They are not official licensure cutoffs.',
             style: GoogleFonts.outfit(
               color: _menuPastelTextSoft,
               fontSize: 12,
@@ -6076,7 +5968,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 '${percent.toStringAsFixed(0)}% / $target%',
                 style: GoogleFonts.outfit(
                   color:
-                      meetsTarget ? _menuPastelLeaf : const Color(0xFFB78368),
+                      meetsTarget ? _menuPastelLeaf : const Color(0xFFBF616A),
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
@@ -6325,13 +6217,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     if ((_cachedRandomQuizQuestions?.length ?? 0) >= 15) {
       final cachedQuestions = _cachedRandomQuizQuestions!;
-      final cachedVisualCount = cachedQuestions
-          .where((q) => (q.imageAssetPath?.isNotEmpty ?? false))
-          .length;
-      if (cachedVisualCount > 1) {
-        // Legacy visual-test cache should not be reused for normal random mode.
-        await _clearRandomQuizCache();
-      } else {
         debugPrint(
             '[SeedPool] Random cache served locally before showing loading dialog.');
         _usedCachedRandomForLastGeneration = true;
@@ -6342,202 +6227,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _generatedQuestions =
             cachedQuestions.take(15).map((q) => q.shuffled()).toList();
         return true;
-      }
     }
 
     return false;
-  }
-
-  bool _isVisualInjectionEligibleMode(String testMode) {
-    return testMode == 'randomQuiz' ||
-        testMode == 'focusMode' ||
-        testMode == 'challenge' ||
-        testMode == 'timedExam';
-  }
-
-  bool _sessionHasAbstractReasoning(List<Question> questions) {
-    return questions
-        .any((q) => q.category.trim() == 'Mental Ability / Abstract');
-  }
-
-  String _resolveVisualAbstractAssetPath() {
-    final randomModeConfig = _examConfigService.getModeConfig(
-      _activeExamId,
-      'randomQuiz',
-    );
-    final configured = randomModeConfig?.localQuestionAssetPath;
-    if (configured != null && configured.trim().isNotEmpty) {
-      return configured.trim();
-    }
-    return _defaultVisualAbstractAssetPath;
-  }
-
-  Future<List<Question>> _loadVisualAbstractPool() async {
-    final cached = _visualAbstractQuestionPool;
-    if (cached != null) {
-      return cached;
-    }
-
-    try {
-      final loaded = await _localVisualQuestionService.loadQuestions(
-        assetPath: _resolveVisualAbstractAssetPath(),
-      );
-      _visualAbstractQuestionPool = loaded;
-      return loaded;
-    } catch (e) {
-      debugPrint('[VisualPool] Failed to load visual pool: $e');
-      _visualAbstractQuestionPool = const <Question>[];
-      return _visualAbstractQuestionPool!;
-    }
-  }
-
-  Future<void> _loadUsedVisualAbstractPoolIds() async {
-    if (_usedVisualAbstractPoolLoaded) {
-      return;
-    }
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final payload = prefs.getString(_usedVisualAbstractPoolIdsPrefsKey);
-      if (payload != null && payload.isNotEmpty) {
-        final decoded = jsonDecode(payload);
-        if (decoded is List) {
-          _usedVisualAbstractPoolIds
-            ..clear()
-            ..addAll(decoded.whereType<String>().map((e) => e.trim()));
-        }
-      }
-    } catch (e) {
-      debugPrint('[VisualPool] Failed to load used IDs: $e');
-      _usedVisualAbstractPoolIds.clear();
-    }
-
-    _usedVisualAbstractPoolLoaded = true;
-  }
-
-  Future<void> _persistUsedVisualAbstractPoolIds() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final payload = jsonEncode(_usedVisualAbstractPoolIds.toList());
-      await prefs.setString(_usedVisualAbstractPoolIdsPrefsKey, payload);
-    } catch (e) {
-      debugPrint('[VisualPool] Failed to persist used IDs: $e');
-    }
-  }
-
-  String _visualPoolIdForQuestion(Question question) {
-    final imagePath = question.imageAssetPath?.trim();
-    if (imagePath != null && imagePath.isNotEmpty) {
-      return imagePath;
-    }
-    return 'visual-${question.number}-${question.question.hashCode}';
-  }
-
-  Future<Question?> _pickVisualAbstractQuestionForSession() async {
-    final pool = await _loadVisualAbstractPool();
-    if (pool.isEmpty) {
-      debugPrint('[VisualPool] Selection skipped: pool is empty.');
-      return null;
-    }
-
-    await _loadUsedVisualAbstractPoolIds();
-
-    var available = pool
-        .where(
-          (q) =>
-              !_usedVisualAbstractPoolIds.contains(_visualPoolIdForQuestion(q)),
-        )
-        .toList(growable: false);
-
-    if (available.isEmpty) {
-      debugPrint(
-        '[VisualPool] All items were used. Resetting used set before next pick.',
-      );
-      _usedVisualAbstractPoolIds.clear();
-      await _persistUsedVisualAbstractPoolIds();
-      available = List<Question>.from(pool);
-    }
-
-    if (available.isEmpty) {
-      return null;
-    }
-
-    final random = Random(DateTime.now().microsecondsSinceEpoch);
-    final selected = available[random.nextInt(available.length)];
-    final selectedId = _visualPoolIdForQuestion(selected);
-
-    _usedVisualAbstractPoolIds.add(selectedId);
-    await _persistUsedVisualAbstractPoolIds();
-
-    debugPrint(
-      '[VisualPool] Selected item id=$selectedId number=${selected.number} used=${_usedVisualAbstractPoolIds.length}/${pool.length} remaining=${pool.length - _usedVisualAbstractPoolIds.length}',
-    );
-
-    return selected;
-  }
-
-  Future<void> _injectVisualAbstractQuestionIfNeeded({
-    required String effectiveTestMode,
-  }) async {
-    if (_generatedQuestions.isEmpty) {
-      return;
-    }
-
-    if (!_isVisualInjectionEligibleMode(effectiveTestMode)) {
-      return;
-    }
-
-    if (!_sessionHasAbstractReasoning(_generatedQuestions)) {
-      return;
-    }
-
-    final existingVisualCount = _generatedQuestions
-        .where((q) => (q.imageAssetPath?.isNotEmpty ?? false))
-        .length;
-    if (existingVisualCount > 0) {
-      return;
-    }
-
-    final abstractIndexes = <int>[];
-    for (var i = 0; i < _generatedQuestions.length; i++) {
-      final question = _generatedQuestions[i];
-      if (question.category.trim() == 'Mental Ability / Abstract') {
-        abstractIndexes.add(i);
-      }
-    }
-    if (abstractIndexes.isEmpty) {
-      return;
-    }
-
-    final visual = await _pickVisualAbstractQuestionForSession();
-    if (visual == null) {
-      debugPrint(
-        '[VisualPool] Injection skipped for mode=$effectiveTestMode: no visual item selected.',
-      );
-      return;
-    }
-
-    final random = Random(DateTime.now().millisecondsSinceEpoch);
-    final targetIndex = abstractIndexes[random.nextInt(abstractIndexes.length)];
-    final originalQuestion = _generatedQuestions[targetIndex];
-    final selectedId = _visualPoolIdForQuestion(visual);
-
-    final injected = Question(
-      number: originalQuestion.number,
-      category: 'Mental Ability / Abstract',
-      question: visual.question,
-      imageAssetPath: visual.imageAssetPath,
-      choices: visual.choices,
-      answer: visual.answer,
-      explanation: visual.explanation,
-      source: visual.source,
-    ).shuffled();
-
-    _generatedQuestions[targetIndex] = injected;
-
-    debugPrint(
-      '[VisualPool] Injected mode=$effectiveTestMode id=$selectedId atIndex=$targetIndex replacingQuestionNumber=${originalQuestion.number}',
-    );
   }
 
   Future<void> _startPreparedGeneratedSession({
@@ -6567,10 +6259,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         Navigator.of(dialogContext, rootNavigator: true).pop();
       }
 
-      await _injectVisualAbstractQuestionIfNeeded(
-        effectiveTestMode: effectiveTestMode,
-      );
-
       _addSavedSession(
         _generatedQuestions,
         activeCoverage,
@@ -6591,7 +6279,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             strictTimingEnabled: _strictTimingEnabled,
             recordResults: true,
             testMode: effectiveTestMode,
-            zeroAdSessionsRemaining: _zeroAdSessionsRemaining,
+            zeroAdSessionsRemaining: _freeSessionCreditsRemaining,
           ),
         ),
       );
@@ -6693,11 +6381,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       );
     }
 
-    // Decrement zero-ad sessions for Random Quiz / Focus Mode
-    if (_zeroAdSessionsRemaining > 0) {
-      _zeroAdSessionsRemaining--;
-      _persistZeroAdSessions();
-      if (_zeroAdSessionsRemaining <= 0) {
+    // Decrement Free session credits for Random Quiz / Focus Mode
+    if (_freeSessionCreditsRemaining > 0) {
+      _freeSessionCreditsRemaining--;
+      _persistFreeSessionCredits();
+      if (_freeSessionCreditsRemaining <= 0) {
         unawaited(_primeMissingCachesAsNeeded());
       }
     }
@@ -6856,10 +6544,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF7EFCF),
+                        color: const Color(0xFFDDEAF5),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: const Color(0xFFD9C59C),
+                          color: const Color(0xFFA8BFD8),
                           width: 1.5,
                         ),
                       ),
@@ -6868,7 +6556,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         children: [
                           Icon(
                             Icons.info_outline_rounded,
-                            color: const Color(0xFFB28D4B),
+                            color: const Color(0xFF5A7FA0),
                             size: 20,
                           ),
                           const SizedBox(width: 10),
@@ -7030,7 +6718,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                           recordResults: false,
                                           testMode: 'previous',
                                           zeroAdSessionsRemaining:
-                                              _zeroAdSessionsRemaining,
+                                              _freeSessionCreditsRemaining,
                                         ),
                                       ),
                                     );
@@ -7312,7 +7000,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     final shouldRecord = results['recordResults'];
-    if (shouldRecord is bool && !shouldRecord) return;
+    final skipDailyReadiness = shouldRecord is bool && !shouldRecord;
 
     final correctCount = <String, int>{};
     if (dynamicCorrectCount is Map) {
@@ -7336,7 +7024,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     // Only the first daily-target sessions affect today's readiness bucket,
     // but all sessions must still be recorded for 10-day analytics.
-    final countsTowardDailyReadiness = completedSessions < _dailySessionTarget;
+    // Quick Practice (recordResults: false) skips daily readiness accumulation
+    // but still records to activity history.
+    final countsTowardDailyReadiness =
+        !skipDailyReadiness && completedSessions < _dailySessionTarget;
 
     var shouldUpdateStreak = false;
     final hadChallengeUnlock = _hasUnlockedAdvancedModes;
@@ -7346,15 +7037,17 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         // Increment completed sessions
         completedSessions++;
 
-        // Accumulate category scores across the daily-target cap.
+        // Accumulate category scores (both correct and total from actual questions).
         correctCount.forEach((category, correct) {
           if (categoryScores.containsKey(category)) {
-            final currentCorrect = categoryScores[category]!['correct'] as int;
-            final maxTotal = categoryScores[category]!['total'] as int;
-            final updatedCorrect = currentCorrect + correct;
-
             categoryScores[category]!['correct'] =
-                updatedCorrect > maxTotal ? maxTotal : updatedCorrect;
+                (categoryScores[category]!['correct'] as int) + correct;
+          }
+        });
+        totalCount.forEach((category, total) {
+          if (categoryScores.containsKey(category)) {
+            categoryScores[category]!['total'] =
+                (categoryScores[category]!['total'] as int) + total;
           }
         });
 
@@ -7498,7 +7191,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'ACET Performance Update',
+                  'PNLE Performance Update',
                   style: GoogleFonts.outfit(
                     color: _menuPastelText,
                     fontWeight: FontWeight.w700,
@@ -7506,15 +7199,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 SizedBox(height: compact ? 10 : 12),
-                Text(
-                  'Study Preference: ${programInterest.toUpperCase()} (optional)',
-                  style: GoogleFonts.outfit(
-                    color: _menuPastelLeaf,
-                    fontWeight: FontWeight.w700,
-                    fontSize: compact ? 12 : 13,
-                  ),
-                ),
-                SizedBox(height: compact ? 8 : 10),
+                // Study Preference line removed for PNLE
                 Container(
                   padding: EdgeInsets.all(compact ? 10 : 12),
                   decoration: BoxDecoration(
@@ -7560,7 +7245,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     style: GoogleFonts.outfit(
                                       color: met
                                           ? _menuPastelAccentDeep
-                                          : const Color(0xFFBE8E75),
+                                          : const Color(0xFFBF616A),
                                       fontSize: compact ? 11 : 12,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -7597,12 +7282,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                             gradient: LinearGradient(
                                               colors: met
                                                   ? const [
-                                                      Color(0xFF7EA468),
+                                                      Color(0xFF5B8DB8),
                                                       Color(0xFFA6C0D4),
                                                     ]
                                                   : const [
-                                                      Color(0xFFE1B79F),
-                                                      Color(0xFFC9BADF),
+                                                      Color(0xFFD99BA0),
+                                                      Color(0xFFBF616A),
                                                     ],
                                             ),
                                             borderRadius:
@@ -7647,7 +7332,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         style: GoogleFonts.outfit(
                           color: met
                               ? _menuPastelAccentDeep
-                              : const Color(0xFFBE8E75),
+                              : const Color(0xFFBF616A),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -7766,7 +7451,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '${competitiveness['label']} • ${competitiveness['tier']}',
+                          '${competitiveness['label']} · ${competitiveness['tier']}',
                           style: GoogleFonts.outfit(
                             color: _menuPastelText,
                             fontSize: 12,
@@ -7809,14 +7494,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 Text(
                   _microTipForCategory(tipCategory),
                   style: GoogleFonts.outfit(
-                    color: const Color(0xFF7293AE),
+                    color: const Color(0xFF6088B0),
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'These readiness bands are in-app ACET estimates based on your recent accuracy, speed, and efficiency. They are not official admission cutoffs.',
+                  'These readiness bands are in-app PNLE estimates based on your recent accuracy, speed, and efficiency. They are not official licensure cutoffs.',
                   style: GoogleFonts.outfit(
                     color: _menuPastelTextSoft,
                     fontSize: 11,
@@ -7977,7 +7662,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                   icon: Icons.play_circle_fill_rounded,
                                   title: 'Watch ads for +1 session',
                                   subtitle:
-                                      'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances • Next refill: ${_extraSessionCountdownText()}',
+                                      'Chances: $_extraSessionAdChances/$_maxExtraSessionAdChances · Next refill: ${_extraSessionCountdownText()}',
                                   actionLabel: 'Watch',
                                   enabled: canWatchAd,
                                   onAction: () async {
@@ -8267,14 +7952,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   onPressed: enabled ? () => onAction() : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor:
-                        enabled ? _menuPastelLeafSoft : _menuPastelPanel,
+                        enabled ? const Color(0xFFFFF5E0) : _menuPastelPanel,
                     foregroundColor:
-                        enabled ? _menuPastelText : _menuPastelTextSoft,
+                        enabled ? const Color(0xFF3A2E00) : _menuPastelTextSoft,
                     disabledBackgroundColor: _menuPastelPanel,
                     disabledForegroundColor: _menuPastelTextSoft,
                     side: BorderSide(
                       color: enabled
-                          ? _menuPastelAccent.withValues(alpha: 0.35)
+                          ? const Color(0xFFE6C97A).withValues(alpha: 0.6)
                           : _menuPastelGlassBorder,
                     ),
                     elevation: 0,
@@ -8294,19 +7979,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // =========================
   // UI
   // =========================
-  static const Color _menuPastelMint = Color(0xFFD7EACB);
-  static const Color _menuPastelCream = Color(0xFFFCF6EB);
-  static const Color _menuPastelYellow = Color(0xFFF1E6A7);
-  static const Color _menuPastelSeafoam = Color(0xFFC9E1BD);
-  static const Color _menuPastelAccent = Color(0xFF95B97F);
-  static const Color _menuPastelAccentDeep = Color(0xFF6F8F60);
-  static const Color _menuPastelText = Color(0xFF5A7652);
-  static const Color _menuPastelTextSoft = Color(0xFF8AA081);
-  static const Color _menuPastelGlassFill = Color(0xEAFBF7EE);
-  static const Color _menuPastelGlassBorder = Color(0xA4C5D6AE);
-  static const Color _menuPastelPanel = Color(0xFFF9F3E7);
-  static const Color _menuPastelLeaf = Color(0xFF7EA468);
-  static const Color _menuPastelLeafSoft = Color(0xFFDDEBCE);
+  static const Color _menuPastelMint = Color(0xFFC5D8EA);
+  static const Color _menuPastelCream = Color(0xFFEBF2FA);
+  static const Color _menuPastelYellow = Color(0xFFB8D0E8);
+  static const Color _menuPastelSeafoam = Color(0xFFB0C8DA);
+  static const Color _menuPastelAccent = Color(0xFF5B8DB8);
+  static const Color _menuPastelAccentDeep = Color(0xFF3D7BA8);
+  static const Color _menuPastelText = Color(0xFF2D5070);
+  static const Color _menuPastelTextSoft = Color(0xFF6B8FA8);
+  static const Color _menuPastelGlassFill = Color(0xEAEDF5FA);
+  static const Color _menuPastelGlassBorder = Color(0xA4A8C5D8);
+  static const Color _menuPastelPanel = Color(0xFFE0ECF5);
+  static const Color _menuPastelLeaf = Color(0xFF5B8DB8);
+  static const Color _menuPastelLeafSoft = Color(0xFFC8DCE8);
 
   Widget _buildPastelMenuBackdrop() {
     return Container(color: _menuPastelCream);
@@ -8520,9 +8205,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
                       // Optional study-interest clusters. They guide messaging only.
                       switch (spec) {
-                        case 'General ACET':
+                        case 'General PNLE':
                           description =
-                              'Balanced practice across all four ACET categories';
+                              'Balanced practice across all five PNLE categories';
                           icon = Icons.school_rounded;
                           break;
                         case 'English Priority':
@@ -8655,6 +8340,25 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         !_hasUnlockedAdvancedModes || effectiveFocusCategory.isEmpty;
     final isChallengeModeLocked = !_hasUnlockedAdvancedModes;
 
+    // Today's accuracy from activity records
+    final todayStart = _dateOnly(DateTime.now());
+    final todayRecords = _quizActivityRecords
+        .where((r) => _dateOnly(r.date).isAtSameMomentAs(todayStart));
+    final todayQuestions = todayRecords.fold<int>(
+        0, (sum, r) => sum + r.questionCount);
+    final todayCorrect =
+        todayRecords.fold<int>(0, (sum, r) => sum + r.correctCount);
+    final todayAccuracy =
+        todayQuestions > 0 ? (todayCorrect / todayQuestions * 100) : -1.0;
+
+    // Determine recommended mode
+    final recommendedMode = _quizRecommendedMode(
+      canTakeQuiz: canTakeQuiz,
+      isFocusModeLocked: isFocusModeLocked,
+      isChallengeModeLocked: isChallengeModeLocked,
+      effectiveFocusCategory: effectiveFocusCategory,
+    );
+
     return Stack(
       children: [
         _glassContainer(
@@ -8716,6 +8420,58 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
+                    if (todayAccuracy >= 0) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: todayAccuracy >= 75
+                              ? const Color(0xFFD4E8D0)
+                              : (todayAccuracy >= 50
+                                  ? const Color(0xFFFFF3D4)
+                                  : const Color(0xFFF5DEDE)),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: todayAccuracy >= 75
+                                ? PnleTheme.success.withValues(alpha: 0.4)
+                                : (todayAccuracy >= 50
+                                    ? PnleTheme.warning.withValues(alpha: 0.4)
+                                    : PnleTheme.dangerSoft
+                                        .withValues(alpha: 0.4)),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.today_rounded,
+                              size: 15,
+                              color: _menuPastelText,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Today\'s Accuracy: ${todayAccuracy.toStringAsFixed(1)}%',
+                              style: GoogleFonts.outfit(
+                                color: _menuPastelText,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '($todayCorrect/$todayQuestions)',
+                              style: GoogleFonts.outfit(
+                                color: _menuPastelTextSoft,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -8727,7 +8483,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8E8E3),
+                    color: const Color(0xFFE4E0EE),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: PnleTheme.danger.withValues(alpha: 0.35),
@@ -8759,8 +8515,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: _poolWarmupComplete
-                        ? const Color(0xFFEAF5E1)
-                        : const Color(0xFFF8F0D8),
+                        ? const Color(0xFFDDE8F2)
+                        : const Color(0xFFDDEAF5),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _poolWarmupComplete
@@ -8818,7 +8574,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF5EFDE),
+                  color: const Color(0xFFE8EFF6),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: _menuPastelAccent.withValues(alpha: 0.42),
@@ -8841,26 +8597,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: _menuPastelCream,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: _menuPastelGlassBorder,
-                        ),
-                      ),
-                      child: Text(
-                        'Study Preference: ${programInterest.toUpperCase()}',
-                        style: GoogleFonts.outfit(
-                          color: _menuPastelText,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -8917,10 +8653,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               Container(
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF5E8C8),
+                  color: const Color(0xFFFFF5E0),
                   borderRadius: BorderRadius.circular(16),
                   border:
-                      Border.all(color: const Color(0xFFD9C59C), width: 1.2),
+                      Border.all(color: const Color(0xFFE6C97A), width: 1.2),
                 ),
                 child: Material(
                   color: Colors.transparent,
@@ -8940,7 +8676,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             children: [
                               const Icon(
                                 Icons.flag_rounded,
-                                color: Color(0xFF533700),
+                                color: Color(0xFF3A2E00),
                                 size: 22,
                               ),
                               const SizedBox(width: 10),
@@ -8951,7 +8687,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                     Text(
                                       'Get More Sessions TODAY',
                                       style: GoogleFonts.outfit(
-                                        color: const Color(0xFF533700),
+                                        color: const Color(0xFF3A2E00),
                                         fontWeight: FontWeight.w800,
                                         fontSize: 14,
                                       ),
@@ -8962,7 +8698,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                                           ? 'Retrieving today\'s rewards...'
                                           : 'Daily tasks and claimable rewards',
                                       style: GoogleFonts.outfit(
-                                        color: const Color(0xFF6D4B11),
+                                        color: const Color(0xFF5C4A1A),
                                         fontWeight: FontWeight.w600,
                                         fontSize: 11,
                                       ),
@@ -8998,7 +8734,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               ],
                               const Icon(
                                 Icons.chevron_right_rounded,
-                                color: Color(0xFF6D4B11),
+                                color: Color(0xFF5C4A1A),
                               ),
                             ],
                           ),
@@ -9028,18 +8764,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 icon: Icons.shuffle_rounded,
                 title: 'Random Quiz',
                 description: 'Mixed questions from all categories',
+                isRecommended: recommendedMode == 'randomQuiz',
                 gradient: canTakeQuiz
                     ? _modeFadeGradientWithColors(
-                        const Color(0xFFDCEBCF),
-                        const Color(0xFFC9DDB6),
+                        const Color(0xFFCFE0EB),
+                        const Color(0xFFBDD2E0),
                       )
                     : _modeFadeGradientWithColors(
-                        const Color(0xFFF3E6DA),
-                        const Color(0xFFE8D6C9),
+                        const Color(0xFFDDE6EE),
+                        const Color(0xFFD0DAE6),
                         strength: 0.72,
                       ),
-                accentColor: const Color(0xFF7CA66C),
-                iconBackgroundColor: const Color(0xFF9FC88A),
+                accentColor: const Color(0xFF5B8DB8),
+                iconBackgroundColor: const Color(0xFF82B0CC),
                 onTap: canTakeQuiz
                     ? () async {
                         await _startOrResumeMode(
@@ -9082,13 +8819,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 description: effectiveFocusCategory.isNotEmpty
                     ? 'Target: $effectiveFocusCategory'
                     : 'Adaptive focus practice',
+                isRecommended: recommendedMode == 'focusMode',
                 gradient: _modeFadeGradientWithColors(
-                  const Color(0xFFE8DDF1),
-                  const Color(0xFFD8CAE6),
+                  const Color(0xFFD8E4F2),
+                  const Color(0xFFC8D8EA),
                   strength: 0.9,
                 ),
-                accentColor: const Color(0xFF8C79A8),
-                iconBackgroundColor: const Color(0xFFB6A4CE),
+                accentColor: const Color(0xFF6B82B8),
+                iconBackgroundColor: const Color(0xFF94AAC8),
                 onTap: (canTakeQuiz &&
                         _hasUnlockedAdvancedModes &&
                         effectiveFocusCategory.isNotEmpty)
@@ -9132,14 +8870,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 title: 'Quick Practice',
                 description: _isLoadingSavedSessions
                     ? 'Retrieving saved tests...'
-                    : '5 questions • Perfect for breaks',
+                    : (_hasSavedTestsData
+                        ? '5 questions · Perfect for breaks'
+                        : 'Complete a full quiz first to unlock'),
                 gradient: _modeFadeGradientWithColors(
-                  const Color(0xFFF6E2D7),
-                  const Color(0xFFEFCFC0),
+                  const Color(0xFFDDE6EE),
+                  const Color(0xFFCDDAE6),
                   strength: 0.8,
                 ),
-                accentColor: const Color(0xFFBE8E75),
-                iconBackgroundColor: const Color(0xFFE1B79F),
+                accentColor: const Color(0xFF7A9AB8),
+                iconBackgroundColor: const Color(0xFFA0BCD0),
                 onTap: _isLoadingSavedSessions
                     ? null
                     : (_hasSavedTestsData ? () => _startQuickPractice() : null),
@@ -9155,14 +8895,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 icon: Icons.emoji_events_rounded,
                 title: 'Challenge Mode',
                 description:
-                    'Advanced mixed-difficulty simulation • Does not count toward daily session objective',
+                    'Advanced mixed-difficulty simulation · Does not count toward daily session objective',
+                isRecommended: recommendedMode == 'challenge',
                 gradient: _modeFadeGradientWithColors(
-                  const Color(0xFFF4E2BA),
-                  const Color(0xFFE7CF9B),
+                  const Color(0xFFD0DEF0),
+                  const Color(0xFFC0D0E5),
                   strength: 0.86,
                 ),
-                accentColor: const Color(0xFFB28D4B),
-                iconBackgroundColor: const Color(0xFFD8BD79),
+                accentColor: const Color(0xFF5A7FA0),
+                iconBackgroundColor: const Color(0xFF8AAAC8),
                 onTap: (canTakeQuiz && _hasUnlockedAdvancedModes)
                     ? () => _startOrResumeMode(
                           mode: 'challenge',
@@ -9185,13 +8926,13 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 icon: Icons.timer_rounded,
                 title: 'Timed Exam',
                 description:
-                    'Exam pressure mode • strict timer with auto-next on timeout',
+                    'Exam pressure mode · strict timer with auto-next on timeout',
                 gradient: _modeFadeGradientWithColors(
-                  const Color(0xFFDDEAF2),
-                  const Color(0xFFCBDBE8),
+                  const Color(0xFFD5E2EE),
+                  const Color(0xFFC5D5E5),
                   strength: 0.86,
                 ),
-                accentColor: const Color(0xFF7293AE),
+                accentColor: const Color(0xFF6088B0),
                 iconBackgroundColor: const Color(0xFFA6C0D4),
                 onTap: canTakeQuiz
                     ? () async {
@@ -9270,6 +9011,39 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     );
   }
 
+  String _quizRecommendedMode({
+    required bool canTakeQuiz,
+    required bool isFocusModeLocked,
+    required bool isChallengeModeLocked,
+    required String effectiveFocusCategory,
+  }) {
+    if (!canTakeQuiz) return ''; // No point recommending when out of credits
+
+    // If any category is below 60%, recommend Focus Mode
+    if (!isFocusModeLocked && effectiveFocusCategory.isNotEmpty) {
+      final data = categoryScores[effectiveFocusCategory];
+      if (data != null) {
+        final correct = data['correct'] as int;
+        final total = data['total'] as int;
+        if (total > 0 && (correct / total * 100) < 60) {
+          return 'focusMode';
+        }
+      }
+    }
+
+    // If daily target not met, recommend Random Quiz
+    if (completedSessions < _dailySessionTarget) {
+      return 'randomQuiz';
+    }
+
+    // If daily target met and challenge unlocked, recommend Challenge
+    if (!isChallengeModeLocked) {
+      return 'challenge';
+    }
+
+    return 'randomQuiz';
+  }
+
   Widget _quizModeCard({
     required IconData icon,
     required String title,
@@ -9281,6 +9055,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     bool isPrimary = false,
     String? badge,
     bool isLocked = false,
+    bool isRecommended = false,
   }) {
     return InkWell(
       onTap: isLocked
@@ -9320,89 +9095,123 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ]
                   : null,
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isLocked
-                        ? _menuPastelLeafSoft.withValues(alpha: 0.65)
-                        : iconBackgroundColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    isLocked ? Icons.lock_rounded : icon,
-                    color: isLocked ? _menuPastelTextSoft : Colors.white,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                if (isRecommended && !isLocked)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4A85B8),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: GoogleFonts.outfit(
-                                color: _menuPastelText,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
+                          const Icon(Icons.star_rounded,
+                              color: Colors.white, size: 12),
+                          const SizedBox(width: 4),
+                          Text(
+                            'RECOMMENDED',
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 9.5,
+                              letterSpacing: 0.8,
                             ),
                           ),
-                          if (badge != null)
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _menuPastelPanel,
-                                    border: Border.all(
-                                      color: accentColor.withValues(alpha: 0.3),
-                                    ),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    badge,
-                                    style: GoogleFonts.outfit(
-                                      color: _menuPastelText,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        isLocked
-                            ? 'Complete more quizzes to unlock'
-                            : description,
-                        style: GoogleFonts.outfit(
-                          color: _menuPastelTextSoft,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    ),
+                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isLocked
+                            ? _menuPastelLeafSoft.withValues(alpha: 0.65)
+                            : iconBackgroundColor,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
-                  ),
+                      child: Icon(
+                        isLocked ? Icons.lock_rounded : icon,
+                        color: isLocked ? _menuPastelTextSoft : Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: GoogleFonts.outfit(
+                                    color: _menuPastelText,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                              if (badge != null)
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _menuPastelPanel,
+                                        border: Border.all(
+                                          color: accentColor.withValues(alpha: 0.3),
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        badge,
+                                        style: GoogleFonts.outfit(
+                                          color: _menuPastelText,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            isLocked
+                                ? 'Complete more quizzes to unlock'
+                                : description,
+                            style: GoogleFonts.outfit(
+                              color: _menuPastelTextSoft,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!isLocked)
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        color: accentColor,
+                        size: 18,
+                      ),
+                  ],
                 ),
-                if (!isLocked)
-                  Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    color: accentColor,
-                    size: 18,
-                  ),
               ],
             ),
           ),
@@ -9926,7 +9735,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     } else if (hasPaused && _pausedQuizSessions.length == 1) {
       final single = _pausedQuizSessions.values.first;
       pausedProgress =
-          '${_modeLabel(single.testMode)} • ${single.currentIndex + 1}/${single.questions.length}';
+          '${_modeLabel(single.testMode)} · ${single.currentIndex + 1}/${single.questions.length}';
     } else if (hasPaused) {
       final count = _pausedQuizSessions.length;
       pausedProgress = '$count unfinished modes available';
@@ -10106,12 +9915,277 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        // New user welcome card OR readiness summary + study hub
+        if (accumulatedQuizzesCompleted == 0 &&
+            _pausedQuizSessions.isEmpty &&
+            _savedSessions.isEmpty)
+          _buildWelcomeCard()
+        else ...[
+          _buildReadinessSummaryCard(),
+          const SizedBox(height: 20),
+          _buildStudyHubCard(),
+        ],
         const SizedBox(height: 24),
-        _buildStudyHubCard(),
-        const SizedBox(height: 24),
-        if (accumulatedQuizzesCompleted > 0) const SizedBox(height: 14),
       ],
+    );
+  }
+
+  Widget _buildWelcomeCard() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFFE8F0FA),
+            const Color(0xFFF0F4FA),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _menuPastelGlassBorder),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x128DA774),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.school_rounded, color: Color(0xFF4A85B8), size: 36),
+          const SizedBox(height: 12),
+          Text(
+            'Welcome to PNLE Reviewer 2027',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.outfit(
+              color: _menuPastelText,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Practice across 5 nursing subtests with AI-generated board-style questions. '
+            'Track your readiness and build confidence for the Philippine Nurse Licensure Examination.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.outfit(
+              color: _menuPastelTextSoft,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  currentScreen = 2;
+                });
+              },
+              icon: const Icon(Icons.play_arrow_rounded, size: 20),
+              label: Text(
+                'Start Your First Quiz',
+                style: GoogleFonts.outfit(fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4A85B8),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadinessSummaryCard() {
+    // Calculate overall weighted accuracy from recent activity
+    final tenDayActivity = _buildTenDayActivity();
+    final activeDays =
+        tenDayActivity.where((day) => (day['quizzes'] as int) > 0).toList();
+
+    double overallIndex = 0;
+    if (activeDays.isNotEmpty) {
+      overallIndex = activeDays
+              .map(_calculateDayAcetPerformanceIndex)
+              .reduce((a, b) => a + b) /
+          activeDays.length;
+    }
+
+    // Find weakest category
+    String? weakestCategory;
+    double weakestAccuracy = 100;
+    for (final entry in categoryScores.entries) {
+      final total = (entry.value['total'] as int?) ?? 0;
+      final correct = (entry.value['correct'] as int?) ?? 0;
+      if (total > 0) {
+        final acc = (correct / total) * 100;
+        if (acc < weakestAccuracy) {
+          weakestAccuracy = acc;
+          weakestCategory = entry.key;
+        }
+      }
+    }
+
+    // Readiness label
+    String readinessLabel;
+    Color readinessColor;
+    if (overallIndex >= 82) {
+      readinessLabel = 'PNLE Ready';
+      readinessColor = const Color(0xFF3D8B5A);
+    } else if (overallIndex >= 74) {
+      readinessLabel = 'Competitive';
+      readinessColor = const Color(0xFF4A85B8);
+    } else if (overallIndex >= 60) {
+      readinessLabel = 'Developing';
+      readinessColor = const Color(0xFF7A6D98);
+    } else {
+      readinessLabel = 'Building Up';
+      readinessColor = const Color(0xFFB8942E);
+    }
+
+    // Shorten category name for display
+    String shortCategory(String name) {
+      if (name.contains('MCHN')) return 'MCHN';
+      if (name.contains('CHN')) return 'CHN';
+      if (name.contains('MSN')) return 'MSN';
+      if (name.contains('Mental')) return 'Psych';
+      if (name.contains('Fundamentals')) return 'Fundamentals';
+      return name.length > 18 ? '${name.substring(0, 15)}...' : name;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: readinessColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: readinessColor.withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0x128DA774),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.insights_rounded, color: readinessColor, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Your PNLE Readiness',
+                style: GoogleFonts.outfit(
+                  color: _menuPastelText,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: readinessColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border:
+                      Border.all(color: readinessColor.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  readinessLabel,
+                  style: GoogleFonts.outfit(
+                    color: readinessColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // Performance index bar
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Performance Index',
+                      style: GoogleFonts.outfit(
+                        color: _menuPastelTextSoft,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: (overallIndex / 100).clamp(0.0, 1.0),
+                        minHeight: 8,
+                        backgroundColor: _menuPastelCream,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(readinessColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Text(
+                '${overallIndex.toStringAsFixed(0)}',
+                style: GoogleFonts.outfit(
+                  color: readinessColor,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          // Weakest category nudge
+          if (weakestCategory != null && weakestAccuracy < 75) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: _menuPastelCream,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _menuPastelGlassBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.trending_down_rounded,
+                      color: Color(0xFFAA3344), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Focus area: ${shortCategory(weakestCategory)} (${weakestAccuracy.toStringAsFixed(0)}% accuracy)',
+                      style: GoogleFonts.outfit(
+                        color: const Color(0xFFAA3344),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -10174,7 +10248,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Analysis uses ACET area weighting, session completion, and subject coverage.',
+                      'Analysis uses PNLE area weighting, session completion, and subject coverage.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: 12,
@@ -10264,7 +10338,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Daily ACET Performance Index',
+                          'Daily PNLE Performance Index',
                           style: GoogleFonts.outfit(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -10297,7 +10371,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'This index blends weighted accuracy, completion of your daily sessions, and coverage across the four ACET areas.',
+                      'This index blends weighted accuracy, completion of your daily sessions, and coverage across the five PNLE areas.',
                       style: GoogleFonts.outfit(
                         fontSize: 11,
                         color: _menuPastelTextSoft,
@@ -10308,8 +10382,6 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                     ...tenDayActivity.reversed.map((day) {
                       final date = day['date'] as DateTime;
                       final quizzes = day['quizzes'] as int;
-                      final questions = day['questions'] as int;
-                      final correct = day['correct'] as int;
                       final hasActivity = quizzes > 0;
                       final dailyTarget = _dailySessionTarget;
                       final weightedAccuracy =
@@ -10317,45 +10389,30 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       final performanceIndex =
                           _calculateDayAcetPerformanceIndex(day);
                       final coverageCount = _countPracticedAcetAreas(day);
-
-                      // Calculate percentage and status
-                      String statusText;
                       final statusColor = _dayAcetPerformanceBandColor(day);
+
+                      // Status label
+                      String statusLabel;
                       if (!hasActivity) {
-                        statusText = 'No session data for this day.';
+                        statusLabel = 'Rest Day';
                       } else if (quizzes < dailyTarget) {
-                        final missingSessions = dailyTarget - quizzes;
-                        final accuracyData = questions > 0
-                            ? '${correct.clamp(0, questions)}/$questions correct'
-                            : '${weightedAccuracy.toStringAsFixed(0)}% weighted accuracy so far';
-                        statusText =
-                            'In progress: $quizzes/$dailyTarget sessions. Need $missingSessions more for a full day read. Weighted accuracy: ${weightedAccuracy.toStringAsFixed(0)}%. Subtests touched: $coverageCount/4. Detail: $accuracyData.';
+                        statusLabel = 'In Progress';
+                      } else if (performanceIndex >= 82) {
+                        statusLabel = 'Strong';
+                      } else if (performanceIndex >= 74) {
+                        statusLabel = 'On Track';
+                      } else if (performanceIndex >= 66) {
+                        statusLabel = 'Developing';
                       } else {
-                        final accuracyData = questions > 0
-                            ? '${correct.clamp(0, questions)}/$questions correct'
-                            : '${weightedAccuracy.toStringAsFixed(0)}% weighted accuracy';
-                        if (performanceIndex >= 82) {
-                          statusText =
-                              'Strong day: $dailyTarget/$dailyTarget sessions completed. Performance index ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
-                        } else if (performanceIndex >= 74) {
-                          statusText =
-                              'On-track day: $dailyTarget/$dailyTarget sessions completed. Performance index ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
-                        } else if (performanceIndex >= 66) {
-                          statusText =
-                              'Developing day: sessions completed, but the performance index is ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
-                        } else {
-                          statusText =
-                              'Recovery day: sessions completed, but the performance index is ${performanceIndex.toStringAsFixed(0)}%. Weighted accuracy ${weightedAccuracy.toStringAsFixed(0)}%. Coverage: $coverageCount/4 ACET areas. Detail: $accuracyData.';
-                        }
+                        statusLabel = 'Recovery';
                       }
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: _menuPastelCream,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: hasActivity
                                 ? statusColor.withValues(alpha: 0.45)
@@ -10365,24 +10422,82 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              _formatShortMonthDay(date),
-                              style: GoogleFonts.outfit(
-                                color: _menuPastelText,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
+                            // Header: Date + Status badge
+                            Row(
+                              children: [
+                                Text(
+                                  _formatShortMonthDay(date),
+                                  style: GoogleFonts.outfit(
+                                    color: _menuPastelText,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                        color:
+                                            statusColor.withValues(alpha: 0.3)),
+                                  ),
+                                  child: Text(
+                                    statusLabel,
+                                    style: GoogleFonts.outfit(
+                                      color: statusColor,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              statusText,
-                              style: GoogleFonts.outfit(
-                                color: statusColor,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                                height: 1.3,
+                            if (hasActivity) ...[
+                              const SizedBox(height: 12),
+                              // Metric chips row
+                              Row(
+                                children: [
+                                  _dayMetricChip(
+                                    icon: Icons.quiz_outlined,
+                                    value: '$quizzes/$dailyTarget',
+                                    label: 'Sessions',
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _dayMetricChip(
+                                    icon: Icons.check_circle_outline_rounded,
+                                    value:
+                                        '${weightedAccuracy.toStringAsFixed(0)}%',
+                                    label: 'Accuracy',
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _dayMetricChip(
+                                    icon: Icons.bar_chart_rounded,
+                                    value:
+                                        '${performanceIndex.toStringAsFixed(0)}',
+                                    label: 'Index',
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _dayMetricChip(
+                                    icon: Icons.layers_outlined,
+                                    value: '$coverageCount/5',
+                                    label: 'Areas',
+                                  ),
+                                ],
                               ),
-                            ),
+                            ] else ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                'No sessions recorded',
+                                style: GoogleFonts.outfit(
+                                  color: _menuPastelTextSoft,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       );
@@ -10409,41 +10524,70 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         .toList();
 
     return SizedBox(
-      height: 176,
+      height: 196,
       child: Column(
         children: [
           Expanded(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
-              decoration: BoxDecoration(
-                color: _menuPastelCream,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _menuPastelGlassBorder),
-              ),
-              child: CustomPaint(
-                painter: _ReadinessLinePainter(points),
-              ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Y-axis labels
+                SizedBox(
+                  width: 28,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (final v in [100, 75, 50, 25, 0])
+                        Text(
+                          '$v',
+                          style: GoogleFonts.outfit(
+                            fontSize: 9,
+                            color: _menuPastelTextSoft,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+                    decoration: BoxDecoration(
+                      color: _menuPastelCream,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _menuPastelGlassBorder),
+                    ),
+                    child: CustomPaint(
+                      painter: _ReadinessLinePainter(points),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: labels
-                .map(
-                  (label) => SizedBox(
-                    width: 20,
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(
-                        fontSize: 9,
-                        color: _menuPastelTextSoft,
+          Padding(
+            padding: const EdgeInsets.only(left: 34),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: labels
+                  .map(
+                    (label) => SizedBox(
+                      width: 20,
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          fontSize: 9,
+                          color: _menuPastelTextSoft,
+                        ),
                       ),
                     ),
-                  ),
-                )
-                .toList(),
+                  )
+                  .toList(),
+            ),
           ),
         ],
       ),
@@ -10477,6 +10621,44 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _dayMetricChip({
+    required IconData icon,
+    required String value,
+    required String label,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: _menuPastelPanel,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: _menuPastelLeaf, size: 14),
+            const SizedBox(height: 3),
+            Text(
+              value,
+              style: GoogleFonts.outfit(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: _menuPastelText,
+              ),
+            ),
+            Text(
+              label,
+              style: GoogleFonts.outfit(
+                fontSize: 9,
+                color: _menuPastelTextSoft,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -10687,8 +10869,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                   children: [
                     Text(
                       isImproving
-                          ? 'ACET trend is improving'
-                          : 'ACET trend slipped slightly',
+                          ? 'PNLE trend is improving'
+                          : 'PNLE trend slipped slightly',
                       style: GoogleFonts.outfit(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
@@ -10696,7 +10878,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     Text(
-                      '$indexChange% change in your ACET performance index from the first to the last 5 days',
+                      '$indexChange% change in your PNLE performance index from the first to the last 5 days',
                       style: GoogleFonts.outfit(
                         fontSize: 11,
                         color: trendColor.withValues(alpha: 0.8),
@@ -10757,7 +10939,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final quizzes = (day['quizzes'] as int?) ?? 0;
     final completionRatio =
         (quizzes / _dailySessionTarget).clamp(0.0, 1.0).toDouble();
-    final coverageRatio = (_countPracticedAcetAreas(day) / 4).clamp(0.0, 1.0);
+    final coverageRatio = (_countPracticedAcetAreas(day) / 5).clamp(0.0, 1.0);
 
     return (weightedAccuracy * 0.55) +
         (completionRatio * 100 * 0.25) +
@@ -10771,14 +10953,14 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     }
 
     if (quizzes < _dailySessionTarget) {
-      return PnleTheme.warning;
+      return const Color(0xFFB8942E);
     }
 
     final index = _calculateDayAcetPerformanceIndex(day);
-    if (index >= 82) return PnleTheme.success;
-    if (index >= 74) return const Color(0xFF7BC4FF);
-    if (index >= 66) return PnleTheme.accent;
-    return PnleTheme.danger;
+    if (index >= 82) return const Color(0xFF3D8B5A);
+    if (index >= 74) return const Color(0xFF4A85B8);
+    if (index >= 66) return const Color(0xFF7A6D98);
+    return const Color(0xFFAA3344);
   }
 
   Widget _objectiveCard({
@@ -11449,30 +11631,35 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _buildFastPromptFromCoverage(Map<String, String> coverage) {
-    final englishTopic = coverage['English'] ?? 'General English topics';
-    final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
-    final logicalReasoningTopic =
-        coverage['Logical Reasoning'] ?? 'General logical reasoning topics';
-    final mentalAbilityTopic = coverage['Mental Ability / Abstract'] ??
-        'General mental ability and abstract topics';
+    final categories = _categoriesForProgramInterest();
+    final distributionLines = <String>[];
+    final values = <String, String>{};
+    final questionsPerCat = 15 ~/ categories.length; // 3 per category
+    final remainder = 15 % categories.length;
+    int qStart = 1;
+    for (int i = 0; i < categories.length; i++) {
+      final cat = categories[i];
+      final count = questionsPerCat + (i < remainder ? 1 : 0);
+      final qEnd = qStart + count - 1;
+      final topic = coverage[cat] ?? 'General $cat topics';
+      final key = 'topic_$i';
+      values[key] = topic;
+      distributionLines.add('Q$qStart-$qEnd $cat questions about: {{$key}}');
+      qStart = qEnd + 1;
+    }
 
     final questionCount = _examConfigService
             .getModeConfig(_activeExamId, 'randomQuiz')
             ?.questionCount ??
         15;
+    values['questionCount'] = '$questionCount';
 
     return _examConfigService.renderPrompt(
       examId: _activeExamId,
       mode: 'randomQuiz',
-      values: {
-        'questionCount': '$questionCount',
-        'englishTopic': englishTopic,
-        'mathTopic': mathTopic,
-        'logicalReasoningTopic': logicalReasoningTopic,
-        'mentalAbilityTopic': mentalAbilityTopic,
-      },
+      values: values,
       fallbackTemplate:
-          'Generate {{questionCount}} ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 English questions specifically about this key area: {{englishTopic}}\nQ5-8 Mathematics questions specifically about this key area: {{mathTopic}}\nQ9-12 Logical Reasoning questions specifically about this key area: {{logicalReasoningTopic}}\nQ13-15 Mental Ability / Abstract questions specifically about this key area: {{mentalAbilityTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, calculation, or pattern recognition\n- No direct recall or pure definition items; require interpretation, application, comparison, inference, computation, or pattern analysis\n- English items may include vocabulary, grammar, sentence logic, short reading, or editing\n- Mathematics items must involve arithmetic, algebra, geometry, word problems, or quantitative reasoning with actual solving required\n- Logical Reasoning items must involve analogies, deductions, sequences, conclusions, or conditional logic\n- Mental Ability / Abstract items must involve symbolic, numeric, alphabetic, matrix, or transformation patterns described in text\n- Choices must be short phrases or short clauses with balanced length and tone\n- At least one wrong choice must be as long as or longer than the correct choice\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+          'Generate {{questionCount}} PNLE-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\n${distributionLines.join('\n')}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real nursing licensure exam-style question with a clear answer based on clinical reasoning, patient care, or nursing knowledge\n- No direct recall or pure definition items; require application, analysis, prioritization, or clinical judgment\n- Use practical PNLE-style clinical scenarios and nursing interventions\n- Choices must be short phrases or short clauses with balanced length and tone\n- At least one wrong choice must be as long as or longer than the correct choice\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- No markdown, no asterisks, no extra text\n- Return JSON only',
     );
   }
 
@@ -11507,7 +11694,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         'otherText': otherText,
       },
       fallbackTemplate:
-          'Generate {{questionCount}} ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-10 focus category: {{focusCategory}}\nQ1-10 key area: {{focusTopic}}\nQ11-15 mixed from: {{otherText}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with a clear answer based on reasoning, interpretation, or calculation\n- Use practical ACET-style scenarios with application and analysis\n- Q1-10 must strongly match the focus category and focus topic while still being real exam items, not lesson labels\n- Q11-15 must be mixed supporting questions from the listed other categories\n- Keep wording concise and academically accurate\n- Keep choices similar in length and tone\n- Make distractors plausible based on common student misconceptions\n- Avoid giveaway wording like always, never, or obvious textbook clues\n- Vary stem style using analysis, inference, best answer, comparison, or problem-solving\n- Do not make the correct answer obviously longest or shortest by wording\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only when needed; avoid LaTeX and backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+          'Generate {{questionCount}} PNLE-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-10 focus category: {{focusCategory}}\nQ1-10 key area: {{focusTopic}}\nQ11-15 mixed from: {{otherText}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real nursing licensure exam-style question with a clear answer based on clinical reasoning or nursing knowledge\n- Use practical PNLE-style clinical scenarios with application and analysis\n- Q1-10 must strongly match the focus category and focus topic while still being real exam items, not lesson labels\n- Q11-15 must be mixed supporting questions from the listed other categories\n- Keep wording concise and academically accurate\n- Keep choices similar in length and tone\n- Make distractors plausible based on common student misconceptions\n- Avoid giveaway wording like always, never, or obvious textbook clues\n- Vary stem style using analysis, inference, best answer, comparison, or problem-solving\n- Do not make the correct answer obviously longest or shortest by wording\n- Randomize answer letters across A/B/C/D without obvious streaks\n- No markdown, no asterisks, no extra text\n- Return JSON only',
     );
   }
 
@@ -11516,28 +11703,35 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _buildFastChallengeModePrompt(String focusCategory) {
-    final englishTopic = _pickRandomKeyArea('English');
-    final mathTopic = _pickRandomKeyArea('Mathematics');
-    final logicalReasoningTopic = _pickRandomKeyArea('Logical Reasoning');
-    final mentalAbilityTopic = _pickRandomKeyArea('Mental Ability / Abstract');
+    final categories = _categoriesForProgramInterest();
+    final distributionLines = <String>[];
+    final values = <String, String>{};
+    final questionsPerCat = 15 ~/ categories.length;
+    final remainder = 15 % categories.length;
+    int qStart = 1;
+    for (int i = 0; i < categories.length; i++) {
+      final cat = categories[i];
+      final count = questionsPerCat + (i < remainder ? 1 : 0);
+      final qEnd = qStart + count - 1;
+      final topic = _pickRandomKeyArea(cat);
+      final key = 'topic_$i';
+      values[key] = topic;
+      distributionLines.add('Q$qStart-$qEnd $cat questions about: {{$key}}');
+      qStart = qEnd + 1;
+    }
 
     final questionCount = _examConfigService
             .getModeConfig(_activeExamId, 'challenge')
             ?.questionCount ??
         15;
+    values['questionCount'] = '$questionCount';
 
     return _examConfigService.renderPrompt(
       examId: _activeExamId,
       mode: 'challenge',
-      values: {
-        'questionCount': '$questionCount',
-        'englishTopic': englishTopic,
-        'mathTopic': mathTopic,
-        'logicalReasoningTopic': logicalReasoningTopic,
-        'mentalAbilityTopic': mentalAbilityTopic,
-      },
+      values: values,
       fallbackTemplate:
-          'Generate {{questionCount}} hard ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 English questions specifically about this key area: {{englishTopic}}\nQ5-8 Mathematics questions specifically about this key area: {{mathTopic}}\nQ9-12 Logical Reasoning questions specifically about this key area: {{logicalReasoningTopic}}\nQ13-15 Mental Ability / Abstract questions specifically about this key area: {{mentalAbilityTopic}}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real exam-style question with one clearly correct answer\n- Challenge items must be harder than random mode and should require deeper analysis, multi-step reasoning, stronger inference, or more careful comparison\n- No direct recall or pure definition items\n- English items should emphasize difficult context clues, grammar traps, editing, sentence logic, and compact reading tasks\n- Mathematics items should emphasize multi-step arithmetic, algebra, geometry, or data tasks that require careful setup\n- Logical Reasoning items should emphasize layered deductions, assumptions, conclusions, argument evaluation, or elimination under constraints\n- Mental Ability / Abstract items should emphasize multi-rule patterns, matrix logic, transformations, symbolic mapping, or abstract sequence analysis\n- Keep wording concise but cognitively demanding\n- Choices must be similar in length and tone\n- At least one incorrect choice must be as long as or longer than the correct answer\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- Use Unicode math symbols only; no LaTeX or backslashes\n- No markdown, no asterisks, no extra text\n- Return JSON only',
+          'Generate {{questionCount}} hard PNLE-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\n${distributionLines.join('\n')}\n\nRules:\n- Exactly 4 choices per question\n- Correct answer must be one of A/B/C/D\n- Never write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\n- Do not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\n- Each item must be a real nursing licensure exam-style question with one clearly correct answer\n- Challenge items must be harder than random mode and should require deeper clinical analysis, multi-step nursing reasoning, prioritization, or complex patient scenarios\n- No direct recall or pure definition items\n- MCHN items should emphasize complex maternal-fetal assessments, complications, and priority interventions\n- CHN items should emphasize population health, epidemiology, program planning, and community-level clinical decisions\n- MSN items should emphasize complex disease processes, multi-system complications, and perioperative nursing judgments\n- Mental Health items should emphasize therapeutic communication, psychopharmacology interactions, and crisis intervention\n- Fundamentals items should emphasize ethical dilemmas, legal nursing practice, and priority-setting frameworks\n- Keep wording concise but cognitively demanding\n- Choices must be similar in length and tone\n- At least one incorrect choice must be as long as or longer than the correct answer\n- Use plausible distractors based on common student misconceptions\n- Avoid giveaway wording patterns\n- Do not make the correct answer obviously longest or shortest\n- Randomize answer letters across A/B/C/D without obvious streaks\n- No markdown, no asterisks, no extra text\n- Return JSON only',
     );
   }
 
@@ -11558,30 +11752,35 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   String _buildTimedModePromptFromCoverage(Map<String, String> coverage) {
-    final englishTopic = coverage['English'] ?? 'General English topics';
-    final mathTopic = coverage['Mathematics'] ?? 'General mathematics topics';
-    final logicalReasoningTopic =
-        coverage['Logical Reasoning'] ?? 'General logical reasoning topics';
-    final mentalAbilityTopic = coverage['Mental Ability / Abstract'] ??
-        'General mental ability and abstract topics';
+    final categories = _categoriesForProgramInterest();
+    final distributionLines = <String>[];
+    final values = <String, String>{};
+    final questionsPerCat = 15 ~/ categories.length;
+    final remainder = 15 % categories.length;
+    int qStart = 1;
+    for (int i = 0; i < categories.length; i++) {
+      final cat = categories[i];
+      final count = questionsPerCat + (i < remainder ? 1 : 0);
+      final qEnd = qStart + count - 1;
+      final topic = coverage[cat] ?? 'General $cat topics';
+      final key = 'topic_$i';
+      values[key] = topic;
+      distributionLines.add('Q$qStart-$qEnd $cat questions about: {{$key}}');
+      qStart = qEnd + 1;
+    }
 
     final questionCount = _examConfigService
             .getModeConfig(_activeExamId, 'timedExam')
             ?.questionCount ??
         15;
+    values['questionCount'] = '$questionCount';
 
     return _examConfigService.renderPrompt(
       examId: _activeExamId,
       mode: 'timedExam',
-      values: {
-        'questionCount': '$questionCount',
-        'englishTopic': englishTopic,
-        'mathTopic': mathTopic,
-        'logicalReasoningTopic': logicalReasoningTopic,
-        'mentalAbilityTopic': mentalAbilityTopic,
-      },
+      values: values,
       fallbackTemplate:
-          'Generate {{questionCount}} timed-practice ACET-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\nQ1-4 English questions specifically about this key area: {{englishTopic}}\nQ5-8 Mathematics questions specifically about this key area: {{mathTopic}}\nQ9-12 Logical Reasoning questions specifically about this key area: {{logicalReasoningTopic}}\nQ13-15 Mental Ability / Abstract questions specifically about this key area: {{mentalAbilityTopic}}\n\nRules:\nExactly 4 choices per question\nCorrect answer must be one of A/B/C/D\nNever write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\nDo not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\nEach item must be a real exam-style question with a clear answer based on reasoning, interpretation, calculation, or pattern recognition\nTimed mode items must be medium difficulty, concise, and realistically answerable under time pressure\nPrefer shorter stems, faster recognition, shorter computation, and clean wording\nNo direct recall or pure definition items\nEnglish items should favor concise context clues, grammar, sentence logic, or short reading tasks\nMathematics items should favor shorter arithmetic, algebra, geometry, or data tasks that still require genuine solving\nLogical Reasoning items should favor direct but nontrivial deductions, analogy recognition, ordering, or condition-based elimination\nMental Ability / Abstract items should favor concise sequence, matrix, transformation, or symbolic pattern recognition\nChoices must be short phrases or short clauses with balanced length and tone\nAt least one wrong choice must be as long as or longer than the correct choice\nUse plausible distractors based on common student misconceptions\nAvoid giveaway wording patterns\nDo not make the correct answer obviously longest or shortest\nRandomize answer letters across A/B/C/D without obvious streaks\nUse Unicode math symbols only; no LaTeX or backslashes\nNo markdown, no asterisks, no extra text\nReturn JSON only',
+          'Generate {{questionCount}} timed-practice PNLE-style multiple-choice questions as raw JSON only.\n\nFormat:\n{"questions":[{"number":1,"question":"...","choices":["A","B","C","D"],"answer":"A"}]}\n\nDistribution:\n${distributionLines.join('\n')}\n\nRules:\nExactly 4 choices per question\nCorrect answer must be one of A/B/C/D\nNever write combined-option choices like "A and B", "A and C", "both A and B", or "all of the above"\nDo not generate meta-questions, topic-identification questions, or questions asking what skill or category is being tested\nEach item must be a real nursing licensure exam-style question with a clear answer based on clinical reasoning, patient care, or nursing knowledge\nTimed mode items must be medium difficulty, concise, and realistically answerable under time pressure\nPrefer shorter stems, faster recognition, and clean wording\nNo direct recall or pure definition items\nUse practical clinical scenarios for each nursing category\nChoices must be short phrases or short clauses with balanced length and tone\nAt least one wrong choice must be as long as or longer than the correct choice\nUse plausible distractors based on common student misconceptions\nAvoid giveaway wording patterns\nDo not make the correct answer obviously longest or shortest\nRandomize answer letters across A/B/C/D without obvious streaks\nNo markdown, no asterisks, no extra text\nReturn JSON only',
     );
   }
 }

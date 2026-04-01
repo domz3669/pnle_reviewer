@@ -2,19 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const _onboardCream = Color(0xFFFCF6EB);
-const _onboardPanel = Color(0xFFF9F3E7);
-const _onboardText = Color(0xFF5A7652);
-const _onboardTextSoft = Color(0xFF8AA081);
-const _onboardBorder = Color(0xA4C5D6AE);
-const _onboardLeaf = Color(0xFF7EA468);
-const _onboardLeafSoft = Color(0xFFDDEBCE);
-const _onboardSky = Color(0xFF7293AE);
-const _onboardSkySoft = Color(0xFFE6EFF7);
-const _onboardWarm = Color(0xFFC28D74);
-const _onboardWarmSoft = Color(0xFFF4E3D9);
-const _onboardButter = Color(0xFFB28D4B);
-const _onboardButterSoft = Color(0xFFF7EFCF);
+const _onboardCream = Color(0xFFEBF2FA);
+const _onboardPanel = Color(0xFFE0ECF5);
+const _onboardText = Color(0xFF2D5070);
+const _onboardTextSoft = Color(0xFF6B8FA8);
+const _onboardBorder = Color(0xA4A8C5D8);
+const _onboardLeaf = Color(0xFF5B8DB8);
+const _onboardLeafSoft = Color(0xFFC8DCE8);
+const _onboardSky = Color(0xFF6088B0);
+const _onboardSkySoft = Color(0xFFE0EBF5);
+const _onboardWarm = Color(0xFF8A7AA0);
+const _onboardWarmSoft = Color(0xFFE4E0EE);
+const _onboardButter = Color(0xFF5A7FA0);
+const _onboardButterSoft = Color(0xFFDDEAF5);
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -106,9 +106,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   children: [
                     _buildOnboardingPage(
                       icon: Icons.quiz_rounded,
-                      title: 'Welcome to ACET Reviewer 2027',
+                      title: 'Welcome to PNLE Reviewer 2027',
                       description:
-                          'Master your ACET preparation with high-quality questions and expert explanations.',
+                          'Master your PNLE preparation with high-quality questions and expert explanations.',
                       color: _onboardLeaf,
                       softColor: _onboardLeafSoft,
                     ),
@@ -124,7 +124,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       icon: Icons.trending_up_outlined,
                       title: 'Track Your Progress',
                       description:
-                          'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your ACET subject areas.',
+                          'Scores accumulate across sessions. Aim for strong overall accuracy and steady gains across your PNLE subject areas.',
                       color: _onboardSky,
                       softColor: _onboardSkySoft,
                     ),

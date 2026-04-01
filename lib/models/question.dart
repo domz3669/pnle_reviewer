@@ -52,12 +52,24 @@ class Question {
     return Question(
       number: json['number'],
       category: json['category'],
-      question: json['question'],
+      question: _cleanText(json['question'] ?? ''),
       imageAssetPath: json['imageAssetPath'] as String?,
-      choices: List<String>.from(json['choices']),
+      choices: List<String>.from(json['choices']).map(_cleanText).toList(),
       answer: json['answer'],
-      explanation: json['explanation'], // may be null
+      explanation: json['explanation'] != null ? _cleanText(json['explanation']) : null,
       source: json['source'] as String?,
     );
+  }
+
+  static String _cleanText(String text) {
+    return text
+        .replaceAll('\u{FFFD}', '')
+        .replaceAll('â\u0080\u0099', "'")
+        .replaceAll('â\u0080\u009C', '"')
+        .replaceAll('â\u0080\u009D', '"')
+        .replaceAll('â\u0080\u0093', '\u2013')
+        .replaceAll('â\u0080\u0094', '\u2014')
+        .replaceAll('Â', '')
+        .trim();
   }
 }

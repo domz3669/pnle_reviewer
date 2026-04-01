@@ -4,16 +4,16 @@ import 'package:google_fonts/google_fonts.dart';
 import 'config/pnle_theme.dart';
 import 'utils/responsive.dart';
 
-const _coachCream = Color(0xFFFCF6EB);
-const _coachPanel = Color(0xFFF9F3E7);
-const _coachText = Color(0xFF5A7652);
-const _coachTextSoft = Color(0xFF8AA081);
-const _coachBorder = Color(0xA4C5D6AE);
-const _coachLeaf = Color(0xFF7EA468);
-const _coachLeafSoft = Color(0xFFDDEBCE);
-const _coachSkySoft = Color(0xFFE6EFF7);
-const _coachWarm = Color(0xFFC28D74);
-const _coachWarmSoft = Color(0xFFF4E3D9);
+const _coachCream = Color(0xFFEBF2FA);
+const _coachPanel = Color(0xFFE0ECF5);
+const _coachText = Color(0xFF2D5070);
+const _coachTextSoft = Color(0xFF6B8FA8);
+const _coachBorder = Color(0xA4A8C5D8);
+const _coachLeaf = Color(0xFF5B8DB8);
+const _coachLeafSoft = Color(0xFFC8DCE8);
+const _coachSkySoft = Color(0xFFE0EBF5);
+const _coachWarm = Color(0xFF8A7AA0);
+const _coachWarmSoft = Color(0xFFE4E0EE);
 
 class ExplanationDialog extends StatefulWidget {
   final Future<String> Function() onGenerate;
