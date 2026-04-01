@@ -33,12 +33,15 @@ class GatewayService {
     try {
       final token = await FirebaseAppCheck.instance.getToken();
       debugPrint('App Check token obtained: ${token != null ? "${token.substring(0, 20)}..." : "NULL"}');
+      if (token == null) {
+        debugPrint('WARNING: App Check token is null — server will reject request');
+      }
       return {
         'Content-Type': 'application/json',
         if (token != null) 'X-Firebase-AppCheck': token,
       };
     } catch (e) {
-      debugPrint('App Check getToken() failed: $e');
+      debugPrint('App Check getToken() FAILED: $e — server will reject request');
       return {'Content-Type': 'application/json'};
     }
   }

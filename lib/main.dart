@@ -119,8 +119,9 @@ class _SplashScreenState extends State<SplashScreen> {
             : AndroidProvider.playIntegrity,
         appleProvider: kDebugMode
             ? AppleProvider.debug
-            : AppleProvider.appAttest,
+            : AppleProvider.appAttestWithDeviceCheckFallback,
       );
+      debugPrint('App Check activated successfully');
     } catch (e) {
       debugPrint('App Check activation error: $e');
     }
