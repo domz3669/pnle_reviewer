@@ -83,15 +83,21 @@ end
 # --- Add widget extension as dependency of Runner ---
 runner_target = project.targets.find { |t| t.name == 'Runner' }
 if runner_target
-  runner_target.add_dependency(target)
-
-  # Embed the extension in Runner
+  # Embed the extension in Runner.
+  # Avoid explicit target dependency to prevent archive graph cycles.
   embed_phase = runner_target.copy_files_build_phases.find { |p| p.name == 'Embed App Extensions' }
   embed_phase ||= runner_target.new_copy_files_build_phase('Embed App Extensions')
   embed_phase.dst_subfolder_spec = '13' # PlugIns folder
+
+  # Remove any stale duplicate references before adding the current one.
+  embed_phase.files.each do |f|
+    next unless f.file_ref&.path == target.product_reference.path
+    embed_phase.remove_build_file(f)
+  end
+
   unless embed_phase.files_references.include?(target.product_reference)
     build_file = embed_phase.add_file_reference(target.product_reference)
-    build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+    build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy', 'CodeSignOnCopy'] }
   end
 
   # Add App Group entitlement to Runner
