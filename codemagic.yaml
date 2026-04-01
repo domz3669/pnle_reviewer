@@ -57,15 +57,6 @@ workflows:
         script: |
           flutter pub get
 
-      - name: Add WidgetKit extension target
-        script: |
-          gem install xcodeproj
-          ruby scripts/add_widget_extension.rb
-
-      - name: Re-apply signing after widget target added
-        script: |
-          xcode-project use-profiles
-
       - name: Print regenerated Flutter iOS config
         script: |
           echo "Regenerated ios/Flutter/Generated.xcconfig:"
