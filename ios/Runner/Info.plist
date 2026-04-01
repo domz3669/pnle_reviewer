@@ -70,5 +70,28 @@
 	<string>ca-app-pub-9985022151393867~7645262396</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>PNLE Reviewer 2027 needs to identify your device</string>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.pnle.quickPractice</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Quick Practice</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Start a 10-item review</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypePlay</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.pnle.reviewMistakes</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Review Mistakes</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Practice missed questions</string>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypeSearch</string>
+		</dict>
+	</array>
 </dict>
 </plist>

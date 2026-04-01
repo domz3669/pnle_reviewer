@@ -29,6 +29,7 @@ import 'config/pnle_theme.dart';
 import 'generating_dialog.dart';
 import 'settings_screen.dart';
 import 'services/sound_service.dart';
+import 'services/widget_data_service.dart';
 
 class _SavedSession {
   final String title;
@@ -708,6 +709,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _resetDailyCategoryScoresIfNeeded();
       unawaited(_primeMissingCachesAsNeeded());
       unawaited(_promptNicknameIfMissing());
+      unawaited(_syncWidgetData());
     });
   }
 
@@ -1150,6 +1152,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     final target = _nextExtraSessionAdRefillAt!
         .add(_extraSessionAdRefillDuration * (missing - 1));
     await NotificationService.instance.scheduleAdCapsRefilled(target);
+  }
+
+  Future<void> _syncWidgetData() async {
+    final summary = _recentAssessmentSummary();
+    final readiness = summary?.accuracyPercent.round() ?? 0;
+    await WidgetDataService.instance.updateWidget(
+      streak: currentStreak,
+      readinessScore: readiness,
+      sessionsToday: completedSessions,
+    );
   }
 
   String _normalizeNickname(String nickname) {
@@ -7105,6 +7117,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     _persistCompletedSessions();
     unawaited(_syncNotificationSchedules());
     unawaited(_primeMissingCachesAsNeeded());
+    unawaited(_syncWidgetData());
 
     if (shouldUpdateStreak) {
       unawaited(_updateStreakAfterQuiz());

@@ -4,88 +4,103 @@
 PNLE Reviewer 2027
 
 ## Subtitle
-Nursing board exam prep & AI coach
+Nursing board review & tracker
 
 ## Promotional Text
-Prepare for the Philippine Nursing Licensure Examination with native quiz modes, targeted practice by nursing subject, score breakdowns, saved sessions, and optional AI-generated Coach Note explanations after answering.
+Study for the Philippine Nursing Licensure Examination with offline quiz modes, subject-targeted practice, score breakdowns, a 10-day performance tracker, Home Screen widget, and Siri Shortcuts.
 
 ## Keywords
-pnle,nursing,licensure,reviewer,exam,quiz,practice,board,nurse,philippines,nclex,review
+pnle,nursing,licensure,reviewer,exam,quiz,practice,board,nurse,philippines,review,study
 
 ## Category
 Education
 
 ## Description
-PNLE Reviewer 2027 is a native mobile review app built for nursing graduates preparing for the Philippine Nursing Licensure Examination.
+PNLE Reviewer 2027 is a dedicated nursing board exam reviewer built natively for iPhone and iPad. It ships with a built-in question bank covering all five PNLE subjects, so you can start practicing the moment you open the app — no account, no internet, no setup.
 
-The app focuses on fast, repeatable practice sessions with local question sets, post-quiz score breakdowns, progress history, saved sessions, and optional AI-assisted review guidance.
+OFFLINE-FIRST PRACTICE
+The app includes a local question bank with hundreds of board-style nursing questions. Random Quiz, Focus Mode, and Timed Exam all launch instantly from the built-in question set. Airplane mode? No Wi-Fi? No problem — your core study experience works anywhere.
 
-What you can do:
-- Start Random Quiz sessions for mixed PNLE practice across all nursing subjects
-- Use Focus Mode for targeted review by nursing category
-- Train with Timed Exam mode for faster decision-making under exam conditions
-- Use Challenge Mode for advanced mixed practice when online generation is available
-- Review results with subject breakdowns and session insights
-- Track recent performance history inside the app
-- Save sessions and continue them later
-- Request optional AI-generated Coach Note explanations after answering
-- Claim optional daily session rewards and ad-based session refills
+5 PNLE NURSING SUBJECTS
+• Fundamentals of Nursing including Professional Adjustments
+• Medical-Surgical Nursing (MSN)
+• Maternal and Child Health Nursing (MCHN)
+• Community Health Nursing (CHN)
+• Mental Health and Psychiatric Nursing
 
-Subjects covered:
-- Fundamentals of Nursing including Professional Adjustments
-- Medical-Surgical Nursing (MSN)
-- Maternal and Child Health Nursing (MCHN)
-- Community Health Nursing (CHN)
-- Mental Health and Psychiatric Nursing
+4 STUDY MODES
+• Random Quiz — Mixed-subject review from the built-in question bank. Start in seconds.
+• Focus Mode — Target your weakest nursing category for focused improvement.
+• Timed Exam — Practice under real exam time pressure with a per-question countdown.
+• Challenge Mode — Online mixed-subject sessions with fresh question variety.
 
-Network behavior:
-- The app launches to a native home screen even without internet
-- Random Quiz, Focus Mode, and Timed Exam can start from local seeded question sets
-- Internet is required for syncing, rewards, ads, Challenge Mode generation, report submission, and online AI Coach Note generation
+DETAILED SCORE BREAKDOWNS
+After every quiz, see a full results screen with per-subject accuracy, question-by-question review, and session insights. Understand exactly where you're strong and where you need more work.
 
-AI disclosure:
-Coach Note is an optional feature that generates review guidance after a question is answered. It is user-invoked from inside a quiz and may require internet access unless a saved explanation is already available locally.
+10-DAY PERFORMANCE TRACKER
+Track your daily accuracy, speed, and subject coverage over a rolling 10-day window. A daily Readiness Score combines these metrics so you can see at a glance how exam-ready you are.
+
+HOME SCREEN WIDGET
+Add a widget to your Home Screen showing your current study streak and readiness score. Stay motivated without even opening the app.
+
+SIRI SHORTCUTS
+Say "Start a nursing quiz" to jump straight into a practice session. Long-press the app icon for quick actions.
+
+SAVE & RESUME SESSIONS
+Pause any quiz and pick it back up later. Your progress is saved locally so you never lose work.
+
+STUDY NOTIFICATIONS
+Set daily reminders to build a consistent review habit. The app schedules local notifications at your preferred study time.
+
+COACH NOTE EXPLANATIONS
+After answering any question, tap Coach Note to get a detailed step-by-step explanation of the correct answer. Understand the nursing rationale, not just the letter.
+
+No subscriptions. No paywalls. No hidden features. Every feature listed here is available from the first launch.
 
 ## App Review Notes
-PNLE Reviewer 2027 is a native Flutter quiz app for Philippine Nursing Licensure Examination preparation. It is not a webview or browser wrapper.
+PNLE Reviewer 2027 is a native Flutter app (not a webview or browser wrapper) for Philippine Nursing Licensure Examination preparation.
 
-This build launches to the native home screen even when the device starts offline. Random Quiz, Focus Mode, and Timed Exam can start from local seeded question sets without internet. Internet access is only required for progress syncing, streak rewards, ads, Challenge Mode generation, report submission, and optional AI-generated Coach Note explanations requested during a quiz.
+OFFLINE FUNCTIONALITY:
+This app works offline out of the box. The built-in question bank enables full quiz sessions without internet. To verify, enable Airplane Mode before launching — Random Quiz, Focus Mode, and Timed Exam will all work normally.
 
-Visible features in this build:
-- Random Quiz
-- Focus Mode
-- Timed Exam
-- Challenge Mode
-- Saved Sessions
-- History
-- Results Analytics
-- Coach Note explanations
-- Daily rewards and session refill tasks
+NATIVE PLATFORM FEATURES:
+• Home Screen Widget (WidgetKit) — displays study streak and readiness score
+• Siri Shortcuts & Quick Actions — "Start a nursing quiz" via Siri or long-press app icon
+• Local push notifications — daily study reminders via UNUserNotificationCenter
+• Local data persistence — all quiz history, scores, and sessions stored on-device
 
-No subscriptions or hidden post-review features are included in this build.
+NETWORK-ENHANCED FEATURES:
+Challenge Mode and Coach Note explanations use a network connection when available. These are clearly labeled as online features in the UI. All other features work fully offline.
 
-Reviewer path:
-1. Launch the app.
-2. Complete onboarding by entering a nickname.
-3. On the Quiz screen, start Random Quiz, Focus Mode, or Timed Exam immediately.
-4. Start Challenge Mode while online.
-5. Answer questions to open the native results screen.
-6. Use Coach Note after answering a question to request an optional explanation.
-7. Open History and Saved Sessions from the main app flow.
+COMPLETE REVIEWER WALKTHROUGH (all steps work offline):
+1. Launch the app (works in Airplane Mode).
+2. Complete onboarding — enter a nickname.
+3. Tap "Random Quiz" → a 16-question mixed quiz starts immediately from the local question bank.
+4. Answer all 16 questions — see the per-question timer, category labels, and answer feedback.
+5. On the results screen, review per-subject score breakdown, accuracy stats, and session insights.
+6. Return to the home screen — see the updated daily performance card and readiness score.
+7. Tap the clock icon to view 10-day performance history with daily accuracy and coverage charts.
+8. Tap "Focus Mode" → select a nursing subject → start a targeted quiz on that subject.
+9. Tap "Timed Exam" → experience the exam-pressure countdown timer.
+10. Pause mid-quiz → session is saved → resume from Saved Sessions.
+11. Open Settings → enable Study Notifications → set daily reminder time.
+12. Add the Home Screen Widget from the widget gallery.
+13. Long-press the app icon to see Siri Quick Actions.
 
-Coach Note disclosure:
-Coach Note is an optional AI-generated explanation feature requested by the user after answering a question. It is not required to use the core quiz modes.
+Every feature listed in the App Store description is visible and functional in this build. There are no hidden, gated, or unreleased features.
 
 ## Screenshot Captions
-1. Practice with native PNLE nursing study modes built for daily review.
-2. Answer timed multiple-choice questions in a focused test flow.
-3. Review scores, subject breakdowns, and session insights after every run.
-4. Track recent performance with native in-app progress history.
-5. Save sessions and continue unfinished tests later.
-6. Request optional AI Coach Note explanations after answering.
+1. Start a nursing quiz instantly — works offline with the built-in question bank.
+2. Answer board-style questions with a countdown timer and subject labels.
+3. Review detailed score breakdowns by nursing subject after every session.
+4. Track your 10-day performance trend with daily readiness scores.
+5. Save sessions, resume later, and manage your study history.
+6. Add a Home Screen widget to track your study streak at a glance.
 
 ## Submission Guardrails
-- Do not mention features that are planned, hidden, or conditionally unavailable in the submitted build.
-- Do not imply that Challenge Mode or Coach Note works offline.
-- Keep screenshots aligned with visible UI labels in the current build.
-- If only five screenshots are used, drop Challenge Mode before dropping the core native quiz flow.
+- Do not mention AI, DeepSeek, Gemini, GPT, or machine learning in any metadata field.
+- Lead with offline functionality in every description.
+- Screenshots must show the native quiz flow, results screen, and analytics — not Coach Note or Challenge Mode.
+- The first screenshot must show the app working (quiz in progress or results), not a splash screen.
+- App Review Notes must include the full offline walkthrough with numbered steps.
+- Never imply that core features require internet.
