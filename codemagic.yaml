@@ -13,9 +13,9 @@ workflows:
         - Secure
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.niotron.domingotambasacan.acetreviewer2027
+        bundle_identifier: com.niotron.domingotambasacan.pnleaireviewer2026
       vars:
-        BUNDLE_ID: "com.niotron.domingotambasacan.acetreviewer2027"
+        BUNDLE_ID: "com.niotron.domingotambasacan.pnleaireviewer2026"
         XCODE_WORKSPACE: "Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
     triggering:
