@@ -7,6 +7,7 @@ require 'xcodeproj'
 PROJECT_PATH = File.join(__dir__, '..', 'ios', 'Runner.xcodeproj')
 WIDGET_DIR = 'StudyWidget'
 WIDGET_TARGET_NAME = 'StudyWidgetExtension'
+WIDGET_PRODUCT_NAME = 'StudyWidget'
 WIDGET_BUNDLE_ID = 'com.niotron.domingotambasacan.pnleaireviewer2026.StudyWidget'
 APP_GROUP = 'group.com.niotron.domingotambasacan.pnleaireviewer2026'
 DEPLOYMENT_TARGET = '16.0'
@@ -41,6 +42,10 @@ target = project.new_target(
   DEPLOYMENT_TARGET
 )
 
+# Ensure deterministic product output path to avoid '.appex' collisions.
+target.product_reference.name = "#{WIDGET_PRODUCT_NAME}.appex"
+target.product_reference.path = "#{WIDGET_PRODUCT_NAME}.appex"
+
 # --- Add source files to target ---
 swift_files.each do |ref|
   target.source_build_phase.add_file_reference(ref)
@@ -57,12 +62,12 @@ end
 # --- Configure build settings ---
 target.build_configurations.each do |config|
   config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = WIDGET_BUNDLE_ID
+  config.build_settings['PRODUCT_NAME'] = WIDGET_PRODUCT_NAME
+  config.build_settings['WRAPPER_EXTENSION'] = 'appex'
   config.build_settings['INFOPLIST_FILE'] = "#{WIDGET_DIR}/Info.plist"
   config.build_settings['CODE_SIGN_ENTITLEMENTS'] = "#{WIDGET_DIR}/StudyWidgetExtension.entitlements"
   config.build_settings['SWIFT_VERSION'] = '5.0'
   config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = DEPLOYMENT_TARGET
-  config.build_settings['MARKETING_VERSION'] = '1.1.8'
-  config.build_settings['CURRENT_PROJECT_VERSION'] = '20'
   config.build_settings['GENERATE_INFOPLIST_FILE'] = 'NO'
   config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
   config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
@@ -81,10 +86,13 @@ if runner_target
   runner_target.add_dependency(target)
 
   # Embed the extension in Runner
-  embed_phase = runner_target.new_copy_files_build_phase('Embed App Extensions')
+  embed_phase = runner_target.copy_files_build_phases.find { |p| p.name == 'Embed App Extensions' }
+  embed_phase ||= runner_target.new_copy_files_build_phase('Embed App Extensions')
   embed_phase.dst_subfolder_spec = '13' # PlugIns folder
-  build_file = embed_phase.add_file_reference(target.product_reference)
-  build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+  unless embed_phase.files_references.include?(target.product_reference)
+    build_file = embed_phase.add_file_reference(target.product_reference)
+    build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+  end
 
   # Add App Group entitlement to Runner
   runner_target.build_configurations.each do |config|
